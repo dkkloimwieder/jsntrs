@@ -22,6 +22,10 @@ type BindingsMap = HashMap<CompactString, Value, foldhash::fast::RandomState>;
 /// Matches the JSONata reference implementation's default.
 pub const DEFAULT_MAX_CALL_DEPTH: u32 = 100;
 
+/// Suspect-list length below which [`compact_closure_envs`] never runs.
+/// Small evaluations (the overwhelming majority) never pay for a sweep.
+const CLOSURE_ENV_SWEEP_MIN: usize = 64;
+
 /// Shared recursive call depth counter across all child environments.
 #[derive(Debug)]
 pub struct CallCounter {
@@ -33,7 +37,34 @@ pub struct CallCounter {
     /// lambda -> closure env) that would leak; the public API boundary
     /// drains this list and breaks surviving cycles. Shared chain-wide,
     /// like the counters.
+    ///
+    /// Bounded by [`compact_closure_envs`], which runs when the list
+    /// reaches `closure_envs_sweep_at` and drops entries whose environment
+    /// has already been freed (no cycle formed, nothing left to tear down)
+    /// plus repeat registrations of the same environment. The list
+    /// therefore stays O(environments still alive *and* reachable only
+    /// through a cycle) — one machine word per genuinely retained
+    /// environment — instead of growing once per lambda expression
+    /// evaluated (jsntrs-ecq.4).
     pub(crate) closure_envs: RefCell<Vec<std::rc::Weak<Environment>>>,
+    /// Suspect-list length that triggers the next sweep. Reset to twice
+    /// the surviving length after each sweep, so the O(n) pass is preceded
+    /// by at least n pushes: amortized O(1) per registration.
+    closure_envs_sweep_at: Cell<usize>,
+}
+
+/// Drop suspects that can no longer matter, and re-arm the sweep.
+///
+/// An entry is kept only if its environment is still alive (a freed one
+/// cannot be in a cycle, and [`Environment::teardown_cycles`] would skip
+/// it anyway) and has not been kept already. Pointer identity is sound
+/// here: a `Weak` pins its allocation, so a live entry's address cannot
+/// have been recycled for a different environment.
+fn compact_closure_envs(suspects: &mut Vec<std::rc::Weak<Environment>>, sweep_at: &Cell<usize>) {
+    suspects.retain(|w| w.strong_count() > 0);
+    suspects.sort_unstable_by_key(std::rc::Weak::as_ptr);
+    suspects.dedup_by_key(|w| std::rc::Weak::as_ptr(w));
+    sweep_at.set(suspects.len().saturating_mul(2).max(CLOSURE_ENV_SWEEP_MIN));
 }
 
 impl Default for CallCounter {
@@ -49,6 +80,7 @@ impl CallCounter {
             eval_depth: Cell::new(0),
             max: DEFAULT_MAX_CALL_DEPTH,
             closure_envs: RefCell::new(Vec::new()),
+            closure_envs_sweep_at: Cell::new(CLOSURE_ENV_SWEEP_MIN),
         }
     }
 }
@@ -276,14 +308,22 @@ impl Environment {
     /// `CallCounter::closure_envs`.
     pub(crate) fn note_closure_env(&self, closure_env: &Rc<Environment>) {
         let mut suspects = self.calls.closure_envs.borrow_mut();
-        // Repeated lambdas in the same scope register once.
+        // Repeated lambdas in the same scope register once. The liveness
+        // check is what makes the address comparison sound: a freed
+        // environment's allocation stays reserved while this `Weak` holds
+        // it, so only a live entry can share `closure_env`'s address.
         if let Some(last) = suspects.last()
-            && let Some(last) = last.upgrade()
-            && Rc::ptr_eq(&last, closure_env)
+            && last.strong_count() > 0
+            && std::ptr::eq(last.as_ptr(), Rc::as_ptr(closure_env))
         {
             return;
         }
         suspects.push(Rc::downgrade(closure_env));
+        // Interleaved scopes (a lambda per loop iteration, an inner lambda
+        // per call) defeat the last-entry check, so bound the list.
+        if suspects.len() >= self.calls.closure_envs_sweep_at.get() {
+            compact_closure_envs(&mut suspects, &self.calls.closure_envs_sweep_at);
+        }
     }
 
     /// Break `Rc` cycles left behind by lambdas bound into their own
@@ -293,6 +333,10 @@ impl Environment {
     /// `Value::Function` in the result, which the public API cannot call.
     pub(crate) fn teardown_cycles(&self) {
         let suspects = std::mem::take(&mut *self.calls.closure_envs.borrow_mut());
+        // `evaluate_with_env` shares one counter across evaluations; the
+        // next one starts from an empty list, so it must also start from
+        // the base sweep threshold.
+        self.calls.closure_envs_sweep_at.set(CLOSURE_ENV_SWEEP_MIN);
         for weak in suspects {
             if let Some(env) = weak.upgrade() {
                 env.bindings.borrow_mut().clear();
@@ -467,5 +511,96 @@ mod tests {
         assert_eq!(val, Value::Number(1.0));
         // Should find it in e1 (root)
         assert!(Rc::ptr_eq(&env, &e1));
+    }
+
+    /// Evaluate `src` in a fresh eval scope and hand the scope back for
+    /// inspection of the closure-suspect list.
+    fn eval_in_fresh_scope(src: &str) -> (Rc<Environment>, Value) {
+        use crate::parser::{Parser, process_ast};
+        let (mut arena, root) = Parser::parse(src).expect("parse failed");
+        let root = process_ast(&mut arena, root).expect("process failed");
+        let env = Rc::new(Environment::new_eval_child(crate::stdlib::cached_root_env()));
+        let result =
+            crate::evaluator::eval(&arena, root, &Value::Undefined, &env).expect("eval failed");
+        (env, result)
+    }
+
+    fn alive_suspects(env: &Rc<Environment>) -> usize {
+        env.calls
+            .closure_envs
+            .borrow()
+            .iter()
+            .filter(|w| w.strong_count() > 0)
+            .count()
+    }
+
+    /// Closures that die as evaluation proceeds must not leave entries
+    /// behind: the list used to gain one per lambda expression evaluated
+    /// (5001 entries here), deduping only against the most recent push
+    /// (jsntrs-ecq.4).
+    #[test]
+    fn closure_suspects_stay_bounded_when_closures_die() {
+        let (env, result) = eval_in_fresh_scope(
+            "$sum($map([1..5000], function($x){ $sum($map([$x], function($y){ $y })) }))",
+        );
+        assert_eq!(result, Value::Number(12_502_500.0));
+        // Only the top-level scope that defined the outer lambda survives.
+        assert_eq!(alive_suspects(&env), 1);
+        // Hard bound, deliberately not derived from CLOSURE_ENV_SWEEP_MIN:
+        // the point is that the list does not scale with lambda count.
+        let len = env.calls.closure_envs.borrow().len();
+        assert!(
+            len <= 128,
+            "suspect list grew to {len} for 5001 lambda evaluations"
+        );
+    }
+
+    /// Registrations that interleave between live scopes defeat the
+    /// last-entry check; the sweep must still collapse them to one entry
+    /// per distinct environment.
+    #[test]
+    fn closure_suspects_dedupe_interleaved_scopes() {
+        let root = Rc::new(Environment::new());
+        let a = Rc::new(Environment::new_child(Rc::clone(&root)));
+        let b = Rc::new(Environment::new_child(Rc::clone(&root)));
+        for _ in 0..5000 {
+            root.note_closure_env(&a);
+            root.note_closure_env(&b);
+        }
+        let suspects = root.calls.closure_envs.borrow();
+        assert!(
+            suspects.len() <= 128,
+            "suspect list grew to {} for 2 distinct scopes",
+            suspects.len()
+        );
+        // Both scopes are still registered, so teardown still reaches them.
+        for env in [&a, &b] {
+            assert!(
+                suspects
+                    .iter()
+                    .any(|w| w.upgrade().is_some_and(|e| Rc::ptr_eq(&e, env))),
+                "sweep dropped a live closure scope"
+            );
+        }
+    }
+
+    /// The sweep must never drop a scope that is only reachable through an
+    /// `Rc` cycle: every one of them has to be registered when teardown
+    /// runs, or it leaks for the process's lifetime.
+    #[test]
+    fn teardown_frees_every_cyclic_closure_scope() {
+        let (env, result) =
+            eval_in_fresh_scope("$sum([1..200].($f := function($y){ $y + 1 }; $f($)))");
+        assert_eq!(result, Value::Number(20_300.0));
+        // One retained scope per iteration: each block bound a lambda that
+        // closes over the block scope.
+        assert_eq!(alive_suspects(&env), 200);
+        let snapshot = env.calls.closure_envs.borrow().clone();
+        env.teardown_cycles();
+        drop(env);
+        assert!(
+            snapshot.iter().all(|w| w.upgrade().is_none()),
+            "closure scopes survived teardown -- a cycle was left unbroken"
+        );
     }
 }
