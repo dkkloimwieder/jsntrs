@@ -166,6 +166,10 @@ impl Expression {
     /// [`Expression::evaluate_with_env`] to avoid re-wrapping the functions
     /// on every call.
     ///
+    /// A custom function may shadow a builtin: expressions whose fast path
+    /// resolves a `$name` take the general path here so the override wins
+    /// (see [`fast_path::eval_fast_with_bindings`]).
+    ///
     /// # Errors
     /// Returns JSONata evaluation errors.
     pub fn evaluate_with_custom_funcs(
@@ -174,7 +178,7 @@ impl Expression {
         custom_funcs: &[(String, CustomFunc)],
     ) -> JsonataResult {
         let input = Self::parse_input(json)?;
-        if let Some(result) = fast_path::eval_fast(&self.fast_path, &input) {
+        if let Some(result) = fast_path::eval_fast_with_bindings(&self.fast_path, &input) {
             return Ok(result);
         }
         let env = Rc::new(Environment::new_eval_child(crate::stdlib::cached_root_env()));
@@ -201,11 +205,15 @@ impl Expression {
     /// Reference them as `$varName` in expressions. Names should not include
     /// the leading `$`.
     ///
+    /// A variable may shadow a builtin (`$sum`, …), so expressions whose
+    /// fast path resolves a `$name` take the general path here
+    /// (see [`fast_path::eval_fast_with_bindings`]).
+    ///
     /// # Errors
     /// Returns JSONata evaluation errors.
     pub fn evaluate_with_vars(&self, json: &str, vars: &[(String, Value)]) -> JsonataResult {
         let input = Self::parse_input(json)?;
-        if let Some(result) = fast_path::eval_fast(&self.fast_path, &input) {
+        if let Some(result) = fast_path::eval_fast_with_bindings(&self.fast_path, &input) {
             return Ok(result);
         }
         let env = Rc::new(Environment::new_eval_child(crate::stdlib::cached_root_env()));
@@ -232,6 +240,8 @@ impl Expression {
     /// Returns `D3001` if cancelled, or other JSONata evaluation errors.
     pub fn evaluate_with_cancel(&self, json: &str, cancel: Arc<AtomicBool>) -> JsonataResult {
         let input = Self::parse_input(json)?;
+        // A cancel token is not a binding: every name still resolves to the
+        // stdlib, so the full fast path stays available here.
         if let Some(result) = fast_path::eval_fast(&self.fast_path, &input) {
             return Ok(result);
         }
@@ -251,10 +261,14 @@ impl Expression {
     /// The input is bound as `$` in a per-evaluation child scope, so `$$`
     /// resolves to the current input and the shared `env` is never mutated.
     ///
+    /// The environment may bind anything over a builtin name, so expressions
+    /// whose fast path resolves a `$name` take the general path here
+    /// (see [`fast_path::eval_fast_with_bindings`]).
+    ///
     /// # Errors
     /// Returns JSONata evaluation errors.
     pub fn evaluate_with_env(&self, input: &Value, env: &Rc<Environment>) -> JsonataResult {
-        if let Some(result) = fast_path::eval_fast(&self.fast_path, input) {
+        if let Some(result) = fast_path::eval_fast_with_bindings(&self.fast_path, input) {
             return Ok(result);
         }
         let eval_env = Rc::new(Environment::new_child(Rc::clone(env)));
@@ -553,6 +567,84 @@ mod tests {
             .unwrap();
         let expected = Value::from_json_str("[1, 3]").unwrap();
         assert!(result.deep_equal(&expected), "got {result:?}");
+    }
+
+    /// A custom function bound over a fast-path builtin name must beat the
+    /// *top-level* function fast path too (jsntrs-6wr.4).
+    ///
+    /// `$sum(items)` classifies as `FastPath::Function`, whose implementation
+    /// is picked from the name at compile time, before any environment
+    /// exists. Every entry point that lets the caller supply bindings has to
+    /// skip that class; pre-fix all three returned the stdlib sum (6).
+    #[test]
+    fn custom_override_wins_over_top_level_function_fast_path() {
+        let fake_sum: CustomFunc = Arc::new(|_args: &[Value], _| Ok(Value::Number(999.0)));
+        let json = r#"{"items": [1, 2, 3]}"#;
+        let input = Value::from_json_str(json).unwrap();
+        let expr = Expression::compile("$sum(items)").unwrap();
+        assert!(
+            expr.is_fast_path(),
+            "$sum(path) must stay a fast path, or this test pins nothing"
+        );
+
+        let env = new_custom_env(&[("sum".into(), Arc::clone(&fake_sum))]);
+        assert_eq!(
+            expr.evaluate_with_env(&input, &env).unwrap().as_f64(),
+            Some(999.0),
+            "evaluate_with_env ignored the custom $sum"
+        );
+
+        assert_eq!(
+            expr.evaluate_with_custom_funcs(json, &[("sum".into(), Arc::clone(&fake_sum))])
+                .unwrap()
+                .as_f64(),
+            Some(999.0),
+            "evaluate_with_custom_funcs ignored the custom $sum"
+        );
+
+        // A variable bound to a function shadows the builtin just as in
+        // jsonata-js (`evaluate(data, {sum: () => 999})` → 999).
+        let bound = Value::Function(Box::new(FunctionValue::Builtin(Rc::new(
+            |_args: &[Value], _: &Value| Ok(Value::Number(999.0)),
+        ))));
+        assert_eq!(
+            expr.evaluate_with_vars(json, &[("sum".into(), bound)])
+                .unwrap()
+                .as_f64(),
+            Some(999.0),
+            "evaluate_with_vars ignored the shadowing $sum binding"
+        );
+
+        // …and a non-function binding is an invocation error (T1006 in
+        // jsonata-js), never a silent fast-path hit.
+        let err = expr
+            .evaluate_with_vars(json, &[("sum".into(), Value::Number(5.0))])
+            .unwrap_err();
+        assert_eq!(err.code, "T1006");
+
+        // With no caller bindings the fast path still serves the stdlib $sum.
+        assert_eq!(expr.evaluate(json).unwrap().as_f64(), Some(6.0));
+        assert_eq!(expr.evaluate_value(&input).unwrap().as_f64(), Some(6.0));
+        assert_eq!(
+            expr.evaluate_bytes(json.as_bytes()).unwrap().as_f64(),
+            Some(6.0)
+        );
+    }
+
+    /// Pure-path and comparison fast paths read only the input data, so an
+    /// env-carrying entry point keeps serving them from the fast path.
+    #[test]
+    fn binding_free_fast_paths_survive_a_custom_env() {
+        let env = new_custom_env(&[]);
+        let input = Value::from_json_str(r#"{"a": {"b": 42}, "n": "x"}"#).unwrap();
+        for (src, expected) in [
+            ("a.b", Value::Number(42.0)),
+            ("n = \"x\"", Value::Bool(true)),
+        ] {
+            let expr = Expression::compile(src).unwrap();
+            assert!(expr.is_fast_path(), "{src} should classify as a fast path");
+            assert_eq!(expr.evaluate_with_env(&input, &env).unwrap(), expected);
+        }
     }
 
     #[test]

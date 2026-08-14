@@ -586,6 +586,30 @@ mod tests {
         assert_eq!(results[1], Some(Value::Number(6.0)));
     }
 
+    /// A registered custom function that shadows a builtin must win over the
+    /// top-level function fast path, which resolves the name at compile time
+    /// (jsntrs-6wr.4). The batch env reaches evaluation through
+    /// `Expression::evaluate_with_env`, so the gate lives there.
+    #[test]
+    fn stream_custom_func_overrides_builtin_fast_path() {
+        let fake_sum: CustomFunc = Arc::new(|_args: &[Value], _| Ok(Value::Number(999.0)));
+        let input = Value::from_json_str(r#"{"items": [1, 2, 3]}"#).unwrap();
+
+        let mut se =
+            StreamEvaluator::new(Vec::new()).with_custom_functions(vec![("sum".into(), fake_sum)]);
+        let idx = se.compile("$sum(items)").unwrap();
+        assert_eq!(
+            se.eval_one(&input, idx).unwrap(),
+            Value::Number(999.0),
+            "batch env ignored the custom $sum"
+        );
+
+        // Without custom functions the stdlib $sum keeps its fast path.
+        let mut plain = StreamEvaluator::new(Vec::new());
+        let idx = plain.compile("$sum(items)").unwrap();
+        assert_eq!(plain.eval_one(&input, idx).unwrap(), Value::Number(6.0));
+    }
+
     #[test]
     fn stream_no_custom_funcs_unchanged() {
         let mut se = StreamEvaluator::new(Vec::new());

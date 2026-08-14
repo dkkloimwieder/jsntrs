@@ -356,6 +356,9 @@ fn extract_literal(arena: &AstArena, node: NodeId) -> Option<Literal> {
 
 /// Evaluate a fast-path expression against input data.
 /// Returns `Some(result)` if handled, `None` if fallback to full eval is needed.
+///
+/// Only for callers that evaluate under the plain stdlib environment — see
+/// [`eval_fast_with_bindings`] when the caller supplies its own bindings.
 pub fn eval_fast(fast_path: &FastPath, input: &Value) -> Option<Value> {
     if testing::fast_paths_disabled() {
         return None;
@@ -366,6 +369,30 @@ pub fn eval_fast(fast_path: &FastPath, input: &Value) -> Option<Value> {
         FastPath::Comparison(cmp) => eval_comparison(cmp, input),
         FastPath::Function(func) => eval_function(func, input),
     }
+}
+
+/// [`eval_fast`] for entry points that evaluate under caller-supplied
+/// bindings: a custom environment, custom functions, or variables.
+///
+/// The function class (`$sum(path)`, `$count(path)`, …) resolves its callee
+/// by *name* at compile time — `try_function` maps the name straight onto a
+/// hardcoded `FuncFastKind`, long before any environment exists — so a
+/// caller binding over that name would silently lose to the stdlib
+/// implementation (jsntrs-6wr.4). Those expressions take the general path,
+/// which resolves the name in the environment like every other call.
+///
+/// The remaining classes look up no names at all: walking a pure path and
+/// comparing its leaf against a literal touch only the input data, so
+/// bindings cannot change their result and they keep the fast path.
+///
+/// The tape path ([`eval_tape_path`]) has the same name-resolution hazard;
+/// it is reachable only from the binding-free `evaluate`/`evaluate_bytes`,
+/// and any new entry point taking bindings must route around it.
+pub fn eval_fast_with_bindings(fast_path: &FastPath, input: &Value) -> Option<Value> {
+    if matches!(fast_path, FastPath::Function(_)) {
+        return None;
+    }
+    eval_fast(fast_path, input)
 }
 
 /// Traverse a pure dotted path on a Value.
