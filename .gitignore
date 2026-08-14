@@ -38,3 +38,6 @@ bench/engines/go/go.work.sum
 
 # OS / editor
 .DS_Store
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
