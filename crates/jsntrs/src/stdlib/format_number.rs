@@ -36,6 +36,22 @@ pub fn fn_format_number(args: &[Value], _focus: &Value) -> JsonataResult {
         }
     };
 
+    // Inf/NaN must never reach the picture formatters: they render through
+    // `format!("{n:.p$}")` as "inf"/"NaN", which the picture machinery then
+    // decorates with separators and digit groups ("inf.00", "NaN.00") — a
+    // string that is not a number in any digit family. jsonata-js emits its
+    // own junk here ("NaN.00" for infinity), so there is nothing to match;
+    // follow the guard $formatInteger already carries (jsntrs-ecq.3) and the
+    // one $string uses (string_funcs.rs). JSON input carries no Inf/NaN, but
+    // `1/0`, `evaluate_value` and custom-function results all do. The guard
+    // sits after the argument type checks so T0410 still wins over D3001.
+    if !n.is_finite() {
+        return Err(JsonataError::new(
+            "D3001",
+            "$formatNumber: Number out of range",
+        ));
+    }
+
     // Collect options from optional third argument (object).
     let mut opts: Vec<(&str, &str)> = Vec::new();
     if args.len() >= 3
@@ -688,6 +704,82 @@ mod tests {
     fn negative_sub_picture_is_applied() {
         assert_eq!(fmt(-1.0, "#0.00;(#0.00)"), "(1.00)");
         assert_eq!(fmt(1.0, "#0.00;(#0.00)"), "1.00");
+    }
+
+    /// Call the builtin with arbitrary arguments; `Err` carries the code.
+    fn fmt_args(args: &[Value]) -> Result<String, &'static str> {
+        match fn_format_number(args, &Value::Undefined) {
+            Ok(Value::String(s)) => Ok(s.to_string()),
+            Ok(other) => panic!("expected string, got {other:?}"),
+            Err(e) => Err(e.code),
+        }
+    }
+
+    /// Non-finite input is rejected before any picture processing
+    /// (jsntrs-p0v.13). Before the guard the formatters rendered `inf`/`NaN`
+    /// and the picture machinery decorated it: `1/0` with `"0.00"` gave
+    /// "inf.00", `0/0` with `"#,##0.00"` gave "NaN.00".
+    #[test]
+    fn non_finite_errors_for_every_picture() {
+        let pictures = ["0.00", "#,##0.00", "0.0e0", "#0.0;(#0.0)", "01%", "###"];
+        for picture in pictures {
+            for n in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+                assert_eq!(
+                    fmt_args(&[Value::Number(n), Value::String(picture.into())]),
+                    Err("D3001"),
+                    "picture {picture:?}, input {n}"
+                );
+            }
+        }
+    }
+
+    /// Argument-type errors are diagnosed before the range guard, so a
+    /// non-finite number with a bad picture still reports T0410.
+    #[test]
+    fn argument_type_errors_win_over_the_range_guard() {
+        assert_eq!(
+            fmt_args(&[Value::Number(f64::INFINITY), Value::Number(5.0)]),
+            Err("T0410")
+        );
+        assert_eq!(
+            fmt_args(&[Value::String("x".into()), Value::String("0.00".into())]),
+            Err("T0410")
+        );
+        // Undefined still propagates ahead of everything else.
+        let propagated = fn_format_number(
+            &[Value::Undefined, Value::String("0.00".into())],
+            &Value::Undefined,
+        );
+        assert!(matches!(propagated, Ok(Value::Undefined)));
+    }
+
+    /// The same guard through the public API: `evaluate_value` accepts a
+    /// `Value` built in Rust, so Inf/NaN reach the builtin without going
+    /// through JSON (which cannot represent them); `1/0` and `0/0` inside an
+    /// expression are the other route.
+    #[test]
+    fn non_finite_errors_through_evaluate_value() {
+        for picture in ["0.00", "#,##0.00", "0.0e0"] {
+            let src = format!("$formatNumber($, '{picture}')");
+            let expr = crate::expression::Expression::compile(&src).unwrap();
+            for n in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+                let err = expr.evaluate_value(&Value::Number(n)).unwrap_err();
+                assert_eq!(err.code, "D3001", "picture {picture:?}, input {n}");
+            }
+
+            for src in [
+                format!("$formatNumber(1/0, '{picture}')"),
+                format!("$formatNumber(-1/0, '{picture}')"),
+                format!("$formatNumber(0/0, '{picture}')"),
+            ] {
+                let expr = crate::expression::Expression::compile(&src).unwrap();
+                assert_eq!(
+                    expr.evaluate_value(&Value::Undefined).unwrap_err().code,
+                    "D3001",
+                    "{src}"
+                );
+            }
+        }
     }
 
     /// Format with an options object; `Err` carries the error code.

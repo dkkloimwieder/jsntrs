@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(1/0, 5)",
+    "dataset": null,
+    "bindings": {},
+    "code": "T0410"
+}

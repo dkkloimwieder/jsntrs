@@ -923,7 +923,10 @@ fn exec_prepared(prepared: &PreparedState, field_val: &Value) -> Option<JsonataR
             fc,
         } => {
             let n = match field_val {
-                Value::Number(f) => *f,
+                // Inf/NaN are D3001 in the builtin (jsntrs-p0v.13) and the
+                // picture formatters below have no guard of their own; hand
+                // the call back so the general path raises the error.
+                Value::Number(f) if f.is_finite() => *f,
                 _ => return None,
             };
             let negative = n < 0.0;
@@ -1517,6 +1520,26 @@ mod tests {
         for src in ["items.$uppercase(missing)", "items.$sum(missing)"] {
             let got = eval_expr(src, &input);
             assert!(got.is_undefined(), "{src}: got {got:?}");
+        }
+    }
+
+    /// Regression test for jsntrs-p0v.13: the lifted `$formatNumber` call
+    /// re-implements the builtin's formatting, so it has to carry the
+    /// builtin's finiteness guard too. Inf/NaN never come out of JSON, but
+    /// `1/0` and input `Value`s built in Rust both deliver them, and the
+    /// lift answered "inf.00" where the general path raises D3001.
+    #[test]
+    fn format_number_fast_path_rejects_non_finite() {
+        for n in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            let input = nums_input(&[n]);
+            for src in [
+                "nums.$formatNumber(x, \"#,##0.00\")",
+                "nums.($formatNumber(x, \"0.0e0\"))",
+                "$map(nums, function($v){$formatNumber($v.x, \"0.00\")})",
+            ] {
+                let err = try_eval_expr(src, &input).expect_err("expected D3001");
+                assert_eq!(err.code, "D3001", "{src} with {n}");
+            }
         }
     }
 
