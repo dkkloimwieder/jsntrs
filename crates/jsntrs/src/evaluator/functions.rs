@@ -442,3 +442,41 @@ pub fn call_function(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::Expression;
+
+    /// The `[]` postfix on a call to a lambda must resolve identically in
+    /// tail and non-tail position. The thunked call returns a `TailCall`
+    /// through the trampoline, which never sees the postfix, so the direct
+    /// path had to stop honouring it too — which is also what the reference
+    /// does, since a lambda result is never a sequence (jsntrs-5lw.2).
+    #[test]
+    fn keep_array_on_a_lambda_call_is_position_independent() {
+        // (direct form, same call in tail position inside another lambda)
+        let pairs = [
+            (
+                "($id := function($x) { $x }; $id(5)[])",
+                "($id := function($x) { $x }; $g := function($n) { $id($n)[] }; $g(5))",
+            ),
+            (
+                "($id := function($x) { $x }; $id([1, 2])[])",
+                "($id := function($x) { $x }; $g := function($n) { $id($n)[] }; $g([1, 2]))",
+            ),
+            (
+                "($id := function($x) { $x }; $id(\"s\")[])",
+                "($id := function($x) { $x }; $g := function($n) { $id($n)[] }; $g(\"s\"))",
+            ),
+            (
+                "($id := function($x) { $x }; $id({\"a\": 1})[])",
+                "($id := function($x) { $x }; $g := function($n) { $id($n)[] }; $g({\"a\": 1}))",
+            ),
+        ];
+        for (direct, tail) in pairs {
+            let d = Expression::compile(direct).unwrap().evaluate("{}").unwrap();
+            let t = Expression::compile(tail).unwrap().evaluate("{}").unwrap();
+            assert_eq!(d, t, "tail/non-tail mismatch:\n  {direct}\n  {tail}");
+        }
+    }
+}

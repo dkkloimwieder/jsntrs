@@ -1,0 +1,6 @@
+{
+    "expr": "($id := function($x) { $x }; $id(nothing)[])",
+    "data": {},
+    "bindings": {},
+    "undefinedResult": true
+}
