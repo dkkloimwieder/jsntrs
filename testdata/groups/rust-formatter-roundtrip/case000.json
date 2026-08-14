@@ -1,0 +1,7 @@
+{
+    "expr": "$match(\"ABC\", /abc/i).match",
+    "dataset": null,
+    "bindings": {},
+    "result": "ABC",
+    "comment": "Source regex flags are i/m only; the lexer appends the implicit g. The formatter must print back exactly these source flags (jsntrs-ecq.6)."
+}

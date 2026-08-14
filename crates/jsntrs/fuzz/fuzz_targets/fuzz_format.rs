@@ -14,8 +14,8 @@
 //! This target found four unrelated, pre-existing round-trip gaps in its
 //! first minutes, each of which needs its own fix:
 //!
-//! - regex literals print the parser's implicit `g` flag, which the lexer
-//!   rejects: `/a/i` → `/a/ig` → S0302;
+//! - ~~regex literals print the parser's implicit `g` flag, which the lexer
+//!   rejects: `/a/i` → `/a/ig` → S0302~~ — fixed in jsntrs-ecq.6;
 //! - lambda signatures print doubled angle brackets, because
 //!   `Signature::raw` already includes them: `function($x)<n:n>{$x}` →
 //!   `function($x)<<n:n>> {…}` → S0402;

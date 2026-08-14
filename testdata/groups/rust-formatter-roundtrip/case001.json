@@ -1,0 +1,7 @@
+{
+    "expr": "$match(\"abc\", /abc/ig)",
+    "dataset": null,
+    "bindings": {},
+    "code": "S0302",
+    "comment": "The implicit g flag is not writable in source: re-parsing it is an error, which is why format() must not emit it (jsntrs-ecq.6). jsonata-js rejects the same text with S0201; jsntrs reports the flag error S0302 per docs/spec.md 2.5."
+}

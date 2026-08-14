@@ -225,7 +225,11 @@ impl<'a> Formatter<'a> {
                 self.out.push('/');
                 self.out.push_str(pattern);
                 self.out.push('/');
-                self.out.push_str(flags);
+                // The lexer accepts only `i` and `m` in the source and then
+                // appends a synthetic `g` (spec.md §"Valid flags"); printing
+                // that `g` back produces text the lexer rejects with S0302,
+                // so emit only the source flags (jsntrs-ecq.6).
+                self.out.push_str(source_regex_flags(flags));
             }
             Expr::Placeholder { .. } => self.out.push('?'),
 
@@ -691,6 +695,17 @@ impl<'a> Formatter<'a> {
     }
 }
 
+/// The flags of a regex literal as they were written in the source.
+///
+/// `Expr::Regex::flags` holds the *effective* flags: the lexer collects the
+/// source flags (`i`, `m` only) and appends a `g` that no source ever
+/// contains — and that the lexer itself rejects on the way back in (S0302,
+/// as does jsonata-js with S0201). Dropping that one trailing `g` is exact
+/// because it is the last thing pushed and no source flag is `g`.
+fn source_regex_flags(flags: &str) -> &str {
+    flags.strip_suffix('g').unwrap_or(flags)
+}
+
 /// Escape a name that contains special characters or is a keyword.
 fn escape_name(name: &str) -> String {
     if name.is_empty() || needs_backtick(name) {
@@ -770,13 +785,48 @@ mod tests {
         assert_eq!(fmt(r#""tab\there""#), r#""tab\there""#);
     }
 
+    /// The lexer appends a synthetic `g` to every regex's flags and then
+    /// rejects a source `g` with S0302, so printing the effective flags
+    /// produced output that no longer parsed. This test used to assert the
+    /// broken spelling (`/test/i` → `/test/ig`); it now pins the round-trip
+    /// (jsntrs-ecq.6).
     #[test]
     fn regex_literals() {
-        // Parser may add implicit flags (e.g., 'g'), so just check roundtrip
-        let r = fmt("/abc/");
-        assert!(r.starts_with('/') && r.len() > 2, "should be regex: {r}");
-        assert_eq!(fmt("/test/i"), "/test/ig");
-        assert_eq!(fmt("/^foo.*bar$/m"), "/^foo.*bar$/mg");
+        assert_eq!(fmt("/abc/"), "/abc/");
+        assert_eq!(fmt("/test/i"), "/test/i");
+        assert_eq!(fmt("/^foo.*bar$/m"), "/^foo.*bar$/m");
+        assert_eq!(fmt("/x/im"), "/x/im");
+        assert_eq!(fmt(r#"$match("a", /a/i)"#), r#"$match("a", /a/i)"#);
+    }
+
+    /// Formatted regex output must parse — and keep its flags. The `g` the
+    /// lexer adds is invisible in the source, so the formatted text carries
+    /// only `i`/`m` and re-parsing restores the same effective flags.
+    #[test]
+    fn regex_output_reparses_with_same_flags() {
+        use crate::Expression;
+        for src in [
+            "/abc/", "/abc/i", "/abc/m", "/abc/im", "/abc/mi", r"/a\/b/i",
+        ] {
+            let once = fmt(src);
+            let twice = format(&once)
+                .unwrap_or_else(|e| panic!("formatted `{src}` -> `{once}` does not parse: {e}"));
+            assert_eq!(once, twice, "not idempotent for: {src}");
+            assert!(
+                !once.trim_start_matches('/').ends_with('g'),
+                "implicit g leaked into output for `{src}`: {once}"
+            );
+        }
+        // The effective flags survive: a case-insensitive match still matches.
+        let out = fmt(r#"$match("ABC", /abc/i).match"#);
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate("{}")
+                .unwrap_or_else(|e| panic!("eval `{src}`: {e}"))
+                .to_string()
+        };
+        assert_eq!(eval(&out), "\"ABC\"", "flags lost in: {out}");
     }
 
     // ── Path expressions ─────────────────────────────────────
@@ -1336,11 +1386,11 @@ mod tests {
     /// now the partial comment is dropped.
     #[test]
     fn slash_star_inside_regex_emits_no_dangling_comment() {
-        // The trailing `g` is the parser's implicit flag (see
-        // `regex_literals`); the point here is that nothing *else* — no `/*`
-        // on a line of its own — is appended.
-        assert_eq!(fmt(r"/a\/*/"), r"/a\/*/g");
-        assert_eq!(fmt(r#"$match("a", /a\/*/)"#), r#"$match("a", /a\/*/g)"#);
+        // The point here is that nothing extra — no `/*` on a line of its
+        // own — is appended. (The trailing `g` these assertions used to
+        // carry was the implicit flag, dropped by jsntrs-ecq.6.)
+        assert_eq!(fmt(r"/a\/*/"), r"/a\/*/");
+        assert_eq!(fmt(r#"$match("a", /a\/*/)"#), r#"$match("a", /a\/*/)"#);
     }
 
     // ── Partial application ──────────────────────────────────
