@@ -1,0 +1,6 @@
+{
+    "expr": "($f := function($x) { $x.a }; $count($f([{\"a\": 1}, {\"a\": 2}])))",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}

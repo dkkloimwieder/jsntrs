@@ -1,0 +1,13 @@
+{
+    "expr": "$map([1, 2], function($x) { $map([$x], function($y) { $y }) })",
+    "data": {},
+    "bindings": {},
+    "result": [
+        [
+            1
+        ],
+        [
+            2
+        ]
+    ]
+}

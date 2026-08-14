@@ -1,0 +1,6 @@
+{
+    "expr": "$reduce([1, 2, 3], function($a, $b) { $map([$a + $b], function($y) { $y }) })",
+    "data": {},
+    "bindings": {},
+    "result": 6
+}

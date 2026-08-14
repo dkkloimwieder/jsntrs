@@ -10,12 +10,28 @@ use crate::value::{Sequence, Value};
 
 use super::hof_fast::{self, SimpleLambda, analyze_lambda};
 
-/// Collapse a filtered result array per JSONata semantics.
-fn collapse_array(mut result: Vec<Value>) -> Value {
-    match result.len() {
-        0 => Value::Undefined,
-        1 => result.swap_remove(0),
-        _ => Value::Array(Rc::from(result)),
+/// Wrap a filtered result in the sequence `$filter` is specified to build.
+///
+/// The reference implementation collects matches with `createSequence()`,
+/// so the singleton collapse happens at the *call site*, not here — which
+/// is what makes `$filter(a, fn)[]` keep its singleton wrapped.
+fn filtered_sequence(result: Vec<Value>) -> Value {
+    Value::Sequence(Box::new(Sequence::with_items(result)))
+}
+
+/// Materialise a callback's result for embedding in an HOF's own result.
+///
+/// A callback is invoked through `apply()`, not `evaluate()`, so the
+/// reference never collapses what it returns: a sequence goes into the
+/// HOF's result as the (flagged) array it already is. jsntrs has no
+/// value-level sequence flag, and [`Value::Sequence`] may never be nested
+/// inside a user-visible value, so the sequence is materialised as a plain
+/// array here — the singleton is deliberately *not* unwrapped
+/// (jsntrs-p0v.6).
+fn embed_callback_result(value: Value) -> Value {
+    match value {
+        Value::Sequence(seq) => Value::Array(Rc::from(seq.values)),
+        other => other,
     }
 }
 
@@ -121,7 +137,7 @@ pub fn fn_map(
             env.poll_cancelled(i)?;
             let val = hof_fast::exec_mapped_call(&mc, item, &lambda.closure, arena)?;
             if !val.is_undefined() {
-                seq.values.push(val);
+                seq.values.push(embed_callback_result(val));
             }
         }
         return Ok(Value::Sequence(Box::new(seq)));
@@ -133,7 +149,7 @@ pub fn fn_map(
         let call_args = hof_args(&func, item.clone(), || Value::Number(i as f64), &arr_val);
         let val = call_function(&func, &call_args, item, env, arena)?;
         if !val.is_undefined() {
-            seq.values.push(val);
+            seq.values.push(embed_callback_result(val));
         }
     }
     // Return as Sequence — caller handles collapse with keep_array support.
@@ -170,7 +186,7 @@ pub fn fn_filter(
                         result.push(item.clone());
                     }
                 }
-                return Ok(collapse_array(result));
+                return Ok(filtered_sequence(result));
             }
             SimpleLambda::TwoFieldPredicate {
                 field1, op, field2, ..
@@ -185,7 +201,7 @@ pub fn fn_filter(
                         result.push(item.clone());
                     }
                 }
-                return Ok(collapse_array(result));
+                return Ok(filtered_sequence(result));
             }
             SimpleLambda::CompoundPredicate {
                 clauses, combiner, ..
@@ -210,7 +226,7 @@ pub fn fn_filter(
                         result.push(item.clone());
                     }
                 }
-                return Ok(collapse_array(result));
+                return Ok(filtered_sequence(result));
             }
             _ => {}
         }
@@ -225,13 +241,7 @@ pub fn fn_filter(
             result.push(item.clone());
         }
     }
-    if result.is_empty() {
-        return Ok(Value::Undefined);
-    }
-    if result.len() == 1 {
-        return Ok(result.swap_remove(0));
-    }
-    Ok(Value::Array(Rc::from(result)))
+    Ok(filtered_sequence(result))
 }
 
 pub fn fn_reduce(
@@ -314,7 +324,13 @@ pub fn fn_reduce(
                 arr_val.clone(),
             ],
         };
-        acc = call_function(&func, &call_args, item, env, arena)?;
+        // Unlike $map/$each, the accumulator is read back through `$a` on
+        // the next iteration and returned as the call's own value — both
+        // consumer positions where the reference's `evaluate()` collapses
+        // — so it collapses here rather than being embedded as an array.
+        acc = crate::evaluator::collapse_sequence(call_function(
+            &func, &call_args, item, env, arena,
+        )?);
     }
     Ok(acc)
 }
@@ -357,7 +373,7 @@ pub fn fn_each(
         );
         let r = call_function(&func, &call_args, val, env, arena)?;
         if !r.is_undefined() {
-            seq.values.push(r);
+            seq.values.push(embed_callback_result(r));
         }
     }
     Ok(Value::Sequence(Box::new(seq)))

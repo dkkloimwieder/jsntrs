@@ -1,0 +1,6 @@
+{
+    "expr": "$count($map([1, 2], function($x) { $x }))",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}

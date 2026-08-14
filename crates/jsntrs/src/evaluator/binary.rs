@@ -11,7 +11,10 @@ use crate::value::{CompareOp, Value};
 
 use super::environment::Environment;
 use super::subscript::eval_subscript_binary;
-use super::{eval_chain, eval_no_stack_check, eval_with_stack_check};
+use super::{
+    collapse_sequence_in_place, eval_chain, eval_no_stack_check, eval_operand,
+    eval_with_stack_check,
+};
 
 // ── Binary operators (stub for Phase 5, full impl in Phase 7) ───────
 
@@ -42,11 +45,14 @@ pub(super) fn eval_binary(
     // Only use stacker check when lhs is a Binary (could recurse into another
     // eval_binary creating a deep chain). Leaf nodes (Name, Number, Variable, etc.)
     // are evaluated directly without the closure overhead.
-    let left = if matches!(arena.get(lhs), Expr::Binary { .. }) {
+    // Operands are consumer positions: collapse a sequence here, the way
+    // the reference's `evaluate()` does for each operand expression.
+    let mut left = if matches!(arena.get(lhs), Expr::Binary { .. }) {
         eval_with_stack_check(arena, lhs, input, env)?
     } else {
         eval_no_stack_check(arena, lhs, input, env)?
     };
+    collapse_sequence_in_place(&mut left);
     apply_binary_op(arena, op, left, rhs, lhs, input, env)
 }
 
@@ -65,7 +71,7 @@ fn eval_concat_chain(
 
     let mut buf = String::new();
     for &operand in &operands {
-        let val = eval_no_stack_check(arena, operand, input, env)?;
+        let val = eval_operand(arena, operand, input, env)?;
         if !val.is_undefined() {
             val.stringify_into(&mut buf)?;
         }
@@ -106,26 +112,26 @@ fn apply_binary_op(
             if !left.to_boolean() {
                 return Ok(Value::Bool(false));
             }
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             Ok(Value::Bool(right.to_boolean()))
         }
         BinaryOp::Or => {
             if left.to_boolean() {
                 return Ok(Value::Bool(true));
             }
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             Ok(Value::Bool(right.to_boolean()))
         }
         BinaryOp::CondTern => {
             if left.to_boolean() {
                 Ok(left)
             } else {
-                eval_no_stack_check(arena, rhs, input, env)
+                eval_operand(arena, rhs, input, env)
             }
         }
         BinaryOp::NullCoal => {
             if left.is_undefined() {
-                eval_no_stack_check(arena, rhs, input, env)
+                eval_operand(arena, rhs, input, env)
             } else {
                 Ok(left)
             }
@@ -138,13 +144,13 @@ fn apply_binary_op(
         | BinaryOp::Div
         | BinaryOp::Mod
         | BinaryOp::Pow => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             apply_arithmetic(op, &left, &right)
         }
         // String concatenation — handled by eval_concat_chain before reaching here.
         // This fallback exists only if somehow reached directly (shouldn't happen).
         BinaryOp::Concat => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             let mut buf = String::new();
             if !left.is_undefined() {
                 left.stringify_into(&mut buf)?;
@@ -156,14 +162,14 @@ fn apply_binary_op(
         }
         // Equality.
         BinaryOp::Eq => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             if left.is_undefined() || right.is_undefined() {
                 return Ok(Value::Bool(false));
             }
             Ok(Value::Bool(left.deep_equal(&right)))
         }
         BinaryOp::Ne => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             if left.is_undefined() || right.is_undefined() {
                 return Ok(Value::Bool(false));
             }
@@ -171,17 +177,17 @@ fn apply_binary_op(
         }
         // Comparison.
         BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             compare_values(&left, &right, op)
         }
         // Membership.
         BinaryOp::In => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             Ok(Value::Bool(left.contained_in(&right)))
         }
         // Range.
         BinaryOp::Range => {
-            let right = eval_no_stack_check(arena, rhs, input, env)?;
+            let right = eval_operand(arena, rhs, input, env)?;
             apply_range(&left, &right)
         }
         _ => Err(JsonataError::new(

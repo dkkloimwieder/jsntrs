@@ -20,7 +20,7 @@ mod types;
 
 use std::rc::Rc;
 
-use crate::evaluator::{BuiltinFn, EnvAwareBuiltinFn, Environment, FunctionValue};
+use crate::evaluator::{BuiltinFn, Environment, FunctionValue};
 use crate::value::Value;
 
 thread_local! {
@@ -37,49 +37,6 @@ thread_local! {
         ("formatBase", Rc::new(numeric::fn_format_base)),
         ("formatNumber", Rc::new(format_number::fn_format_number)),
     ];
-
-    /// Canonical `Rc` identities for the plain builtins whose result stands in
-    /// for a JSONata *sequence*. The reference implementation builds these
-    /// results with `createSequence()`, so the `[]` (keep-array) postfix
-    /// applies to them; jsntrs collapses them to a bare value before
-    /// returning, which loses that distinction, so the call site recovers it
-    /// from the identity of the function it called (see
-    /// [`returns_sequence`]). Thread-local for the same reason as
-    /// `CANONICAL_PREPARED`.
-    static CANONICAL_SEQUENCE: [(&'static str, Rc<BuiltinFn>); 2] = [
-        ("keys", Rc::new(object::fn_keys)),
-        ("lookup", Rc::new(object::fn_lookup)),
-    ];
-
-    /// Canonical `Rc` identities for the env-aware builtins whose result
-    /// stands in for a JSONata sequence. Companion to `CANONICAL_SEQUENCE`.
-    static CANONICAL_SEQUENCE_ENV: [(&'static str, Rc<EnvAwareBuiltinFn>); 2] = [
-        ("filter", Rc::new(hof::fn_filter)),
-        ("match", Rc::new(regex::fn_match)),
-    ];
-}
-
-/// Does this function value's result stand in for a JSONata *sequence* that
-/// jsntrs has already collapsed?
-///
-/// `$map`/`$each`/`$spread` keep an internal [`crate::value::Sequence`], so
-/// they need no entry here; `$filter`, `$keys`, `$lookup` and `$match` return
-/// a collapsed value, and only their identity distinguishes
-/// `$filter([1,2,3], fn)[]` → `[2]` from `$sum([1,2])[]` → `3`.
-///
-/// Matching on `Rc` identity (not on the name at the call site) keeps
-/// `$f := $filter; $f(a, fn)[]` working and keeps a user function bound over
-/// a stdlib name out of it.
-pub(crate) fn returns_sequence(func: &FunctionValue) -> bool {
-    match func {
-        FunctionValue::Builtin(rc) => {
-            CANONICAL_SEQUENCE.with(|table| table.iter().any(|(_, f)| Rc::ptr_eq(rc, f)))
-        }
-        FunctionValue::EnvAwareBuiltin(rc) => {
-            CANONICAL_SEQUENCE_ENV.with(|table| table.iter().any(|(_, f)| Rc::ptr_eq(rc, f)))
-        }
-        _ => false,
-    }
 }
 
 /// Look up the canonical builtin `Rc` for a prepared-fast-path name.
@@ -100,35 +57,6 @@ fn bind_canonical(env: &mut Environment, name: &str) {
     env.bind(
         name,
         Value::Function(Box::new(FunctionValue::Builtin(func))),
-    );
-}
-
-/// Bind a sequence-returning builtin from the canonical table, so that
-/// [`returns_sequence`] recognises the bound value by `Rc` identity.
-fn bind_canonical_sequence(env: &mut Environment, name: &str) {
-    let func = CANONICAL_SEQUENCE.with(|table| {
-        let Some((_, f)) = table.iter().find(|(n, _)| *n == name) else {
-            unreachable!("{name} must be in the CANONICAL_SEQUENCE table")
-        };
-        Rc::clone(f)
-    });
-    env.bind(
-        name,
-        Value::Function(Box::new(FunctionValue::Builtin(func))),
-    );
-}
-
-/// Env-aware companion to [`bind_canonical_sequence`].
-fn bind_canonical_sequence_env(env: &mut Environment, name: &str) {
-    let func = CANONICAL_SEQUENCE_ENV.with(|table| {
-        let Some((_, f)) = table.iter().find(|(n, _)| *n == name) else {
-            unreachable!("{name} must be in the CANONICAL_SEQUENCE_ENV table")
-        };
-        Rc::clone(f)
-    });
-    env.bind(
-        name,
-        Value::Function(Box::new(FunctionValue::EnvAwareBuiltin(func))),
     );
 }
 
@@ -212,11 +140,11 @@ pub fn register_all(env: &mut Environment) {
     bind_builtin(env, "zip", array::fn_zip);
 
     // ── Object ──────────────────────────────────────────────────────
-    bind_canonical_sequence(env, "keys");
+    bind_builtin(env, "keys", object::fn_keys);
     bind_builtin(env, "values", object::fn_values);
     bind_builtin(env, "spread", object::fn_spread);
     bind_builtin(env, "merge", object::fn_merge);
-    bind_canonical_sequence(env, "lookup");
+    bind_builtin(env, "lookup", object::fn_lookup);
     bind_builtin(env, "error", object::fn_error);
 
     // ── Boolean ─────────────────────────────────────────────────────
@@ -230,7 +158,7 @@ pub fn register_all(env: &mut Environment) {
 
     // ── HOF (env-aware) ─────────────────────────────────────────────
     bind_env_builtin(env, "map", hof::fn_map);
-    bind_canonical_sequence_env(env, "filter");
+    bind_env_builtin(env, "filter", hof::fn_filter);
     bind_env_builtin(env, "reduce", hof::fn_reduce);
     bind_env_builtin(env, "each", hof::fn_each);
     bind_env_builtin(env, "sift", hof::fn_sift);
@@ -238,7 +166,7 @@ pub fn register_all(env: &mut Environment) {
     bind_env_builtin(env, "single", hof::fn_single);
 
     // ── Regex / Pattern ──────────────────────────────────────────────
-    bind_canonical_sequence_env(env, "match");
+    bind_env_builtin(env, "match", regex::fn_match);
     bind_env_builtin(env, "replace", regex::fn_replace);
     bind_env_builtin(env, "eval", eval_fn::fn_eval);
 
@@ -304,38 +232,61 @@ fn bind_env_builtin(
 mod tests {
     use super::*;
 
-    fn registered(name: &str) -> Value {
+    /// Evaluate `src` without the API-boundary collapse, so an internal
+    /// `Value::Sequence` result is still visible.
+    fn eval_raw(src: &str) -> Value {
+        let (mut arena, root) = crate::parser::Parser::parse(src).expect("parse failed");
+        let root = crate::parser::process_ast(&mut arena, root).expect("process failed");
         let mut env = Environment::new();
         register_all(&mut env);
-        env.lookup(name).unwrap()
+        let env = Rc::new(env);
+        crate::evaluator::eval_no_stack_check(&arena, root, &Value::Undefined, &env)
+            .expect("eval failed")
     }
 
     /// The `[]` postfix on `$filter(…)`/`$keys(…)`/`$lookup(…)`/`$match(…)`
-    /// depends on these staying bound from the canonical tables — a plain
-    /// `bind_builtin` would allocate a fresh `Rc` and silently stop matching
-    /// (jsntrs-e8l).
+    /// needs those builtins to hand back an uncollapsed sequence; the
+    /// canonical-identity tables that used to stand in for that are gone
+    /// (jsntrs-e8l, jsntrs-p0v.6).
     #[test]
-    fn sequence_builtins_bind_from_the_canonical_tables() {
-        for name in ["filter", "keys", "lookup", "match"] {
-            let Value::Function(f) = registered(name) else {
-                panic!("${name} is not bound to a function")
-            };
-            assert!(returns_sequence(&f), "${name} lost its canonical identity");
+    fn sequence_builtins_return_an_uncollapsed_sequence() {
+        for expr in [
+            r#"$keys({"a": 1})"#,
+            r#"$lookup([{"a": 1}], "a")"#,
+            "$filter([1, 2], function($v) { $v > 1 })",
+            r#"$match("abc", /b/)"#,
+            "$map([1], function($v) { $v })",
+            r#"$each({"a": 1}, function($v) { $v })"#,
+            r#"$spread({"a": 1})"#,
+        ] {
+            let value = eval_raw(expr);
+            assert!(
+                value.is_sequence(),
+                "{expr} returned {value:?}, not a sequence"
+            );
         }
     }
 
     /// Everything else must not claim sequence-ness, or `$sum(x)[]` starts
     /// wrapping its scalar again.
     #[test]
-    fn scalar_builtins_are_not_sequence_returning() {
-        for name in [
-            "sum", "round", "string", "count", "reduce", "single", "sift", "merge", "map", "each",
-            "spread",
+    fn scalar_builtins_do_not_return_a_sequence() {
+        for expr in [
+            "$sum([1, 2])",
+            "$round(1.5)",
+            r#"$string("x")"#,
+            "$count([1, 2])",
+            "$reduce([1, 2], function($a, $b) { $a + $b })",
+            "$single([1], function($v) { $v = 1 })",
+            r#"$sift({"a": 1}, function($v) { $v > 0 })"#,
+            r#"$merge([{"a": 1}])"#,
+            "$distinct([1, 1])",
         ] {
-            let Value::Function(f) = registered(name) else {
-                panic!("${name} is not bound to a function")
-            };
-            assert!(!returns_sequence(&f), "${name} claims to return a sequence");
+            let value = eval_raw(expr);
+            assert!(
+                !value.is_sequence(),
+                "{expr} returned a sequence: {value:?}"
+            );
         }
     }
 }

@@ -57,10 +57,61 @@ pub fn eval(arena: &AstArena, node: NodeId, input: &Value, env: &Rc<Environment>
     // Sequence is an internal representation — collapse it before it
     // crosses the public API boundary. Internal recursion goes through
     // eval_inner and never re-enters here.
-    result.map(|value| match value {
+    result.map(collapse_sequence)
+}
+
+/// Collapse an internal [`Sequence`] at a *consumer* boundary.
+///
+/// This is jsntrs's counterpart to the tail of jsonata-js `evaluate()`:
+/// every value that reaches a syntactic position — a call argument, a
+/// binary operand, a lambda's returned body value — has already been
+/// through `evaluate()` there, so a sequence has already lost its
+/// singleton (0 items → undefined, 1 → the item, more → the array). jsntrs
+/// evaluates lazily and hands the uncollapsed [`Value::Sequence`] back up,
+/// so the collapse has to happen explicitly at each of those boundaries;
+/// a sequence must never be handed to a builtin or an operator, which have
+/// no notion of it (jsntrs-p0v.6).
+///
+/// The check is a single discriminant compare on the hot argument path.
+#[inline]
+pub(crate) fn collapse_sequence(value: Value) -> Value {
+    match value {
         Value::Sequence(seq) => seq.into_value(),
         other => other,
-    })
+    }
+}
+
+/// Evaluate a node in a *consumer* position: like [`eval_no_stack_check`],
+/// but collapsing a sequence result the way [`collapse_sequence`] describes.
+///
+/// The result is edited through `&mut` rather than rebuilt with
+/// `Result::map`: `JsonataResult` is ~112 bytes (the error carries three
+/// heap strings), and moving one through a combinator on every operand cost
+/// ~8% on the subscript-predicate benchmark. In this form a non-sequence
+/// operand — the overwhelming majority — pays one discriminant compare and
+/// no move at all.
+#[inline]
+pub(crate) fn eval_operand(
+    arena: &AstArena,
+    node: NodeId,
+    input: &Value,
+    env: &Rc<Environment>,
+) -> JsonataResult {
+    let mut result = eval_inner(arena, node, input, env);
+    if let Ok(value) = &mut result {
+        collapse_sequence_in_place(value);
+    }
+    result
+}
+
+/// In-place [`collapse_sequence`], for the hot paths that already hold the
+/// value behind a `&mut` and must not pay for a move to reach it.
+#[inline]
+pub(crate) fn collapse_sequence_in_place(value: &mut Value) {
+    if matches!(value, Value::Sequence(_)) {
+        let taken = std::mem::replace(value, Value::Undefined);
+        *value = collapse_sequence(taken);
+    }
 }
 
 /// Internal eval without stack check. Used for all recursive calls within
@@ -200,7 +251,7 @@ fn eval_inner(
                 let (op, lhs, rhs) = (*op, *lhs, *rhs);
                 match op {
                     BinaryOp::CondTern => {
-                        let left = eval_no_stack_check(arena, lhs, input, cur_env)?;
+                        let left = eval_operand(arena, lhs, input, cur_env)?;
                         if left.to_boolean() {
                             return Ok(left);
                         }
@@ -208,7 +259,7 @@ fn eval_inner(
                         continue;
                     }
                     BinaryOp::NullCoal => {
-                        let left = eval_no_stack_check(arena, lhs, input, cur_env)?;
+                        let left = eval_operand(arena, lhs, input, cur_env)?;
                         if left.is_undefined() {
                             cur_node = rhs;
                             continue;
@@ -216,7 +267,9 @@ fn eval_inner(
                         return Ok(left);
                     }
                     BinaryOp::Chain => {
-                        let piped = eval_no_stack_check(arena, lhs, input, cur_env)?;
+                        // The piped value becomes the callee's first
+                        // argument, so it collapses like any other operand.
+                        let piped = eval_operand(arena, lhs, input, cur_env)?;
                         return eval_chain(arena, rhs, &piped, input, cur_env);
                     }
                     _ => unreachable!("dispatch sends only Dot/Chain binaries here"),
@@ -518,21 +571,19 @@ fn eval_chain_step(
                 args.push(Value::Undefined);
                 continue;
             }
-            args.push(eval_no_stack_check(arena, arg_node, input, env)?);
+            args.push(eval_operand(arena, arg_node, input, env)?);
         }
         let result = call_function(&func, &args, input, env, arena)?;
         // Apply keep_array wrapping if the [] suffix is present *and* the
         // result stands in for a sequence — same rule as a direct call
         // (`call_result_is_sequence`), so `x ~> $sum()[]` stays a scalar
         // while `x ~> $map($f)[]` keeps its singleton wrapped.
-        if keep_array && functions::call_result_is_sequence(&func, &result) {
+        if keep_array && functions::call_result_is_sequence(&result) {
             return Ok(apply_keep_array(result, Value::Undefined));
         }
-        // Collapse sequences from function results.
-        return match result {
-            Value::Sequence(seq) => Ok(seq.into_value()),
-            other => Ok(other),
-        };
+        // A chain stage feeds the next one, so its result is a consumer
+        // position too.
+        return Ok(collapse_sequence(result));
     }
 
     // Otherwise evaluate right side and call it.
@@ -557,12 +608,10 @@ fn eval_chain_step(
                           focus: &Value,
                           _env: &Rc<Environment>,
                           arena: &AstArena| {
-                        let intermediate = call_function(&inner, args, focus, &env_clone, arena)?;
                         // Collapse sequences between composition steps.
-                        let intermediate = match intermediate {
-                            Value::Sequence(seq) => seq.into_value(),
-                            other => other,
-                        };
+                        let intermediate = collapse_sequence(call_function(
+                            &inner, args, focus, &env_clone, arena,
+                        )?);
                         call_function(&outer, &[intermediate], focus, &env_clone, arena)
                     },
                 );
@@ -572,10 +621,7 @@ fn eval_chain_step(
             }
             {
                 let result = call_function(func, std::slice::from_ref(piped), input, env, arena)?;
-                match result {
-                    Value::Sequence(seq) => Ok(seq.into_value()),
-                    other => Ok(other),
-                }
+                Ok(collapse_sequence(result))
             }
         }
         _ => Err(JsonataError::new(
@@ -654,7 +700,7 @@ fn eval_unary(
 
     match op {
         UnaryOp::Negate => {
-            let val = eval_no_stack_check(arena, operand, input, env)?;
+            let val = eval_operand(arena, operand, input, env)?;
             if val.is_undefined() {
                 return Ok(Value::Undefined);
             }
@@ -667,24 +713,21 @@ fn eval_unary(
             // Array constructor.
             let mut result = Vec::new();
             for &expr in expressions {
-                let val = eval_no_stack_check(arena, expr, input, env)?;
+                // Each item is a consumer position, so a sequence collapses
+                // *before* it is spread: `[$map([1], function($x){[1,2]})]`
+                // spreads the collapsed `[1,2]`, not the one-item sequence
+                // that wraps it (jsntrs-p0v.6).
+                let val = eval_operand(arena, expr, input, env)?;
                 if val.is_undefined() {
                     continue;
                 }
                 // Explicit inner array constructors [expr] are preserved as nested elements.
-                // All other arrays/sequences are spread (flattened).
+                // All other arrays are spread (flattened).
                 let is_explicit_array = matches!(
                     arena.get(expr),
                     Expr::Unary { op, .. } if *op == UnaryOp::ArrayCons
                 );
                 match val {
-                    Value::Sequence(seq) => {
-                        if is_explicit_array {
-                            result.push(seq.into_value());
-                        } else {
-                            result.extend(seq.values);
-                        }
-                    }
                     Value::Array(arr) => {
                         if is_explicit_array {
                             result.push(Value::Array(arr));
@@ -703,7 +746,7 @@ fn eval_unary(
             // lhs is flat [k0,v0,k1,v1,...]
             let mut i = 0;
             while i + 1 < lhs_nodes.len() {
-                let key_val = eval_no_stack_check(arena, lhs_nodes[i], input, env)?;
+                let key_val = eval_operand(arena, lhs_nodes[i], input, env)?;
                 // Skip if key is undefined.
                 if key_val.is_undefined() {
                     i += 2;
@@ -724,12 +767,7 @@ fn eval_unary(
                         format!("duplicate key: \"{key}\""),
                     ));
                 }
-                let val_val = eval_no_stack_check(arena, lhs_nodes[i + 1], input, env)?;
-                // Collapse sequences.
-                let val_val = match val_val {
-                    Value::Sequence(seq) => seq.into_value(),
-                    other => other,
-                };
+                let val_val = eval_operand(arena, lhs_nodes[i + 1], input, env)?;
                 // Skip if value is undefined.
                 if val_val.is_undefined() {
                     i += 2;
@@ -1013,8 +1051,10 @@ fn compare_sort_terms(
     b_env: &Rc<Environment>,
 ) -> Result<i8, JsonataError> {
     for term in terms {
-        let av = eval_no_stack_check(arena, term.expression, a, a_env)?;
-        let bv = eval_no_stack_check(arena, term.expression, b, b_env)?;
+        // Sort keys are consumer positions: a sequence collapses before the
+        // comparison, or `^($map(…))` compares a sequence and errors T2008.
+        let av = eval_operand(arena, term.expression, a, a_env)?;
+        let bv = eval_operand(arena, term.expression, b, b_env)?;
         let cmp = av.compare_order(&bv)?;
         if cmp != 0 {
             return if term.descending { Ok(-cmp) } else { Ok(cmp) };
@@ -1132,7 +1172,7 @@ fn compute_updated_object(
 
     if !update.is_empty() {
         // Evaluate update expression with the original target as context.
-        let update_val = eval_no_stack_check(arena, update, target, env)?;
+        let update_val = eval_operand(arena, update, target, env)?;
         if !update_val.is_undefined() && !update_val.is_null() {
             if let Value::Object(updates) = update_val {
                 if let Value::Object(ref mut obj) = result {
@@ -1153,7 +1193,7 @@ fn compute_updated_object(
     if let Some(del) = delete {
         // Evaluate delete expression with the original target as context (pre-update),
         // matching Go: Eval(node.Delete, target, env) where target is the original object.
-        let delete_val = eval_no_stack_check(arena, del, target, env)?;
+        let delete_val = eval_operand(arena, del, target, env)?;
         if !delete_val.is_undefined() && !delete_val.is_null() {
             match delete_val {
                 Value::String(key) => {
@@ -1221,7 +1261,7 @@ fn validate_transform_clauses(
     env: &Rc<Environment>,
 ) -> Result<(), JsonataError> {
     if !update.is_empty() {
-        let update_val = eval_no_stack_check(arena, update, target, env)?;
+        let update_val = eval_operand(arena, update, target, env)?;
         if !update_val.is_undefined() && !update_val.is_null() && !update_val.is_object() {
             return Err(JsonataError::new(
                 "T2011",
@@ -1230,7 +1270,7 @@ fn validate_transform_clauses(
         }
     }
     if let Some(del) = delete {
-        let delete_val = eval_no_stack_check(arena, del, target, env)?;
+        let delete_val = eval_operand(arena, del, target, env)?;
         if !delete_val.is_undefined() && !delete_val.is_null() {
             match &delete_val {
                 Value::Array(_) | Value::String(_) => {}

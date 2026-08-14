@@ -1,0 +1,6 @@
+{
+    "expr": "$count($spread({\"a\": 1, \"b\": 2}))",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}

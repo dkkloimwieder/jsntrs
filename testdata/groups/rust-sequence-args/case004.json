@@ -1,0 +1,6 @@
+{
+    "expr": "$string($map([1], function($x) { $x }))",
+    "data": {},
+    "bindings": {},
+    "result": "1"
+}

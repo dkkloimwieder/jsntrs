@@ -1,0 +1,8 @@
+{
+    "expr": "($f := function() { $keys({\"a\": 1}) }; $f()[])",
+    "data": {},
+    "bindings": {},
+    "result": [
+        "a"
+    ]
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "$match(\"abc\", /z/)[]",
+    "data": {},
+    "bindings": {},
+    "undefinedResult": true
+}

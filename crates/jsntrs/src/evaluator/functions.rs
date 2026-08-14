@@ -71,6 +71,35 @@ pub struct Lambda {
     /// Parsed at compile time; `None` for an untyped lambda.
     pub signature: Option<std::sync::Arc<[super::ParamSpec]>>,
     pub captured_focus: Value,
+    /// Does the body hand a callee's result straight back? See
+    /// [`body_is_tail_call`].
+    pub tail_call_body: bool,
+}
+
+/// Is the lambda body a call in tail position — i.e. does the call's result
+/// become the lambda's result untouched?
+///
+/// The reference implementation replaces such a body with a thunk that
+/// `apply()`'s trampoline invokes *outside* `evaluate()`, so whatever the
+/// callee produced — an uncollapsed sequence included — comes back raw. Any
+/// other body goes through `evaluate()`, which collapses. jsntrs marks the
+/// very same positions in `mark_tail_calls`; this walk mirrors that marking
+/// (minus its extra `Bind` arm, which the reference does not treat as a tail
+/// position — `function($x){ $z := $keys($x) }` collapses there).
+fn body_is_tail_call(arena: &AstArena, node: NodeId) -> bool {
+    if node.is_empty() {
+        return false;
+    }
+    match arena.get(node) {
+        Expr::Function { group, .. } => group.is_none(),
+        Expr::Condition { then, else_, .. } => {
+            body_is_tail_call(arena, *then) || else_.is_some_and(|e| body_is_tail_call(arena, e))
+        }
+        Expr::Block { expressions, .. } => expressions
+            .last()
+            .is_some_and(|&last| body_is_tail_call(arena, last)),
+        _ => false,
+    }
 }
 
 /// Tail-call sentinel returned by thunked function calls.
@@ -139,14 +168,16 @@ pub fn eval_function(
         }
     };
 
-    // Evaluate arguments.
+    // Evaluate arguments. An argument is a consumer position: a sequence
+    // collapses here, exactly as it would at the tail of the reference
+    // implementation's `evaluate()` for the argument expression.
     let mut args = Vec::with_capacity(arguments.len());
     for &arg_node in &arguments {
         if matches!(arena.get(arg_node), Expr::Placeholder { .. }) {
             args.push(Value::Undefined);
             continue;
         }
-        let val = eval_no_stack_check(arena, arg_node, input, env)?;
+        let val = super::eval_operand(arena, arg_node, input, env)?;
         args.push(val);
     }
 
@@ -169,7 +200,7 @@ pub fn eval_function(
     }
 
     let result = call_function(&func, &args, input, env, arena)?;
-    if keep_array && call_result_is_sequence(&func, &result) {
+    if keep_array && call_result_is_sequence(&result) {
         Ok(super::apply_keep_array(result, Value::Undefined))
     } else {
         Ok(result)
@@ -183,24 +214,15 @@ pub fn eval_function(
 /// in `evaluate()`, so `$sum(x)[]` stays the scalar `60` while
 /// `$map(x, fn)[]` keeps its singleton wrapped as `[y]` (jsntrs-e8l).
 ///
-/// Two kinds of builtin qualify:
-///
-/// * one that returns an internal [`Value::Sequence`] (`$map`, `$each`,
-///   `$spread`);
-/// * one that *collapses* its sequence before returning — jsntrs has no
-///   value-level sequence flag once collapsed, so those are recognised by
-///   canonical `Rc` identity (see [`crate::stdlib::returns_sequence`]).
-///
-/// A lambda never qualifies. The reference collapses a lambda body's
-/// sequence before the call returns, so a singleton is already unwrapped by
-/// then and `keepArray` cannot re-wrap it. That is also what keeps the
-/// tail-call path consistent with the direct one: a thunked call returns
-/// through the trampoline, which never sees the postfix (jsntrs-5lw.2).
-pub(super) fn call_result_is_sequence(func: &FunctionValue, result: &Value) -> bool {
-    match func {
-        FunctionValue::Lambda(_) => false,
-        _ => matches!(result, Value::Sequence(_)) || crate::stdlib::returns_sequence(func),
-    }
+/// Every builtin the reference builds with `createSequence()` now returns an
+/// uncollapsed [`Value::Sequence`] in jsntrs too, so the answer is simply
+/// whether the call handed one back — no per-function identity table is
+/// needed any more (jsntrs-p0v.6). A lambda qualifies exactly when its own
+/// body was a tail-position call that returned a sequence, which is what the
+/// reference's trampoline does; a body that goes through `evaluate()` has
+/// already collapsed and cannot be re-wrapped.
+pub(super) fn call_result_is_sequence(result: &Value) -> bool {
+    matches!(result, Value::Sequence(_))
 }
 
 /// Evaluate a lambda expression node, creating a closure.
@@ -234,6 +256,7 @@ pub fn eval_lambda(arena: &AstArena, node: NodeId, input: &Value, env: &Rc<Envir
     env.note_closure_env(env);
     Value::Function(Box::new(FunctionValue::Lambda(Rc::new(Lambda {
         params: param_names,
+        tail_call_body: body_is_tail_call(arena, body),
         body,
         closure: Rc::clone(env),
         thunk,
@@ -300,7 +323,7 @@ pub fn eval_partial(
             bound_args.push(Value::Undefined);
         } else {
             is_placeholder.push(false);
-            let val = eval_no_stack_check(arena, arg_node, input, env)?;
+            let val = super::eval_operand(arena, arg_node, input, env)?;
             bound_args.push(val);
         }
     }
@@ -436,7 +459,14 @@ pub fn call_function(
                         current_func = tc.func;
                         current_args = tc.args;
                     }
-                    other => return other,
+                    // The body is a syntactic position: the reference
+                    // evaluates it with `evaluate()`, so a sequence has
+                    // already collapsed by the time `applyProcedure`
+                    // returns — unless the body is a tail-position call,
+                    // whose result the trampoline hands back raw
+                    // (jsntrs-p0v.6).
+                    other if lambda.tail_call_body => return other,
+                    other => return other.map(super::collapse_sequence),
                 }
             }
         }
@@ -477,6 +507,67 @@ mod tests {
             let d = Expression::compile(direct).unwrap().evaluate("{}").unwrap();
             let t = Expression::compile(tail).unwrap().evaluate("{}").unwrap();
             assert_eq!(d, t, "tail/non-tail mismatch:\n  {direct}\n  {tail}");
+        }
+    }
+
+    /// A lambda body that is a tail-position call hands the callee's
+    /// sequence back raw — the HOF then embeds it as a nested array — while
+    /// any other body has already collapsed. The two `$keys` bodies below
+    /// differ only in whether the call is in tail position, and that is the
+    /// whole rule (jsntrs-p0v.6).
+    #[test]
+    fn a_tail_position_call_body_returns_the_callee_sequence_raw() {
+        let cases = [
+            // Tail-position call → raw sequence → nested per item.
+            (
+                r#"$map([{"a": 1}, {"b": 2}], function($x) { $keys($x) })"#,
+                r#"[["a"], ["b"]]"#,
+            ),
+            // Same call wrapped by another expression → collapsed body.
+            (
+                r#"$map([{"a": 1}, {"b": 2}], function($x) { [$keys($x)] })"#,
+                r#"[["a"], ["b"]]"#,
+            ),
+            // A path body is never a tail call → collapsed.
+            (
+                r#"$map([[{"a": 1}], [{"a": 2}, {"a": 3}]], function($x) { $x.a })"#,
+                "[1, [2, 3]]",
+            ),
+            // A bind body is not a tail position in the reference either.
+            (
+                r#"$map([{"a": 1}, {"b": 2}], function($x) { $z := $keys($x) })"#,
+                r#"["a", "b"]"#,
+            ),
+        ];
+        for (expr, expected) in cases {
+            let actual = Expression::compile(expr).unwrap().evaluate("{}").unwrap();
+            let want = Expression::compile(expected)
+                .unwrap()
+                .evaluate("{}")
+                .unwrap();
+            assert_eq!(actual, want, "{expr}");
+        }
+    }
+
+    /// A sequence must never reach a builtin: every argument position
+    /// collapses it first (jsntrs-p0v.6).
+    #[test]
+    fn a_sequence_argument_collapses_before_the_callee_sees_it() {
+        let cases = [
+            ("$count($map([1, 2], function($x) { $x }))", "2"),
+            ("$type($map([1], function($x) { $x }))", "\"number\""),
+            (r#"$count($keys({"a": 1, "b": 2}))"#, "2"),
+            ("$map([1], function($x) { $x }) = 1", "true"),
+            ("$map([1], function($x) { $x }) + 1", "2"),
+            ("$map([1, 2], function($x) { $x }) ~> $count()", "2"),
+        ];
+        for (expr, expected) in cases {
+            let actual = Expression::compile(expr).unwrap().evaluate("{}").unwrap();
+            let want = Expression::compile(expected)
+                .unwrap()
+                .evaluate("{}")
+                .unwrap();
+            assert_eq!(actual, want, "{expr}");
         }
     }
 }

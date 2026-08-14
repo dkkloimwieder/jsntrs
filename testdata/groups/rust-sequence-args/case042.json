@@ -1,0 +1,8 @@
+{
+    "expr": "($f := function() { $map([1], function($x) { $x }) }; $f()[])",
+    "data": {},
+    "bindings": {},
+    "result": [
+        1
+    ]
+}

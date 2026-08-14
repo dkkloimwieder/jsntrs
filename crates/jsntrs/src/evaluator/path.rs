@@ -1095,7 +1095,7 @@ fn eval_path_function_step(
             args.push(Value::Undefined);
             continue;
         }
-        args.push(eval_no_stack_check(arena, arg_node, item, env)?);
+        args.push(super::eval_operand(arena, arg_node, item, env)?);
     }
 
     // For lambdas, prepend path element when fewer args than params.

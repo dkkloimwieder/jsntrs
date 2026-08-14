@@ -1,0 +1,10 @@
+{
+    "expr": "$map([{\"a\": 1}], $spread)",
+    "data": {},
+    "bindings": {},
+    "result": [
+        {
+            "a": 1
+        }
+    ]
+}

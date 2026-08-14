@@ -1,0 +1,6 @@
+{
+    "expr": "$count($filter([1, 2, 3], function($v) { $v > 2 }))",
+    "data": {},
+    "bindings": {},
+    "result": 1
+}

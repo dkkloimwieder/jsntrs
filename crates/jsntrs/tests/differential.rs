@@ -576,6 +576,26 @@ const CASES: &[(&str, &str)] = &[
         "($f := function($v){$v}; $map(items, function($v){$f($v.x)[]}))",
         KEEP_ARRAY,
     ),
+    // ── sequence-leak track (jsntrs-p0v.6): a lifted HOF still returns an
+    //    uncollapsed sequence, and every consumer position around it now
+    //    collapses that sequence. Fast and general must agree on both. ──
+    ("$count($map(items, function($v){$v.x}))", CLEAN),
+    ("$count($map(items, function($v){$v.x}))", HOSTILE),
+    ("$reverse($map(items, function($v){$v.x}))", CLEAN),
+    ("$distinct($map(items, function($v){$v.x}))", CLEAN),
+    ("$type($map(items, function($v){$v.x}))", CLEAN),
+    ("$type($map(items, function($v){$v.x}))", KEEP_ARRAY),
+    ("$string($map(items, function($v){$v.x}))", CLEAN),
+    ("$sum($map(items, function($v){$v.y}))", CLEAN),
+    ("$map(items, function($v){$v.x}) = 3", CLEAN),
+    ("$map(items, function($v){$v.x}) ~> $count()", CLEAN),
+    ("$map(items, function($v){$v.x})[0]", CLEAN),
+    ("$map(items, function($v){$v.x})[$ > 1]", CLEAN),
+    ("[$map(items, function($v){$v.x})]", CLEAN),
+    ("{'k': $map(items, function($v){$v.x})}", CLEAN),
+    ("$count($filter(items, function($v){$v.x > 2}))", CLEAN),
+    ("$type($filter(items, function($v){$v.x > 99}))", CLEAN),
+    ("$map(items, function($v){$v.x})^($)", CLEAN),
 ];
 
 /// (expression, data) pairs where **no** lift may fire.
@@ -896,6 +916,35 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     (
         "$each(obj, function($v){$string($v.x){'k': $}})",
         KEEP_ARRAY,
+    ),
+    // ── sequence-leak track (jsntrs-p0v.6): shapes the analyzers decline,
+    //    pinned because they are exactly where a builtin callback's
+    //    uncollapsed sequence is embedded, or where a lambda body hands one
+    //    back through the tail position. ──
+    ("$map(items, $keys)", CLEAN),
+    ("$each(obj, $keys)", KEEP_ARRAY),
+    ("$map(items, function($v){$keys($v)})", CLEAN),
+    ("$each(obj, function($v){$keys($v)})", KEEP_ARRAY),
+    ("$count($each(obj, function($v){$keys($v)}))", KEEP_ARRAY),
+    ("$keys(obj)[]", POSTFIX),
+    ("$count($keys(obj))", POSTFIX),
+    ("($f := function(){$keys(obj)}; $f()[])", POSTFIX),
+    ("($f := function(){$keys(obj)}; $count($f()))", POSTFIX),
+    (
+        "$map(prices, function($v){$map([$v], function($w){$w})})",
+        POSTFIX,
+    ),
+    (
+        "$map(single, function($v){$map([$v], function($w){$w})})",
+        POSTFIX,
+    ),
+    (
+        "$reduce(prices, function($a,$b){$map([$a+$b], function($w){$w})})",
+        POSTFIX,
+    ),
+    (
+        "$each(obj, function($v,$k){$each({'z': $v}, function($w,$j){$k & $j})})",
+        POSTFIX,
     ),
 ];
 

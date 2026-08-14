@@ -5,6 +5,18 @@ use std::rc::Rc;
 use crate::error::{JsonataError, JsonataResult};
 use crate::value::Value;
 
+/// Wrap collected items in the internal sequence these builtins are
+/// specified to build.
+///
+/// `$keys`/`$lookup` collect into `createSequence()` in the reference
+/// implementation, so the singleton collapse belongs to the consumer of the
+/// call, not to the function — which is what makes `$keys(o)[]` keep a
+/// single key wrapped while `$sum(a)[]` stays a scalar (jsntrs-e8l,
+/// jsntrs-p0v.6).
+fn sequence_of(items: Vec<Value>) -> Value {
+    Value::Sequence(Box::new(crate::value::Sequence::with_items(items)))
+}
+
 pub fn fn_keys(args: &[Value], _focus: &Value) -> JsonataResult {
     if args.is_empty() {
         return Err(JsonataError::new("T0410", "$keys: argument is required"));
@@ -14,17 +26,11 @@ pub fn fn_keys(args: &[Value], _focus: &Value) -> JsonataResult {
     }
     match &args[0] {
         Value::Object(obj) => {
-            if obj.is_empty() {
-                return Ok(Value::Undefined);
-            }
             let keys: Vec<Value> = obj
                 .keys()
                 .map(|k| Value::String(k.as_str().into()))
                 .collect();
-            if keys.len() == 1 {
-                return Ok(keys.into_iter().next().unwrap_or(Value::Undefined));
-            }
-            Ok(Value::Array(Rc::from(keys)))
+            Ok(sequence_of(keys))
         }
         Value::Array(arr) => {
             // Collect all keys from array of objects.
@@ -41,15 +47,9 @@ pub fn fn_keys(args: &[Value], _focus: &Value) -> JsonataResult {
                     }
                 }
             }
-            if all_keys.is_empty() {
-                return Ok(Value::Undefined);
-            }
-            if all_keys.len() == 1 {
-                return Ok(all_keys.into_iter().next().unwrap_or(Value::Undefined));
-            }
-            Ok(Value::Array(Rc::from(all_keys)))
+            Ok(sequence_of(all_keys))
         }
-        _ => Ok(Value::Undefined),
+        _ => Ok(sequence_of(Vec::new())),
     }
 }
 
@@ -181,11 +181,7 @@ pub fn fn_lookup(args: &[Value], _focus: &Value) -> JsonataResult {
                     result.push(v.clone());
                 }
             }
-            match result.len() {
-                0 => Ok(Value::Undefined),
-                1 => Ok(result.into_iter().next().unwrap_or(Value::Undefined)),
-                _ => Ok(Value::Array(Rc::from(result))),
-            }
+            Ok(sequence_of(result))
         }
         _ => Ok(Value::Undefined),
     }
@@ -223,6 +219,15 @@ mod tests {
             Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
+    /// `$keys`/`$lookup` hand back the uncollapsed sequence the reference
+    /// builds with `createSequence()`; the caller collapses. These unit
+    /// tests assert the collapsed shape, so they do the collapse here.
+    fn collapsed(r: JsonataResult) -> Value {
+        match ok(r) {
+            Value::Sequence(seq) => seq.into_value(),
+            other => other,
+        }
+    }
     fn strings(v: &Value) -> Vec<String> {
         match v {
             Value::Array(items) => items
@@ -241,18 +246,21 @@ mod tests {
     /// unions keys across an array of objects.
     #[test]
     fn keys_preserve_insertion_order_and_union_arrays() {
-        let keys = ok(fn_keys(&[obj(&[("z", 1.0), ("a", 2.0), ("m", 3.0)])], U));
+        let keys = collapsed(fn_keys(&[obj(&[("z", 1.0), ("a", 2.0), ("m", 3.0)])], U));
         assert_eq!(strings(&keys), ["z", "a", "m"]);
         // Singleton key collapses to a plain string.
-        assert_eq!(strings(&ok(fn_keys(&[obj(&[("only", 1.0)])], U))), ["only"]);
-        // Empty object → undefined.
-        assert!(matches!(fn_keys(&[obj(&[])], U), Ok(Value::Undefined)));
+        assert_eq!(
+            strings(&collapsed(fn_keys(&[obj(&[("only", 1.0)])], U))),
+            ["only"]
+        );
+        // Empty object → undefined once the empty sequence collapses.
+        assert!(collapsed(fn_keys(&[obj(&[])], U)).is_undefined());
         // Array of objects: first-seen order, no duplicates.
         let arr = Value::Array(Rc::from(vec![
             obj(&[("b", 1.0), ("a", 2.0)]),
             obj(&[("a", 9.0), ("c", 3.0)]),
         ]));
-        assert_eq!(strings(&ok(fn_keys(&[arr], U))), ["b", "a", "c"]);
+        assert_eq!(strings(&collapsed(fn_keys(&[arr], U))), ["b", "a", "c"]);
     }
 
     #[test]
@@ -275,7 +283,7 @@ mod tests {
             U,
         ));
         assert!(merged.deep_equal(&obj(&[("a", 1.0), ("b", 9.0), ("c", 3.0)])));
-        assert_eq!(strings(&ok(fn_keys(&[merged], U))), ["a", "b", "c"]);
+        assert_eq!(strings(&collapsed(fn_keys(&[merged], U))), ["a", "b", "c"]);
     }
 
     /// $lookup maps across an array of objects and skips misses.
@@ -295,7 +303,7 @@ mod tests {
             obj(&[("a", 2.0)]),
         ]));
         assert!(
-            ok(fn_lookup(&[arr, key], U)).deep_equal(&Value::Array(Rc::from(vec![
+            collapsed(fn_lookup(&[arr, key], U)).deep_equal(&Value::Array(Rc::from(vec![
                 Value::Number(1.0),
                 Value::Number(2.0)
             ])))

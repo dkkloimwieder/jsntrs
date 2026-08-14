@@ -1,0 +1,8 @@
+{
+    "expr": "$each({\"x\": {\"p\": 1}}, function($v, $k) { $each($v, function($val, $key) { $k & \".\" & $key }) })",
+    "data": {},
+    "bindings": {},
+    "result": [
+        "x.p"
+    ]
+}

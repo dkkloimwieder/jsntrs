@@ -1,0 +1,8 @@
+{
+    "expr": "$each({\"a\": {\"b\": 1}}, $keys)",
+    "data": {},
+    "bindings": {},
+    "result": [
+        "b"
+    ]
+}

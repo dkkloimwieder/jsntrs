@@ -1,0 +1,6 @@
+{
+    "expr": "$count($each({\"a\": 1, \"b\": 2}, function($v) { $v }))",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}

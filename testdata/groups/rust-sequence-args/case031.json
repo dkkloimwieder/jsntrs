@@ -1,0 +1,8 @@
+{
+    "expr": "$map([{\"a\": 1}], function($x) { $keys($x) })",
+    "data": {},
+    "bindings": {},
+    "result": [
+        "a"
+    ]
+}

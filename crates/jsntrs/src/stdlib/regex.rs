@@ -240,13 +240,15 @@ pub fn fn_match(
         }
     }
 
-    if result.is_empty() {
-        return Ok(Value::Undefined);
-    }
-    if result.len() == 1 {
-        return Ok(result.swap_remove(0));
-    }
-    Ok(Value::Array(Rc::from(result)))
+    Ok(match_sequence(result))
+}
+
+/// Wrap `$match` results in the internal sequence the reference builds with
+/// `createSequence()`: the singleton collapse belongs to the consumer of the
+/// call, which is what lets `$match(s, r)[]` keep a single match wrapped
+/// (jsntrs-e8l, jsntrs-p0v.6).
+fn match_sequence(matches: Vec<Value>) -> Value {
+    Value::Sequence(Box::new(crate::value::Sequence::with_items(matches)))
 }
 
 /// Custom matcher: call a function that returns {match, start, groups, next} objects.
@@ -296,13 +298,7 @@ fn match_with_custom_matcher(
         res = call_function(&next_fn, &[], &Value::Undefined, env, arena)?;
     }
 
-    if result.is_empty() {
-        return Ok(Value::Undefined);
-    }
-    if result.len() == 1 {
-        return Ok(result.swap_remove(0));
-    }
-    Ok(Value::Array(Rc::from(result)))
+    Ok(match_sequence(result))
 }
 
 /// `$replace(str, pattern, replacement, limit?)`

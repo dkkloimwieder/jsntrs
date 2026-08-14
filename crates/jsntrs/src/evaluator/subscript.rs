@@ -13,7 +13,7 @@ use crate::value::{Sequence, Value};
 use super::binary::{apply_keep_array, has_keep_array};
 use super::environment::Environment;
 use super::path::node_has_parent_ref;
-use super::{PARENT_BINDING, descendant_lookup, eval_no_stack_check};
+use super::{PARENT_BINDING, descendant_lookup, eval_no_stack_check, eval_operand};
 
 /// Subscript/filter binary `[` — needs AST-level access to lhs for
 /// Descendant checks, index_var extraction, and keep_array detection.
@@ -113,7 +113,7 @@ fn eval_subscript(
     // would auto-map a bare numeric field into an all-numeric array, turning
     // a predicate like a[i] into multi-index selection (one element per item).
     let probe_ctx = arr.first().unwrap_or(left);
-    if rhs_could_be_numeric && let Ok(index) = eval_no_stack_check(arena, rhs, probe_ctx, env) {
+    if rhs_could_be_numeric && let Ok(index) = eval_operand(arena, rhs, probe_ctx, env) {
         // Array of all-numeric values → select those indices (e.g. [[1..4]]).
         if let Value::Array(ref indices) = index
             && !indices.is_empty()
@@ -152,7 +152,7 @@ fn eval_subscript(
         if let Some(var_name) = index_var {
             eval_env.bind(var_name.clone(), Value::Number(i as f64));
         }
-        let test = eval_no_stack_check(arena, rhs, item, eval_env)?;
+        let test = eval_operand(arena, rhs, item, eval_env)?;
         // Numeric result = index selection from entire array.
         if let Some(n) = test.as_f64() {
             let idx = n.trunc() as i64;
@@ -191,7 +191,7 @@ fn eval_subscript_single(
     } else {
         env
     };
-    let index = eval_no_stack_check(arena, rhs, left, eval_env)?;
+    let index = eval_operand(arena, rhs, left, eval_env)?;
     if let Some(n) = index.as_f64() {
         // Numeric index on a single value — treat as array of one.
         let idx = n.trunc() as i64;

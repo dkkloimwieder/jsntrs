@@ -1,0 +1,6 @@
+{
+    "expr": "$count($match(\"abcb\", /b/))",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}
