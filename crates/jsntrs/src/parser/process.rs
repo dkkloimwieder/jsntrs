@@ -497,7 +497,13 @@ fn mark_tail_position(arena: &mut AstArena, node: NodeId) {
         return;
     }
     match arena.get(node).clone() {
-        Expr::Function { .. } => {
+        // A call with a group-by attached is NOT in tail position: the group
+        // reduction still has to run on the returned value, so the frame
+        // cannot be discarded. Thunking it would hand the `TailCall` sentinel
+        // to `eval_group_by`, which calls `eval_function` directly and has no
+        // trampoline — the sentinel would be grouped as an ordinary item
+        // (jsntrs-5lw.1). Such a node falls through to the `_` arm below.
+        Expr::Function { group: None, .. } => {
             if let Expr::Function { thunk, .. } = arena.get_mut(node) {
                 *thunk = true;
             }

@@ -2937,4 +2937,50 @@ mod tests {
         assert_eq!(err.code, "D3137");
         assert!(err.message.contains("custom error"));
     }
+
+    // ── Tail position + group-by (jsntrs-5lw.1) ───────────────────
+
+    /// A call in tail position with a group-by attached must not be
+    /// thunked: `eval_group_by` calls `eval_function` directly and has no
+    /// trampoline, so the `TailCall` sentinel used to be grouped as an
+    /// ordinary item and serialized as `""`. The group applies to the
+    /// call's real result, exactly as it does outside tail position.
+    ///
+    /// Deliberate deviation from jsonata-js 2.x, whose trampoline drops
+    /// the group entirely (`{"v":1}` here) and can even leak its internal
+    /// lambda object into the output; jsntrs already applies the group for
+    /// builtin callees in the same position.
+    #[test]
+    fn tail_position_call_with_group_applies_the_group() {
+        let f = r#"$f := function($x){{"v": $x}}; "#;
+        // Plain tail position.
+        assert_eq!(
+            eval_simple(&format!(
+                r#"({f}$g := function($n){{ $f($n){{"k": $}} }}; $g(1))"#
+            )),
+            eval_simple(r#"{"k": {"v": 1}}"#)
+        );
+        // Tail position reached through a conditional branch.
+        assert_eq!(
+            eval_simple(&format!(
+                r#"({f}$g := function($n){{ $n > 0 ? $f($n){{"k": $}} : "none" }}; $g(1))"#
+            )),
+            eval_simple(r#"{"k": {"v": 1}}"#)
+        );
+        // Through a HOF, which calls the lambda via call_function.
+        assert_eq!(
+            eval_simple(&format!(
+                r#"({f}$g := function($n){{ $f($n){{"k": $}} }}; $map([1,2], $g))"#
+            )),
+            eval_simple(r#"[{"k": {"v": 1}}, {"k": {"v": 2}}]"#)
+        );
+        // An ungrouped tail call is still thunked, so deep recursion runs
+        // on the trampoline rather than the stack.
+        assert_eq!(
+            eval_simple(
+                r"($f := function($n, $acc){ $n <= 0 ? $acc : $f($n - 1, $acc + $n) }; $f(5000, 0))"
+            ),
+            Value::Number(12_502_500.0)
+        );
+    }
 }

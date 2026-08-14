@@ -1,0 +1,10 @@
+{
+    "expr": "($f := function($x){{\"v\": $x}}; $g := function($n){ $f($n){\"k\": $} }; $g(1))",
+    "dataset": null,
+    "bindings": {},
+    "result": {
+        "k": {
+            "v": 1
+        }
+    }
+}
