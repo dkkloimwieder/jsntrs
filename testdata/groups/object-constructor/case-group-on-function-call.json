@@ -1,0 +1,44 @@
+[
+    {
+        "expr": "$sum(prices){'k': $}",
+        "data": {"prices": [10, 20, 30]},
+        "bindings": {},
+        "result": {"k": 60}
+    },
+    {
+        "expr": "$count(prices){'n': $}",
+        "data": {"prices": [10, 20, 30]},
+        "bindings": {},
+        "result": {"n": 3}
+    },
+    {
+        "expr": "$min(prices){'m': $}",
+        "data": {"prices": [10, 20, 30]},
+        "bindings": {},
+        "result": {"m": 10}
+    },
+    {
+        "expr": "$exists(prices){'e': $}",
+        "data": {"prices": [10, 20, 30]},
+        "bindings": {},
+        "result": {"e": true}
+    },
+    {
+        "expr": "$exists(missing){'e': $}",
+        "data": {"prices": [10, 20, 30]},
+        "bindings": {},
+        "result": {"e": false}
+    },
+    {
+        "expr": "$keys(obj){'k': $}",
+        "data": {"obj": {"x": 1, "y": 2}},
+        "bindings": {},
+        "result": {"k": ["x", "y"]}
+    },
+    {
+        "expr": "$sum(none){'k': $}",
+        "data": {"none": []},
+        "bindings": {},
+        "result": {"k": 0}
+    }
+]

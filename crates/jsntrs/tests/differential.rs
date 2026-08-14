@@ -93,6 +93,16 @@ const ARRAY_ARG: &str = r#"{
     "seq": [{"v": 1}, {"v": 2}],
     "emptyf": [{"v": []}]}"#;
 
+/// Fixture for `$func(path)[]` / `$func(path){…}`: the `[]` keep-array and
+/// `{…}` group-by postfixes bind to the call node itself, and the general
+/// path honours both (jsntrs-6wr.2).
+const POSTFIX: &str = r#"{
+    "prices": [10, 20, 30],
+    "single": [7],
+    "none": [],
+    "name": "Alice",
+    "obj": {"x": 1, "y": 2}}"#;
+
 /// (expression, data) pairs. Every pair runs fast vs general.
 const CASES: &[(&str, &str)] = &[
     // ── Pure paths over nested arrays (gnata-dx5.4) ──
@@ -409,6 +419,33 @@ const CASES: &[(&str, &str)] = &[
     ("$average([seq.v])", ARRAY_ARG),
     ("$average([miss.v])", ARRAY_ARG),
     ("$average([emptyf.v])", ARRAY_ARG),
+    // ── `$func(path)[]` / `$func(path){…}`: the postfix belongs to the
+    //    call node and must suppress the lift (jsntrs-6wr.2) ──
+    ("$sum(prices)", POSTFIX),
+    ("$sum(prices)[]", POSTFIX),
+    ("$sum(prices){'k': $}", POSTFIX),
+    ("$sum(single)[]", POSTFIX),
+    ("$sum(none)[]", POSTFIX),
+    ("$sum(none){'k': $}", POSTFIX),
+    ("$count(prices)[]", POSTFIX),
+    ("$count(prices){'n': $}", POSTFIX),
+    ("$max(prices)[]", POSTFIX),
+    ("$min(prices){'m': $}", POSTFIX),
+    ("$average(prices)[]", POSTFIX),
+    ("$exists(prices)[]", POSTFIX),
+    ("$exists(missing)[]", POSTFIX),
+    ("$exists(prices){'e': $}", POSTFIX),
+    ("$string(prices)[]", POSTFIX),
+    ("$type(prices)[]", POSTFIX),
+    ("$boolean(prices)[]", POSTFIX),
+    ("$keys(obj)[]", POSTFIX),
+    ("$keys(obj){'k': $}", POSTFIX),
+    ("$distinct(prices)[]", POSTFIX),
+    ("$reverse(prices)[]", POSTFIX),
+    ("$length(name)[]", POSTFIX),
+    ("$uppercase(name)[]", POSTFIX),
+    ("$contains(name, \"lic\")[]", POSTFIX),
+    ("$contains(name, \"lic\"){'c': $}", POSTFIX),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

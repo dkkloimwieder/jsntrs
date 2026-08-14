@@ -215,11 +215,18 @@ fn try_comparison(arena: &AstArena, node: NodeId) -> Option<ComparisonFastPath> 
 }
 
 /// Try to classify as a function fast path: `$func(path)` or `$contains(path, "lit")`.
+///
+/// The `[]` keep-array and `{…}` group-by postfixes bind to the call node
+/// itself (`$sum(prices)[]`, `$sum(prices){'k': $}`) and the general path
+/// applies both after the call, so a node carrying either must not be
+/// lifted — the fast path has nowhere to put them (jsntrs-6wr.2).
 fn try_function(arena: &AstArena, node: NodeId) -> Option<FuncFastPath> {
     let (procedure, arguments) = match arena.get(node) {
         Expr::Function {
             procedure,
             arguments,
+            keep_array: false,
+            group: None,
             ..
         } => (*procedure, arguments.clone()),
         _ => return None,
@@ -1271,6 +1278,37 @@ mod tests {
         assert_fast_matches_full("$exists([a.b])", r#"{"a": {"c": 1}}"#);
         assert_fast_matches_full("$count([a.b])", r#"{"a": {"b": 42}}"#);
         assert_fast_matches_full("$sum([a.b])", r#"{"a": {"b": [1, 2, 3]}}"#);
+    }
+
+    /// `[]` / `{…}` postfixes bind to the call node and must suppress the
+    /// function lift, which has nowhere to apply them (jsntrs-6wr.2).
+    #[test]
+    fn classification_call_postfix_no_fast_path() {
+        for expr in [
+            "$sum(prices)[]",
+            "$sum(prices){'k': $}",
+            "$count(prices)[]",
+            "$exists(prices)[]",
+            "$keys(obj){'k': $}",
+            "$contains(name, \"a\")[]",
+        ] {
+            let compiled = Expression::compile(expr).unwrap();
+            assert!(
+                matches!(compiled.fast_path_info(), FastPath::None),
+                "{expr} must not take the function fast path"
+            );
+        }
+        let compiled = Expression::compile("$sum(prices)").unwrap();
+        assert!(matches!(compiled.fast_path_info(), FastPath::Function(_)));
+    }
+
+    #[test]
+    fn func_call_postfix_matches_full() {
+        let data = r#"{"prices": [10, 20, 30], "obj": {"x": 1, "y": 2}}"#;
+        assert_fast_matches_full("$sum(prices)[]", data);
+        assert_fast_matches_full("$sum(prices){'k': $}", data);
+        assert_fast_matches_full("$count(prices)[]", data);
+        assert_fast_matches_full("$exists(prices){'e': $}", data);
     }
 
     #[test]
