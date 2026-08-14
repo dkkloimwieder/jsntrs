@@ -258,12 +258,18 @@ impl Parser {
             TokenType::Star => {
                 self.infix = true;
                 self.advance()?;
-                Ok(self.arena.alloc(Expr::Wildcard { pos: tok.pos })?)
+                Ok(self.arena.alloc(Expr::Wildcard {
+                    keep_array: false,
+                    pos: tok.pos,
+                })?)
             }
             TokenType::StarStar => {
                 self.infix = true;
                 self.advance()?;
-                Ok(self.arena.alloc(Expr::Descendant { pos: tok.pos })?)
+                Ok(self.arena.alloc(Expr::Descendant {
+                    keep_array: false,
+                    pos: tok.pos,
+                })?)
             }
             TokenType::Percent => {
                 self.infix = true;
@@ -998,6 +1004,11 @@ impl Parser {
     /// `keep_singleton_array` (`foo.($sum(bar))[]` → `[3]`). A *top-level*
     /// block never produces a sequence, so the flag stays inert there and
     /// `($sum(prices))[]` remains `60`.
+    ///
+    /// `Wildcard`/`Descendant` carry it too (jsntrs-p0v.20): jsonata-js keeps
+    /// `keepArray` on the raw node and honours it wherever that node's result
+    /// is still a sequence, so `*[]` on `{"a": 1}` is `[1]` and `x.**[]` on
+    /// `{"x": 5}` is `[5]`. Dropping the flag collapsed both.
     fn set_keep_array(&mut self, id: NodeId) {
         match self.arena.get_mut(id) {
             Expr::Name { keep_array, .. }
@@ -1006,7 +1017,9 @@ impl Parser {
             | Expr::Function { keep_array, .. }
             | Expr::Sort { keep_array, .. }
             | Expr::Block { keep_array, .. }
-            | Expr::Unary { keep_array, .. } => {
+            | Expr::Unary { keep_array, .. }
+            | Expr::Wildcard { keep_array, .. }
+            | Expr::Descendant { keep_array, .. } => {
                 *keep_array = true;
             }
             _ => {}

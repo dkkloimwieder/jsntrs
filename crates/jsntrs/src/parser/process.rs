@@ -37,6 +37,12 @@ fn step_has_keep_array(arena: &AstArena, step: NodeId) -> bool {
             }
             | Expr::Unary {
                 keep_array: true, ..
+            }
+            | Expr::Wildcard {
+                keep_array: true, ..
+            }
+            | Expr::Descendant {
+                keep_array: true, ..
             } => {
                 return true;
             }
@@ -81,7 +87,17 @@ pub fn process_ast(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Jsonata
 }
 
 /// The recursive body of [`process_ast`] — re-entered for every subnode.
+///
+/// Two operand positions bypass the decoration wrap and call
+/// [`process_node_undecorated`] instead: see [`process_subscript_lhs`] and
+/// [`process_sort_operand`].
 fn process_node(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
+    let processed = process_node_undecorated(arena, node)?;
+    wrap_decorated_step(arena, processed)
+}
+
+/// [`process_node`] without the trailing [`wrap_decorated_step`] promotion.
+fn process_node_undecorated(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
     // Every recursive call re-enters through this function, so guarding here
     // covers the whole pass. Mirrors Parser::expression: grow the stack on
     // native (left-associative spines are parsed in one frame, so
@@ -298,7 +314,7 @@ fn process_node_inner(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
             terms,
             ..
         } => {
-            let new_expr = process_node(arena, sort_expr)?;
+            let new_expr = process_sort_operand(arena, sort_expr)?;
             let new_terms: Vec<_> = terms
                 .iter()
                 .map(|t| {
@@ -346,11 +362,8 @@ fn process_node_inner(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
             process_group(arena, node)?;
             Ok(node)
         }
-        Expr::Name { .. } => {
-            process_group(arena, node)?;
-            wrap_decorated_name(arena, node)
-        }
-        // Leaf nodes — still need to process any attached Group expression.
+        // Leaf nodes (`Name`, `Wildcard`, `Descendant`, literals …) — still
+        // need to process any attached Group expression.
         _ => {
             process_group(arena, node)?;
             Ok(node)
@@ -359,31 +372,45 @@ fn process_node_inner(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
 }
 
 /// Process the left operand of a subscript without promoting a decorated
-/// `Name` to a `Path`.
+/// step to a `Path`.
 ///
 /// jsntrs models a predicate as `Binary(Subscript)` rather than a `stages`
-/// list on the step, so [`step_has_keep_array`] finds `A[]`'s flag by
-/// walking the subscript's left chain (`Phone[][type="mobile"].number`). A
-/// `Path` in that chain would hide the `Name` and drop the flag, so the
-/// operand keeps its raw shape — the enclosing `Binary` is what the path
-/// hoist inspects.
+/// list on the step, so [`step_has_keep_array`] and
+/// `evaluator::binary::has_keep_array` find `A[]`'s flag by walking the
+/// subscript's left chain (`Phone[][type="mobile"].number`). A `Path` in that
+/// chain would hide the flag from both, and `eval_subscript_binary`
+/// additionally matches a raw `Descendant` operand to prepend the context
+/// node (`**[0]`), so the operand keeps its raw shape — the enclosing
+/// `Binary` is what the hoists inspect.
 fn process_subscript_lhs(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
-    if !node.is_empty() && matches!(arena.get(node), Expr::Name { .. }) {
-        // A `Name`'s only child is its group-by; `process_node_inner` does
-        // nothing else for it before the wrap.
-        process_group(arena, node)?;
-        return Ok(node);
+    process_node_undecorated(arena, node)
+}
+
+/// Process the operand of a `^` (order-by) without promoting a decorated
+/// `Wildcard` to a `Path`.
+///
+/// jsonata-js's `^` wraps a non-path operand in a *fresh* path carrying no
+/// `keepSingletonArray`, so the sort's re-sequencing discards a wildcard's
+/// keep-array marker: `*[]^(a)` on `{"p": {"a": 1}}` is `{"a": 1}`, not
+/// `[{"a": 1}]`. A decorated `Name` goes the other way — `processAST`
+/// promotes *every* name to a path that already carries
+/// `keepSingletonArray`, and `^` appends the sort step to that same path, so
+/// `a[]^(b)` is `[{"b": 1}]`. Suppressing only the wildcard wrap reproduces
+/// both. (`Descendant` needs no arm: [`wrap_decorated_step`] never wraps it.)
+fn process_sort_operand(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
+    if !node.is_empty() && matches!(arena.get(node), Expr::Wildcard { .. }) {
+        return process_node_undecorated(arena, node);
     }
     process_node(arena, node)
 }
 
-/// Promote a decorated lone `Name` to a single-step `Path`.
+/// Promote a decorated lone step to a single-step `Path`.
 ///
 /// jsonata-js `processAST` turns *every* `name` into `{type:'path',
 /// steps:[name]}` and hoists `keepArray` onto the path's
 /// `keepSingletonArray`. jsntrs keeps a bare `Name` as itself — it is the
 /// hottest node kind in the engine and the `Name` evaluator is a single
-/// field lookup — and wraps only when the name carries a decoration that
+/// field lookup — and wraps only when the node carries a decoration the
 /// evaluator cannot honour on its own:
 ///
 /// - the `[]` suffix — without a path there is no `keep_singleton_array`
@@ -399,28 +426,49 @@ fn process_subscript_lhs(arena: &mut AstArena, node: NodeId) -> Result<NodeId, J
 ///   with `$b` unbound and produced `{}` (jsntrs-p0v.8). Multi-step forms
 ///   were unaffected because the dot chain already built a path.
 ///
+/// `Wildcard` and `Sort` join `Name` for the `[]` suffix (jsntrs-p0v.20):
+/// neither evaluator can mark a singleton on its own, so `*[]` on
+/// `{"a": 1}` collapsed to `1` and `a^(b)[]` on `{"a": {"b": 1}}` to
+/// `{"b": 1}`. `Descendant` deliberately stays out: jsonata-js's
+/// `evaluateDescendants` unwraps a one-item result *before* the
+/// sequence-level keep-array marker applies, so a bare `**[]` is exactly
+/// `**` (`**[]` on `5` → `5`). Its `keep_array` flag still matters one level
+/// up, in a path (`x.**[]` on `{"x": 5}` → `[5]`) or a subscript chain.
+///
 /// Inside a dot chain the wrapper is transparent: `collect_path_steps`
 /// splices a single-step path back into the enclosing path and
-/// [`step_has_keep_array`] re-reads the flag off the `Name` step.
-fn wrap_decorated_name(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
-    let Expr::Name {
-        keep_array,
-        group,
-        focus,
-        index,
-        pos,
-        ..
-    } = arena.get(node)
-    else {
-        return Ok(node);
-    };
-    let binds_tuple_var = focus.is_some() || index.is_some();
-    let keeps_singleton = *keep_array && group.is_none();
-    let needs_path = binds_tuple_var || keeps_singleton;
-    if !needs_path {
+/// [`step_has_keep_array`] re-reads the flag off the step.
+fn wrap_decorated_step(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
+    if node.is_empty() {
         return Ok(node);
     }
-    let (keep_singleton_array, pos) = (*keep_array, *pos);
+    let (keep_singleton_array, pos) = match arena.get(node) {
+        Expr::Name {
+            keep_array,
+            group,
+            focus,
+            index,
+            pos,
+            ..
+        } => {
+            let binds_tuple_var = focus.is_some() || index.is_some();
+            let keeps_singleton = *keep_array && group.is_none();
+            if !binds_tuple_var && !keeps_singleton {
+                return Ok(node);
+            }
+            (*keep_array, *pos)
+        }
+        Expr::Wildcard {
+            keep_array: true,
+            pos,
+        }
+        | Expr::Sort {
+            keep_array: true,
+            pos,
+            ..
+        } => (true, *pos),
+        _ => return Ok(node),
+    };
     arena.alloc(Expr::Path {
         steps: vec![node],
         keep_singleton_array,
@@ -850,6 +898,112 @@ mod tests {
                 other => panic!("expected subscript step, got {other:?}"),
             },
             other => panic!("expected Path with keep_singleton_array, got {other:?}"),
+        }
+    }
+
+    /// jsntrs-p0v.20: `*[]` and `a^(b)[]` had nowhere to record the
+    /// keep-array flag either, so both singletons collapsed.
+    #[test]
+    fn lone_keep_array_wildcard_and_sort_become_single_step_paths() {
+        for (src, want_wildcard) in [("*[]", true), ("a^(b)[]", false)] {
+            let (arena, root) = parse_and_process(src);
+            match arena.get(root) {
+                Expr::Path {
+                    steps,
+                    keep_singleton_array: true,
+                    group: None,
+                    ..
+                } => {
+                    assert_eq!(steps.len(), 1, "{src}");
+                    if want_wildcard {
+                        assert!(
+                            matches!(
+                                arena.get(steps[0]),
+                                Expr::Wildcard {
+                                    keep_array: true,
+                                    ..
+                                }
+                            ),
+                            "{src}"
+                        );
+                    } else {
+                        assert!(
+                            matches!(
+                                arena.get(steps[0]),
+                                Expr::Sort {
+                                    keep_array: true,
+                                    ..
+                                }
+                            ),
+                            "{src}"
+                        );
+                    }
+                }
+                other => panic!("{src}: expected single-step Path, got {other:?}"),
+            }
+        }
+    }
+
+    /// jsonata-js never promotes `**` to a path, and `evaluateDescendants`
+    /// unwraps a one-item result before the sequence-level keep-array marker
+    /// applies — so a bare `**[]` is exactly `**` and must stay a
+    /// `Descendant` (the flag still rides along for enclosing paths).
+    #[test]
+    fn lone_keep_array_descendant_stays_a_descendant() {
+        let (arena, root) = parse_and_process("**[]");
+        assert!(matches!(
+            arena.get(root),
+            Expr::Descendant {
+                keep_array: true,
+                ..
+            }
+        ));
+    }
+
+    /// `x.*[]` / `x.**[]`: inside a dot chain the flag rides on the step and
+    /// `step_has_keep_array` hoists it onto the enclosing path.
+    #[test]
+    fn keep_array_wildcard_and_descendant_steps_hoist_to_the_path() {
+        for src in ["x.*[]", "x.**[]"] {
+            let (arena, root) = parse_and_process(src);
+            match arena.get(root) {
+                Expr::Path {
+                    steps,
+                    keep_singleton_array: true,
+                    ..
+                } => assert_eq!(steps.len(), 2, "{src}"),
+                other => panic!("{src}: expected 2-step Path with keep-singleton, got {other:?}"),
+            }
+        }
+    }
+
+    /// jsonata-js's `^` re-sequences a non-path operand through a fresh path
+    /// with no `keepSingletonArray`, so a wildcard operand keeps its raw
+    /// shape and `*[]^(a)` collapses — unlike `a[]^(b)`, whose operand is a
+    /// name and therefore already a keep-singleton path.
+    #[test]
+    fn sort_operand_wildcard_is_not_wrapped_but_a_name_is() {
+        let (arena, root) = parse_and_process("*[]^(a)");
+        match arena.get(root) {
+            Expr::Sort { expr, .. } => assert!(matches!(
+                arena.get(*expr),
+                Expr::Wildcard {
+                    keep_array: true,
+                    ..
+                }
+            )),
+            other => panic!("expected Sort over a raw Wildcard, got {other:?}"),
+        }
+        let (arena, root) = parse_and_process("a[]^(b)");
+        match arena.get(root) {
+            Expr::Sort { expr, .. } => assert!(matches!(
+                arena.get(*expr),
+                Expr::Path {
+                    keep_singleton_array: true,
+                    ..
+                }
+            )),
+            other => panic!("expected Sort over a keep-singleton Path, got {other:?}"),
         }
     }
 

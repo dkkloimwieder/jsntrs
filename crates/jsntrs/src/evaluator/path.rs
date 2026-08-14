@@ -894,6 +894,10 @@ fn eval_path_simple(
 
     if keep_singleton_array {
         match result {
+            // A `**` last step hands back an un-collapsed sequence; collapsing
+            // it here is what keeps `x.**[]` a flat `[{…}, 1]` instead of the
+            // sequence re-wrapped whole (jsntrs-p0v.20).
+            Value::Sequence(seq) => return Ok(seq.collapse_and_keep(true)),
             Value::Array(_) => return Ok(result),
             Value::Undefined => return Ok(Value::Undefined),
             _ => return Ok(Value::Array(Rc::from(vec![result]))),

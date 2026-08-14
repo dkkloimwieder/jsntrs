@@ -217,8 +217,18 @@ impl<'a> Formatter<'a> {
                 self.emit_bindings(focus.as_deref(), index.as_deref());
                 self.emit_group(group.as_ref(), depth);
             }
-            Expr::Wildcard { .. } => self.out.push('*'),
-            Expr::Descendant { .. } => self.out.push_str("**"),
+            Expr::Wildcard { keep_array, .. } => {
+                self.out.push('*');
+                if keep_array {
+                    self.out.push_str("[]");
+                }
+            }
+            Expr::Descendant { keep_array, .. } => {
+                self.out.push_str("**");
+                if keep_array {
+                    self.out.push_str("[]");
+                }
+            }
             Expr::Parent { ref slot, .. } => {
                 self.out.push('%');
                 if let Some(slot) = slot {

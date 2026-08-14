@@ -624,6 +624,13 @@ const CASES: &[(&str, &str)] = &[
     ("items.x", NUMBER_LIMITS),
     ("big = 123456789012345680000", NUMBER_LIMITS),
     ("$count(items.x)", NUMBER_LIMITS),
+    // ── Track toplevel-decorations (jsntrs-p0v.20) ────────────────────
+    // `a^(b)[]` is a one-step path over the sort, and `eval_sort` still
+    // takes the simple-field comparison lift for name-only terms, so these
+    // do exercise two implementations of the comparison.
+    ("items^(x)[]", CLEAN),
+    ("items^(name)[]", KEEP_ARRAY),
+    ("items^(x)[].name", CLEAN),
 ];
 
 /// (expression, data) pairs where **no** lift may fire.
@@ -1031,6 +1038,20 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("items{%.name: $string(x)}", CLEAN),
     ("items{$string(x): %.name}", CLEAN),
     ("items.name{%: $}", CLEAN),
+    // ── Track toplevel-decorations ────────────────────────────────────
+    // Declined: `*[]` is now a single-step path carrying
+    // `keep_singleton_array` and `**[]` keeps its raw `Descendant`
+    // (jsntrs-p0v.20); `collect_pure_path` takes neither a decorated path
+    // nor a wildcard/descendant step, so the general result is the answer.
+    ("*[]", POSTFIX),
+    ("*[]", KEEP_ARRAY),
+    ("obj.*[]", POSTFIX),
+    ("(*[])", POSTFIX),
+    ("$count(*[])", POSTFIX),
+    ("*[].x", KEEP_ARRAY),
+    ("**[]", POSTFIX),
+    ("obj.**[]", POSTFIX),
+    ("$count(**[])", POSTFIX),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

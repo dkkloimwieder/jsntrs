@@ -275,9 +275,18 @@ pub enum Expr {
         pos: usize,
     },
     /// Wildcard (*).
-    Wildcard { pos: usize },
+    ///
+    /// `keep_array` records a trailing `[]`; see
+    /// [`crate::parser::process::wrap_decorated_step`] for how each context
+    /// consumes it.
+    Wildcard { keep_array: bool, pos: usize },
     /// Descendant (**).
-    Descendant { pos: usize },
+    ///
+    /// `keep_array` records a trailing `[]`. Unlike a `Name`, a *bare* `**`
+    /// ignores it (jsonata-js `evaluateDescendants` unwraps a one-item result
+    /// before the sequence-level keep-array marker can apply); only a path or
+    /// subscript chain around it honours the flag.
+    Descendant { keep_array: bool, pos: usize },
     /// Parent reference (%).
     Parent { pos: usize, slot: Option<Slot> },
     /// Regex literal (/pattern/flags).
@@ -414,8 +423,8 @@ impl Expr {
             | Expr::NumberLit { pos, .. }
             | Expr::ValueLit { pos, .. }
             | Expr::Variable { pos, .. }
-            | Expr::Wildcard { pos }
-            | Expr::Descendant { pos }
+            | Expr::Wildcard { pos, .. }
+            | Expr::Descendant { pos, .. }
             | Expr::Parent { pos, .. }
             | Expr::Regex { pos, .. }
             | Expr::Placeholder { pos }

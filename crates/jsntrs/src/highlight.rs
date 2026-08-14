@@ -289,11 +289,11 @@ impl<'a> HlWalker<'a> {
                 self.push(pos, end, HlType::Variable);
                 self.walk_group(group.as_ref());
             }
-            Expr::Wildcard { pos } => {
+            Expr::Wildcard { pos, .. } => {
                 let pos = *pos;
                 self.push(pos, pos + 1, HlType::Operator);
             }
-            Expr::Descendant { pos } => {
+            Expr::Descendant { pos, .. } => {
                 let pos = *pos;
                 self.push(pos, pos + 2, HlType::Operator);
             }

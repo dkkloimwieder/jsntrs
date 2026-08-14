@@ -402,6 +402,24 @@ Key transformations:
 5. **Focus/Index propagation**: `@`/`#` bindings survive path flattening
 6. **Tail-call marking**: Lambda bodies analyzed for tail-position function calls → `Thunk = true`
 
+**Rust port deviation (jsntrs-ews, jsntrs-p0v.20).** The Go reference (like
+jsntrs before these issues) dropped `[]` when it sat on a node with nowhere to
+record a keep-singleton. jsntrs now promotes a decorated lone step to a
+single-step `NodePath` whose `KeepSingletonArray` is set — a `NodeName` with
+`[]`/`@$v`/`#$i`, a `NodeWildcard` with `[]`, and a `NodeSort` with `[]` —
+matching jsonata-js (`*[]` on `{"a": 1}` → `[1]`, `a^(b)[]` on
+`{"a": {"b": 1}}` → `[{"b": 1}]`). Two operand positions are exempt, each for
+a reason jsonata-js shares: a subscript operand keeps its raw shape so the
+keep-array chain walks find the flag and `**[0]` still sees a raw
+`NodeDescendant`; a `^` operand keeps a raw `NodeWildcard` because jsonata-js's
+`^` re-sequences a non-path operand through a fresh path with no
+`keepSingletonArray` (`*[]^(a)` → `{"a": 1}`, while `a[]^(b)` → `[{"b": 1}]`
+because a name is already a keep-singleton path). `NodeDescendant` is never
+promoted: jsonata-js's `evaluateDescendants` unwraps a one-item result before
+the sequence-level keep-array marker applies, so a bare `**[]` is exactly `**`
+(`**[]` on `5` → `5`), while `x.**[]` on `{"x": 5}` → `[5]` because the
+enclosing path hoists the flag.
+
 ## 3.5 Fast-Path Analysis (AnalyzeFastPath)
 
 **Source:** `internal/parser/analysis.go`
