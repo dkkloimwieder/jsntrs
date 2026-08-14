@@ -1,0 +1,7 @@
+{
+    "expr": "($id := function($x){ $x }; $g := function($n){ $y := $id($n) }; $g(5))",
+    "data": {},
+    "bindings": {},
+    "result": 5,
+    "comment": "The plain value still flows out of a bind-bodied lambda unchanged."
+}

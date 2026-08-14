@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($x){ $keys($x) }; $g := function($x){ $y := $f($x) }; $g({\"a\":1,\"b\":2})[])",
+    "data": {},
+    "bindings": {},
+    "result": ["a", "b"],
+    "comment": "The multi-item side of case000: a two-element sequence collapses to an array either way, so [] is a no-op."
+}

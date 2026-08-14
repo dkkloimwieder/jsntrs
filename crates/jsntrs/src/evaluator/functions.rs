@@ -84,8 +84,9 @@ pub struct Lambda {
 /// callee produced — an uncollapsed sequence included — comes back raw. Any
 /// other body goes through `evaluate()`, which collapses. jsntrs marks the
 /// very same positions in `mark_tail_calls`; this walk mirrors that marking
-/// (minus its extra `Bind` arm, which the reference does not treat as a tail
-/// position — `function($x){ $z := $keys($x) }` collapses there).
+/// arm for arm. A `:=` right-hand side is deliberately absent from both:
+/// the reference does not treat it as a tail position, so
+/// `function($x){ $z := $keys($x) }` collapses there (jsntrs-p0v.15).
 fn body_is_tail_call(arena: &AstArena, node: NodeId) -> bool {
     if node.is_empty() {
         return false;

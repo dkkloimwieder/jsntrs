@@ -1,0 +1,7 @@
+{
+    "expr": "($id := function($x){ $x }; $map([1, 2], function($n){ $y := $id($n) }))",
+    "data": {},
+    "bindings": {},
+    "result": [1, 2],
+    "comment": "Bind-bodied lambda used as a HOF callback."
+}

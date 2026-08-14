@@ -617,12 +617,20 @@ fn mark_tail_position(arena: &mut AstArena, node: NodeId) {
                 mark_tail_position(arena, last);
             }
         }
-        Expr::Bind { rhs, .. } => {
-            mark_tail_position(arena, rhs);
-        }
         Expr::Lambda { .. } => {
             // Nested lambdas get their own tail-call analysis.
         }
+        // Everything else — `Expr::Bind` included — falls through unmarked.
+        // The reference's `tailCallOptimize` recognises exactly three shapes
+        // (call, condition, block); a `:=` right-hand side is *not* one of
+        // them. Marking it handed the `TailCall` sentinel to `eval_bind`,
+        // which stores the sentinel under the variable name and passes it on
+        // as the bind's value, so the enclosing lambda looked like it had a
+        // tail-call body: `$g := function($x){ $y := $f($x) }` then returned
+        // `$f`'s raw sequence instead of the collapsed value the reference
+        // produces, and `$g(…)[]` re-wrapped it (jsntrs-p0v.15). The
+        // matching walk in `functions::body_is_tail_call` already declined to
+        // copy this arm (jsntrs-p0v.6); the two now agree.
         _ => {}
     }
 }
@@ -986,6 +994,54 @@ mod tests {
                 other => panic!("expected Lambda, got {:?}", other),
             },
             other => panic!("expected Bind, got {:?}", other),
+        }
+    }
+
+    /// Does any node reachable from `root` carry `thunk = true`?
+    fn has_thunked_call(arena: &AstArena, root: NodeId) -> bool {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let Some(expr) = arena.try_get(id) else {
+                continue;
+            };
+            if matches!(expr, Expr::Function { thunk: true, .. }) {
+                return true;
+            }
+            push_children(expr, &mut stack);
+        }
+        false
+    }
+
+    /// jsntrs-p0v.15: the reference's `tailCallOptimize` rewrites calls,
+    /// conditions and blocks — never a `:=` right-hand side. Marking one
+    /// handed the `TailCall` sentinel to `eval_bind`, which stored it under
+    /// the variable name and passed it on as the bind's value, so the
+    /// enclosing lambda behaved as if it had a tail-call body.
+    #[test]
+    fn a_bind_right_hand_side_is_not_a_tail_position() {
+        // Control: the same three routes with the call left in tail position.
+        for src in [
+            "$g := function($n){$f($n)}",
+            "$g := function($n){($x := 1; $f($n))}",
+            "$g := function($n){$n > 0 ? $f($n) : 0}",
+        ] {
+            let (arena, root) = parse_and_process(src);
+            assert!(
+                has_thunked_call(&arena, root),
+                "expected a tail call: {src}"
+            );
+        }
+        // Wrapping the very same call in a bind takes it out of tail position.
+        for src in [
+            "$g := function($n){$y := $f($n)}",
+            "$g := function($n){($x := 1; $y := $f($n))}",
+            "$g := function($n){$n > 0 ? ($y := $f($n)) : 0}",
+        ] {
+            let (arena, root) = parse_and_process(src);
+            assert!(
+                !has_thunked_call(&arena, root),
+                "a bind right-hand side must not be thunked: {src}"
+            );
         }
     }
 

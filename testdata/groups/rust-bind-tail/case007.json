@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($n){ $n = 0 ? \"done\" : $f($n - 1) }; $f(5000))",
+    "data": {},
+    "bindings": {},
+    "result": "done",
+    "comment": "Genuine tail recursion still trampolines after the Bind arm was dropped from the tail-call marking."
+}

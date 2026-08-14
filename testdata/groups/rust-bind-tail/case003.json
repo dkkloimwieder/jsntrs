@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($x){ $keys($x) }; $g := function($x){ $f($x) }; $g({\"a\":1})[])",
+    "data": {},
+    "bindings": {},
+    "result": ["a"],
+    "comment": "Contrast with case000: here $g's body IS a tail-position call, so the trampoline hands $keys' raw singleton sequence back and [] keeps it wrapped."
+}

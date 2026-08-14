@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($x){ $keys($x) }; $g := function($x){ $y := $f($x) }; $g({\"a\":1})[])",
+    "data": {},
+    "bindings": {},
+    "result": "a",
+    "comment": "A := right-hand side is not a tail position (jsonata's tailCallOptimize only rewrites call/condition/block). $g's body therefore goes through the normal evaluation path and collapses $f's singleton sequence, so the [] postfix has no sequence left to keep. jsntrs used to mark the Bind rhs and answer [\"a\"] (jsntrs-p0v.15)."
+}

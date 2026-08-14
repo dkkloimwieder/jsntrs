@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($n){ $n = 0 ? 0 : ($x := $f($n - 1)) }; $f(200))",
+    "data": {},
+    "bindings": {},
+    "code": "U1001",
+    "comment": "Deliberate deviation: recursion through a := right-hand side is NOT a tail call, so it consumes call depth and trips the DEFAULT_MAX_CALL_DEPTH=100 cap (docs/spec.md 4.6). jsonata-js answers 0 because it has no depth cap at all — the same cap already rejects the sibling non-tail shapes `$f($n-1)+1` and `($x := $f($n-1); $x)`, which jsonata-js also runs to completion. Before jsntrs-p0v.15 this one shape alone was trampolined."
+}

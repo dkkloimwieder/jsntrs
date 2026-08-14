@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($x){ $keys($x) }; $g := function($x){( $z := 1; $y := $f($x) )}; $g({\"a\":1})[])",
+    "data": {},
+    "bindings": {},
+    "result": "a",
+    "comment": "Same rule reached through a block: the block's last expression is a bind, and a bind is never a tail position."
+}

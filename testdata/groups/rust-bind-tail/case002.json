@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($x){ $keys($x) }; $g := function($x){ $exists($x.a) ? ($y := $f($x)) : 0 }; $g({\"a\":1})[])",
+    "data": {},
+    "bindings": {},
+    "result": "a",
+    "comment": "Same rule reached through a conditional branch."
+}
