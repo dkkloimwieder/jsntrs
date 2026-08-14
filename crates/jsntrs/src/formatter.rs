@@ -21,6 +21,16 @@ struct Comment {
 }
 
 /// Extract all block comments from source with their positions.
+///
+/// This is a byte-level scan, so char-boundary safety is a precondition of
+/// every slice below. Each delimiter it looks for (`/`, `*`, `"`, `'`) is
+/// ASCII and every byte of a multi-byte UTF-8 character is `>= 0x80`, so a
+/// matched delimiter is always at a char boundary — with one exception: a
+/// comment that is never closed ends wherever the source ran out, which may
+/// be mid-character. Slicing that range panicked on input as small as
+/// `/*€` (jsntrs-ecq.2), so an unterminated comment ends the scan instead.
+/// Nothing is lost by dropping it: the lexer rejects an unclosed `/*` with
+/// S0106, so `format` returns that error rather than any comment text.
 fn extract_comments(src: &str) -> Vec<Comment> {
     let bytes = src.as_bytes();
     let mut comments = Vec::new();
@@ -29,12 +39,19 @@ fn extract_comments(src: &str) -> Vec<Comment> {
         if bytes[i] == b'/' && bytes[i + 1] == b'*' {
             let start = i;
             i += 2;
+            let mut closed = false;
             while i + 1 < bytes.len() {
                 if bytes[i] == b'*' && bytes[i + 1] == b'/' {
                     i += 2;
+                    closed = true;
                     break;
                 }
                 i += 1;
+            }
+            if !closed {
+                // `i` may be mid-character; never slice with it. The caller
+                // surfaces the lexer's S0106 for this source.
+                return comments;
             }
             comments.push(Comment {
                 text: src[start..i].to_string(),
@@ -1261,6 +1278,65 @@ mod tests {
         // "/* not a comment */" is a string literal, should not be treated as comment
         let result = fmt(r#""/* not a comment */""#);
         assert_eq!(result, r#""/* not a comment */""#);
+    }
+
+    /// `extract_comments` scans raw bytes; an unterminated `/*` used to leave
+    /// the cursor mid-character and panic when slicing the comment text out
+    /// (jsntrs-ecq.2). The lexer's S0106 must surface instead.
+    #[test]
+    fn unterminated_comment_ending_in_multibyte_char_errors() {
+        let err = format("/*\u{20AC}").expect_err("unterminated comment must error");
+        assert_eq!(err.code, "S0106", "wrong code: {err}");
+    }
+
+    #[test]
+    fn unterminated_comment_ending_in_ascii_errors() {
+        for src in ["/*", "/* oops", "$x + /* oops", "$x /* oops\n  more"] {
+            let err = format(src).expect_err("unterminated comment must error");
+            assert_eq!(err.code, "S0106", "wrong code for `{src}`: {err}");
+        }
+    }
+
+    /// Multi-byte characters *inside* a closed comment are fine — the slice
+    /// boundaries are the ASCII delimiters — but pin it so a future rewrite
+    /// of the scanner keeps them intact.
+    #[test]
+    fn multibyte_chars_inside_closed_comment_preserved() {
+        let result = fmt("/* héllo \u{20AC} \u{1F600} */ $x");
+        assert!(
+            result.contains("/* héllo \u{20AC} \u{1F600} */"),
+            "comment text mangled: {result}"
+        );
+        assert!(result.contains("$x"), "expression lost: {result}");
+        // Multi-byte text before a comment must not shift its placement.
+        let after = fmt("\"\u{20AC}\u{20AC}\" & /* tail */ $x");
+        assert!(after.contains("/* tail */"), "comment lost: {after}");
+    }
+
+    /// A `/*` inside a string literal is not a comment, so it can never make
+    /// the scanner think the source ends inside one.
+    #[test]
+    fn unterminated_comment_marker_inside_string_is_not_a_comment() {
+        assert_eq!(fmt(r#""/* unclosed""#), r#""/* unclosed""#);
+        // …including one whose closing quote follows a multi-byte character.
+        let multibyte = "\"\u{20AC} /*\"";
+        assert_eq!(fmt(multibyte), multibyte);
+        // …and a real comment after such a string is still picked up.
+        let result = fmt(r#""/*" & $x /* real */"#);
+        assert!(result.contains("/* real */"), "comment lost: {result}");
+    }
+
+    /// A regex literal may contain an escaped `/*` (`\/*`), which the byte
+    /// scanner reads as a comment that never closes. It used to emit the
+    /// dangling `/*` as a comment, producing output that no longer parsed;
+    /// now the partial comment is dropped.
+    #[test]
+    fn slash_star_inside_regex_emits_no_dangling_comment() {
+        // The trailing `g` is the parser's implicit flag (see
+        // `regex_literals`); the point here is that nothing *else* — no `/*`
+        // on a line of its own — is appended.
+        assert_eq!(fmt(r"/a\/*/"), r"/a\/*/g");
+        assert_eq!(fmt(r#"$match("a", /a\/*/)"#), r#"$match("a", /a\/*/g)"#);
     }
 
     // ── Partial application ──────────────────────────────────
