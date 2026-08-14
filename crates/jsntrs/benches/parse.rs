@@ -5,6 +5,12 @@
 //!   2. serde_json → Value (direct Visitor, no intermediate tree)
 //!   3. serde_json → serde_json::Value (baseline)
 //!
+//! Note on 2 and 3: serde_json is built with `arbitrary_precision`, so every
+//! number that is not a plain i64/u64 reaches the visitor as a one-entry map
+//! carrying the raw number text (see `NUMBER_TOKEN` in value.rs). Both
+//! serde_json rows therefore pay a detour on number-heavy fixtures that row 1
+//! does not — they measure the same *result*, not the same work.
+//!
 //! Fixtures live in bench/data*.json.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};

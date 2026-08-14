@@ -579,18 +579,21 @@ impl Value {
     /// parser's diagnostic is embedded in the message.
     pub fn from_json_str(s: &str) -> JsonataResult<Self> {
         let mut buf = s.as_bytes().to_vec();
-        simd_json::serde::from_slice(&mut buf)
-            .map_err(|e| JsonataError::new("D0000", format!("JSON parse error: {e}")))
+        Self::from_json_bytes_mut(&mut buf)
     }
 
-    /// Decode a JSON byte slice into a Value (direct deserialization).
+    /// Decode a JSON byte slice into a Value, preserving object key order.
+    ///
+    /// Same parser and semantics as [`Self::from_json_str`]: the bytes are
+    /// copied into a scratch buffer because simd-json rewrites its input in
+    /// place. Use [`Self::from_json_bytes_mut`] to skip the copy.
     ///
     /// # Errors
-    /// Returns `D0000` if the input is not valid JSON; the backend
-    /// parser's diagnostic is embedded in the message.
+    /// Returns `D0000` if the input is not valid JSON (or not valid UTF-8);
+    /// the backend parser's diagnostic is embedded in the message.
     pub fn from_json_bytes(b: &[u8]) -> JsonataResult<Self> {
-        serde_json::from_slice(b)
-            .map_err(|e| JsonataError::new("D0000", format!("JSON parse error: {e}")))
+        let mut buf = b.to_vec();
+        Self::from_json_bytes_mut(&mut buf)
     }
 
     /// Decode a mutable byte slice using SIMD-accelerated parsing.
@@ -602,7 +605,10 @@ impl Value {
     /// Returns `D0000` if the input is not valid JSON; the backend
     /// parser's diagnostic is embedded in the message.
     pub fn from_json_bytes_mut(b: &mut [u8]) -> JsonataResult<Self> {
-        simd_json::serde::from_slice(b)
+        // `DeValue<false>`: simd-json hands every number to the visitor as a
+        // number, so object keys are taken literally (see the visitor below).
+        simd_json::serde::from_slice::<DeValue<false>>(b)
+            .map(|wrapped| wrapped.0)
             .map_err(|e| JsonataError::new("D0000", format!("JSON parse error: {e}")))
     }
 }
@@ -611,19 +617,73 @@ impl Value {
 //
 // Produces jsntrs::Value in a single pass, avoiding the intermediate
 // serde_json::Value tree + conversion walk.
+//
+// The visitor runs in two modes, picked by its const parameter:
+//
+// * `false` — the crate's own simd-json entry points (`from_json_str`,
+//   `from_json_bytes`, `from_json_bytes_mut`). Every JSON number arrives as
+//   `visit_i64`/`visit_u64`/`visit_f64`, so object keys are taken literally.
+// * `true` — the public `Deserialize` impl, which any serde data format may
+//   drive. serde_json is built here with `arbitrary_precision`, and that
+//   feature makes `deserialize_any` present numbers it cannot hand over as
+//   i64/u64 (fractions, exponents, oversized integers) as a one-entry map
+//   keyed by `NUMBER_TOKEN` whose value is the raw number text. Decoding that
+//   shape is what serde_json's own `Value` does; without it,
+//   `serde_json::from_slice::<Value>(br#"{"a":1.5}"#)` silently yields
+//   `{"a":{"$serde_json::private::Number":"1.5"}}` (jsntrs-ecq.1).
+
+/// serde_json's `arbitrary_precision` escape hatch: the key of the synthetic
+/// one-entry map that stands in for a number `deserialize_any` cannot pass
+/// through as i64/u64.
+const NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+/// Parse the raw number text serde_json carries under [`NUMBER_TOKEN`].
+///
+/// Restricted to JSON's number grammar: `f64::from_str` also accepts `inf`,
+/// `NaN` and `+1`, spellings no JSON document can produce, and an object that
+/// merely happens to use the token as a key must survive as an object.
+/// Overflow to infinity is kept — `JSON.parse("1e400")` is `Infinity` too.
+fn parse_number_token(text: &str) -> Option<f64> {
+    let starts_ok = matches!(text.as_bytes().first(), Some(b'-' | b'0'..=b'9'));
+    let chars_ok = text
+        .bytes()
+        .all(|b| b.is_ascii_digit() || matches!(b, b'-' | b'+' | b'.' | b'e' | b'E'));
+    if !starts_ok || !chars_ok {
+        return None;
+    }
+    text.parse().ok()
+}
 
 impl<'de> serde::Deserialize<'de> for Value {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_any(ValueVisitor)
+        deserializer.deserialize_any(ValueVisitor::<true>)
     }
 }
 
-struct ValueVisitor;
+/// `Value` newtype that carries the visitor mode into nested elements.
+struct DeValue<const ARBITRARY_PRECISION: bool>(Value);
 
-impl<'de> serde::de::Visitor<'de> for ValueVisitor {
+impl<'de, const ARBITRARY_PRECISION: bool> serde::Deserialize<'de>
+    for DeValue<ARBITRARY_PRECISION>
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer
+            .deserialize_any(ValueVisitor::<ARBITRARY_PRECISION>)
+            .map(DeValue)
+    }
+}
+
+struct ValueVisitor<const ARBITRARY_PRECISION: bool>;
+
+impl<'de, const ARBITRARY_PRECISION: bool> serde::de::Visitor<'de>
+    for ValueVisitor<ARBITRARY_PRECISION>
+{
     type Value = Value;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -667,8 +727,8 @@ impl<'de> serde::de::Visitor<'de> for ValueVisitor {
         A: serde::de::SeqAccess<'de>,
     {
         let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-        while let Some(elem) = seq.next_element()? {
-            vec.push(elem);
+        while let Some(elem) = seq.next_element::<DeValue<ARBITRARY_PRECISION>>()? {
+            vec.push(elem.0);
         }
         Ok(Value::Array(Rc::from(vec)))
     }
@@ -681,8 +741,22 @@ impl<'de> serde::de::Visitor<'de> for ValueVisitor {
             map.size_hint().unwrap_or(0),
             foldhash::fast::RandomState::default(),
         );
-        while let Some(key) = map.next_key::<CompactString>()? {
-            let val: Value = map.next_value()?;
+        let mut next = map.next_key::<CompactString>()?;
+        while let Some(key) = next {
+            let val = map.next_value::<DeValue<ARBITRARY_PRECISION>>()?.0;
+            next = map.next_key()?;
+            // A number in disguise only when this is the whole map: a real
+            // document that uses the token as one key among several, or pairs
+            // it with anything but JSON number text, stays an object.
+            if ARBITRARY_PRECISION
+                && obj.is_empty()
+                && next.is_none()
+                && key == NUMBER_TOKEN
+                && let Value::String(text) = &val
+                && let Some(n) = parse_number_token(text)
+            {
+                return Ok(Value::Number(n));
+            }
             obj.insert(key, val);
         }
         Ok(Value::Object(Rc::new(obj)))
@@ -797,6 +871,120 @@ mod tests {
             Value::from_json_bytes_mut(&mut buf).unwrap_err().code,
             "D0000"
         );
+    }
+
+    /// jsntrs-ecq.1: `from_json_bytes` used to run through serde_json, whose
+    /// `arbitrary_precision` feature turned every number that is not a plain
+    /// i64/u64 into a one-entry map keyed by a private token.
+    #[test]
+    fn from_json_bytes_decodes_every_number_shape() {
+        let doc = r#"{"int":2,"frac":1.5,"exp":1e3,"negexp":-1.5e-7,"big":12345678901234567890,"huge":1e308,"neg":-0.25,"arr":[0.1,-2.5e-3]}"#;
+        let v = Value::from_json_bytes(doc.as_bytes()).unwrap();
+        assert_eq!(
+            v.to_json_string(),
+            r#"{"int":2,"frac":1.5,"exp":1000,"negexp":-1.5e-7,"big":12345678901234567000,"huge":1e+308,"neg":-0.25,"arr":[0.1,-0.0025]}"#
+        );
+        // Round-trip: re-parsing the serialized form reproduces the Value.
+        let round_tripped = Value::from_json_bytes(v.to_json_string().as_bytes()).unwrap();
+        assert_eq!(round_tripped, v);
+
+        // Scalars at the document root, not just object members.
+        assert_eq!(Value::from_json_bytes(b"1.5").unwrap(), Value::Number(1.5));
+        assert_eq!(
+            Value::from_json_bytes(b"-1.5e-7").unwrap(),
+            Value::Number(-1.5e-7)
+        );
+    }
+
+    /// All three constructors share one parser, so they must agree — numbers
+    /// included, and on objects that literally use serde_json's private
+    /// number token as a key (those stay objects, never collapse to numbers).
+    #[test]
+    fn json_constructors_agree() {
+        let docs = [
+            r#"{"a":1.5,"b":2,"c":1e3}"#,
+            "[0.1,-2.5e-3,1e308,9007199254740993]",
+            r#"{"$serde_json::private::Number":"1.5"}"#,
+            r#"{"$serde_json::private::Number":"1.5","x":1}"#,
+            r#"{"$serde_json::private::Number":{"nested":true}}"#,
+            r#"{"outer":{"$serde_json::private::Number":"2.5"}}"#,
+        ];
+        for doc in docs {
+            let via_str = Value::from_json_str(doc).unwrap();
+            let via_bytes = Value::from_json_bytes(doc.as_bytes()).unwrap();
+            let mut buf = doc.as_bytes().to_vec();
+            let via_mut = Value::from_json_bytes_mut(&mut buf).unwrap();
+            assert_eq!(via_bytes, via_str, "from_json_bytes disagrees on {doc}");
+            assert_eq!(via_mut, via_str, "from_json_bytes_mut disagrees on {doc}");
+        }
+
+        // Verbatim round-trip of the token-keyed documents.
+        let token_doc = r#"{"$serde_json::private::Number":"1.5"}"#;
+        let v = Value::from_json_bytes(token_doc.as_bytes()).unwrap();
+        assert!(matches!(v, Value::Object(_)));
+        assert_eq!(v.to_json_string(), token_doc);
+    }
+
+    /// The public `Deserialize` impl can be driven by serde_json, where
+    /// `arbitrary_precision` hides numbers behind the private token map.
+    #[test]
+    fn serde_json_deserialize_decodes_arbitrary_precision_numbers() {
+        let v: Value =
+            serde_json::from_str(r#"{"a":1.5,"b":2,"c":1e3,"d":[-1.5e-7],"e":{"f":0.1}}"#).unwrap();
+        assert_eq!(
+            v.to_json_string(),
+            r#"{"a":1.5,"b":2,"c":1000,"d":[-1.5e-7],"e":{"f":0.1}}"#
+        );
+        let scalar: Value = serde_json::from_slice(b"1.5").unwrap();
+        assert_eq!(scalar, Value::Number(1.5));
+        // serde_json also routes integers it cannot fit in u64 through the token.
+        let oversized: Value = serde_json::from_str("123456789012345678901234567890").unwrap();
+        assert_eq!(oversized, Value::Number(1.234_567_890_123_456_8e29));
+    }
+
+    /// Driven by serde_json, a one-entry object whose key is the private
+    /// token and whose value is JSON number text is indistinguishable from
+    /// that number — serde_json's own `Value` decodes it identically. Every
+    /// other shape stays an object (serde_json's `Value` errors on those).
+    #[test]
+    fn serde_json_deserialize_keeps_token_objects_that_are_not_numbers() {
+        let text: Value =
+            serde_json::from_str(r#"{"$serde_json::private::Number":"hello"}"#).unwrap();
+        assert!(matches!(text, Value::Object(_)), "got {text}");
+        let extra_key: Value =
+            serde_json::from_str(r#"{"$serde_json::private::Number":"1.5","x":1}"#).unwrap();
+        assert!(matches!(extra_key, Value::Object(_)), "got {extra_key}");
+        let nested: Value =
+            serde_json::from_str(r#"{"$serde_json::private::Number":{"a":1}}"#).unwrap();
+        assert!(matches!(nested, Value::Object(_)), "got {nested}");
+        let not_first: Value =
+            serde_json::from_str(r#"{"x":1,"$serde_json::private::Number":"1.5"}"#).unwrap();
+        assert!(matches!(not_first, Value::Object(_)), "got {not_first}");
+
+        // The documented ambiguity, and the simd-json entry point that is
+        // free of it.
+        let ambiguous: Value =
+            serde_json::from_str(r#"{"$serde_json::private::Number":"1.5"}"#).unwrap();
+        assert_eq!(ambiguous, Value::Number(1.5));
+        let unambiguous =
+            Value::from_json_str(r#"{"$serde_json::private::Number":"1.5"}"#).unwrap();
+        assert!(matches!(unambiguous, Value::Object(_)));
+    }
+
+    #[test]
+    fn number_token_text_follows_json_grammar() {
+        assert_eq!(parse_number_token("1.5"), Some(1.5));
+        assert_eq!(parse_number_token("-1.5e-7"), Some(-1.5e-7));
+        assert_eq!(parse_number_token("1e+3"), Some(1000.0));
+        assert_eq!(parse_number_token("1e400"), Some(f64::INFINITY));
+        // Spellings f64::from_str accepts but JSON cannot produce.
+        assert_eq!(parse_number_token("inf"), None);
+        assert_eq!(parse_number_token("NaN"), None);
+        assert_eq!(parse_number_token("+1"), None);
+        assert_eq!(parse_number_token(" 1"), None);
+        assert_eq!(parse_number_token(""), None);
+        assert_eq!(parse_number_token("hello"), None);
+        assert_eq!(parse_number_token("1.2.3"), None);
     }
 
     #[test]
