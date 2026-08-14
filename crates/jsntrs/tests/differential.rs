@@ -113,6 +113,13 @@ const KEEP_ARRAY: &str = r#"{
               {"name": "d"}],
     "obj": {"a": {"x": [3]}, "b": {"x": [1]}}}"#;
 
+/// Items for lambda callees invoked as path steps and from lambda bodies:
+/// a call that supplies fewer args than the lambda declares params gets the
+/// context item prepended on the path-step route (jsntrs-6wr.5).
+const LAMBDA_ARITY: &str = r#"{
+    "items": [{"x": "p"}, {"x": "q", "y": "z"}],
+    "one": {"x": "p"}}"#;
+
 /// (expression, data) pairs. Every pair runs fast vs general.
 const CASES: &[(&str, &str)] = &[
     // ── Pure paths over nested arrays (gnata-dx5.4) ──
@@ -514,6 +521,54 @@ const CASES: &[(&str, &str)] = &[
     ("$map(items, function($v){\"id-\" & $v.name})", CLEAN),
     ("$map(items, function($v){$string($v.x)})", KEEP_ARRAY),
     ("items.$string(x)", KEEP_ARRAY),
+    // ══ NEW: fix/hof-fast-lifts ═════════════════════════════════════════
+    // ── Under-supplied lambda callees in lifted calls (jsntrs-6wr.5) ──
+    // As a path step the general path prepends the context item when the
+    // lambda declares more params than the call supplies; the lifted arg
+    // template has no context item, so the lift must decline.
+    (
+        r#"( $f := function($a, $b){ $a.x & "/" & $b }; items.$f(y) )"#,
+        LAMBDA_ARITY,
+    ),
+    (
+        r#"( $f := function($a, $b){ $a.x & "/" & $b }; one.$f(y) )"#,
+        LAMBDA_ARITY,
+    ),
+    (
+        r#"( $f := function($a, $b, $c){ $a.x & $b & $c }; items.$f(y) )"#,
+        LAMBDA_ARITY,
+    ),
+    (
+        "( $f := function($a, $b){ $b }; items.$f(x) )",
+        LAMBDA_ARITY,
+    ),
+    (
+        "( $f := function($a, $b){ $a.x = $b }; items.$f(x) )",
+        LAMBDA_ARITY,
+    ),
+    // Inside a lambda body the same shape pads with undefined instead —
+    // both routes share the lift, so pin them together.
+    (
+        "( $f := function($a, $b){ $b }; $map(items, function($v){ $f($v.x) }) )",
+        LAMBDA_ARITY,
+    ),
+    (
+        "( $f := function($a, $b){ $a }; $map(items, function($v){ $f($v.x) }) )",
+        LAMBDA_ARITY,
+    ),
+    // The guard must not over-bail: fully supplied calls still lift.
+    (
+        r#"( $f := function($a){ $a & "!" }; items.$f(x) )"#,
+        LAMBDA_ARITY,
+    ),
+    (
+        "( $f := function($a, $b){ $b }; items.$f(x, y) )",
+        LAMBDA_ARITY,
+    ),
+    (
+        "( $f := function($a){ $a }; $map(items, function($v){ $f($v.x) }) )",
+        LAMBDA_ARITY,
+    ),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

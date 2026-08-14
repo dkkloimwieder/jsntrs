@@ -699,6 +699,20 @@ pub(crate) fn analyze_mapped_call(
         return None;
     };
 
+    // An under-supplied lambda call means something different on each of the
+    // two general paths this lift stands in for: as a path step
+    // (`eval_path_function_step`) the context item is prepended as the first
+    // argument, while inside a lambda body (`eval_function` → `call_function`)
+    // the missing parameters are padded with undefined. The lifted arg
+    // template carries no context item and cannot tell the two apart, so
+    // decline the lift and let each caller's general path apply its own rule
+    // (jsntrs-6wr.5).
+    if let FunctionValue::Lambda(ref lambda) = *func
+        && lambda.params.len() > arguments.len()
+    {
+        return None;
+    }
+
     // Classify each argument.
     let mut arg_template = Vec::with_capacity(arguments.len());
     for &arg_node in &arguments {
@@ -1241,6 +1255,43 @@ mod tests {
         assert!(
             fast.deep_equal(&general),
             "fast path {fast:?} != general path {general:?}"
+        );
+    }
+
+    /// Regression test for jsntrs-6wr.5: a lambda path step that declares
+    /// more parameters than the call supplies gets the context item
+    /// prepended by `eval_path_function_step`. The lifted arg template has
+    /// no context item, so the lift must decline — array and single-item
+    /// input must agree, and both must keep the prepended `$a`.
+    #[test]
+    fn under_supplied_lambda_step_is_not_lifted() {
+        let src = r#"( $f := function($a, $b){ $a.x & "/" & $b }; items.$f(y) )"#;
+        let array_input =
+            Value::from_json_str(r#"{"items": [{"x": "p"}]}"#).expect("valid test JSON");
+        let single_input =
+            Value::from_json_str(r#"{"items": {"x": "p"}}"#).expect("valid test JSON");
+        let from_array = eval_expr(src, &array_input);
+        let from_single = eval_expr(src, &single_input);
+        assert!(
+            from_array.deep_equal(&from_single),
+            "array input {from_array:?} != single input {from_single:?}"
+        );
+        assert!(
+            from_array.deep_equal(&Value::String("p/".into())),
+            "context item not prepended: got {from_array:?}"
+        );
+    }
+
+    /// The jsntrs-6wr.5 guard must not over-bail: a call that supplies every
+    /// declared parameter never triggers the prepend rule, so it still lifts.
+    #[test]
+    fn fully_supplied_lambda_step_still_lifts() {
+        let input =
+            Value::from_json_str(r#"{"items": [{"x": "p", "y": "q"}]}"#).expect("valid test JSON");
+        let got = eval_expr(r#"( $f := function($a){ $a & "!" }; items.$f(x) )"#, &input);
+        assert!(
+            got.deep_equal(&Value::String("p!".into())),
+            "expected \"p!\", got {got:?}"
         );
     }
 
