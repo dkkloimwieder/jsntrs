@@ -1,0 +1,5 @@
+{
+    "expr": "$length(5)",
+    "data": "abc",
+    "code": "T0410"
+}

@@ -8,6 +8,8 @@ use crate::error::{JsonataError, JsonataResult};
 use crate::value::Value;
 use base64::Engine;
 
+use super::context_arg_code;
+
 pub fn fn_string(args: &[Value], focus: &Value) -> JsonataResult {
     let arg = if args.is_empty() { focus } else { &args[0] };
     if arg.is_undefined() {
@@ -43,9 +45,8 @@ pub fn fn_length(args: &[Value], focus: &Value) -> JsonataResult {
     if let Value::String(s) = arg {
         Ok(Value::Number(s.chars().count() as f64))
     } else {
-        let code = if from_focus { "T0411" } else { "T0410" };
         Err(JsonataError::new(
-            code,
+            context_arg_code(from_focus),
             "$length: argument must be a string",
         ))
     }
@@ -142,9 +143,8 @@ pub fn fn_substring_before(args: &[Value], focus: &Value) -> JsonataResult {
         s
     } else {
         // When using focus as context and it's not a string → T0411
-        let code = if from_context { "T0411" } else { "T0410" };
         return Err(JsonataError::new(
-            code,
+            context_arg_code(from_context),
             "$substringBefore: argument 1 must be a string",
         ));
     };
@@ -188,9 +188,8 @@ pub fn fn_substring_after(args: &[Value], focus: &Value) -> JsonataResult {
     let s: &str = if let Value::String(s) = str_arg {
         s
     } else {
-        let code = if from_context { "T0411" } else { "T0410" };
         return Err(JsonataError::new(
-            code,
+            context_arg_code(from_context),
             "$substringAfter: argument 1 must be a string",
         ));
     };
@@ -210,35 +209,38 @@ pub fn fn_substring_after(args: &[Value], focus: &Value) -> JsonataResult {
 }
 
 pub fn fn_uppercase(args: &[Value], focus: &Value) -> JsonataResult {
-    let arg = if args.is_empty() { focus } else { &args[0] };
+    let from_focus = args.is_empty();
+    let arg = if from_focus { focus } else { &args[0] };
     if arg.is_undefined() {
         return Ok(Value::Undefined);
     }
     match arg {
         Value::String(s) => Ok(Value::String(s.to_uppercase())),
         _ => Err(JsonataError::new(
-            "T0410",
+            context_arg_code(from_focus),
             "$uppercase: argument must be a string",
         )),
     }
 }
 
 pub fn fn_lowercase(args: &[Value], focus: &Value) -> JsonataResult {
-    let arg = if args.is_empty() { focus } else { &args[0] };
+    let from_focus = args.is_empty();
+    let arg = if from_focus { focus } else { &args[0] };
     if arg.is_undefined() {
         return Ok(Value::Undefined);
     }
     match arg {
         Value::String(s) => Ok(Value::String(s.to_lowercase())),
         _ => Err(JsonataError::new(
-            "T0410",
+            context_arg_code(from_focus),
             "$lowercase: argument must be a string",
         )),
     }
 }
 
 pub fn fn_trim(args: &[Value], focus: &Value) -> JsonataResult {
-    let arg = if args.is_empty() { focus } else { &args[0] };
+    let from_focus = args.is_empty();
+    let arg = if from_focus { focus } else { &args[0] };
     if arg.is_undefined() {
         return Ok(Value::Undefined);
     }
@@ -262,7 +264,7 @@ pub fn fn_trim(args: &[Value], focus: &Value) -> JsonataResult {
             Ok(Value::String(result.into()))
         }
         _ => Err(JsonataError::new(
-            "T0410",
+            context_arg_code(from_focus),
             "$trim: argument must be a string",
         )),
     }
@@ -327,10 +329,10 @@ pub fn fn_pad(args: &[Value], _focus: &Value) -> JsonataResult {
 
 pub fn fn_contains(args: &[Value], focus: &Value) -> JsonataResult {
     // When called with 1 arg in path context, use focus as the string.
-    let (str_arg, pattern_arg) = if args.len() >= 2 {
-        (&args[0], &args[1])
+    let (str_arg, pattern_arg, from_focus) = if args.len() >= 2 {
+        (&args[0], &args[1], false)
     } else if args.len() == 1 {
-        (focus, &args[0])
+        (focus, &args[0], true)
     } else {
         return Err(JsonataError::new(
             "T0410",
@@ -344,7 +346,7 @@ pub fn fn_contains(args: &[Value], focus: &Value) -> JsonataResult {
         Value::String(s) => s,
         _ => {
             return Err(JsonataError::new(
-                "T0410",
+                context_arg_code(from_focus),
                 "$contains: first argument must be a string",
             ));
         }

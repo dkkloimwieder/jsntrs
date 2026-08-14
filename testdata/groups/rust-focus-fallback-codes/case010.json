@@ -1,0 +1,5 @@
+{
+    "expr": "$trim()",
+    "data": " a  b ",
+    "result": "a b"
+}

@@ -1201,6 +1201,35 @@ For lambda callbacks, argument list is trimmed to declared parameter count:
 - 3+ params: `[]any{value, index, array}`
 For builtins: always `[]any{value}` only.
 
+### 5.1.4 Context Injection and T0411 (Rust port)
+
+A builtin whose first parameter carries the reference signature's `-` marker
+takes the focus when the caller omits that argument (`items.$uppercase()`,
+`$sift(fn)`, `$number()`). jsonata-js performs the substitution inside
+`signature.validate`: it first tests the context value's type against the
+parameter's regex and raises **T0411** ("context value is not a compatible
+type with argument N") when it does not fit. **T0410** is reserved for an
+argument the caller actually wrote.
+
+jsntrs has no signature on most builtins, so each one resolves the fallback
+itself and picks the code through `stdlib::context_arg_code(from_focus)`.
+The builtins with a focus fallback, and the context type each accepts, are:
+
+| builtin | reference signature | context accepts |
+| --- | --- | --- |
+| `$string`, `$boolean` | `x-` | anything (T0411 unreachable) |
+| `$length`, `$uppercase`, `$lowercase`, `$trim` | `s-` | string |
+| `$substringBefore`, `$substringAfter`, `$contains` | `s-` | string |
+| `$number` | `(nsb)-` | number, string, boolean |
+| `$fromMillis` | `n-` | number |
+| `$sift`, `$each` | `o-` | object |
+
+`$sort`'s one-argument form (`$sort(comparator)`) is a jsntrs/gnata extension
+— the reference signature `<af?:a>` has no context parameter — so it is not a
+T0411 site. Builtins jsntrs does *not* give a focus fallback (`$abs`,
+`$keys`, `$split`, `$pad`, `$base64encode`, …) are unchanged; see
+jsntrs-p0v.18 for the audit.
+
 ---
 
 ## 5.2 String Functions
@@ -1255,7 +1284,7 @@ For builtins: always `[]any{value}` only.
 - **Parameters**: `(string)` -- 0 or 1 arg.
 - **0 args**: Uses focus.
 - **nil**: undefined propagation.
-- **Non-string**: **T0410**.
+- **Non-string**: **T0410** for an explicit argument, **T0411** when the value came from the focus (5.1.4).
 - **Return**: `strings.ToUpper(s)`.
 
 ### 5.2.6 `$lowercase` (`string_funcs.go:264`)
@@ -1267,7 +1296,7 @@ For builtins: always `[]any{value}` only.
 
 - **Parameters**: `(string)` -- 0 or 1 arg.
 - **nil**: undefined propagation.
-- **Non-string**: **T0410**.
+- **Non-string**: **T0410** for an explicit argument, **T0411** when the value came from the focus (5.1.4).
 - **Behavior**: `strings.Join(strings.Fields(s), " ")` -- splits on whitespace, rejoins with single space. Trims leading/trailing and collapses internal whitespace.
 
 ### 5.2.8 `$pad` (`string_funcs.go:300`)
@@ -1286,7 +1315,7 @@ For builtins: always `[]any{value}` only.
 - **Array auto-mapping**: If first arg is array, maps `$contains` over string elements; returns true if any match.
 - **String pattern**: `strings.Contains`.
 - **Regex pattern** (map with `pattern` key): Compiles regex, tests via `MatchString`.
-- **Error codes**: T0410 (bad arity/types), D3010 (invalid regex argument).
+- **Error codes**: T0410 (bad arity/types), **T0411** when a non-string *focus* stands in for the first argument (5.1.4), D3010 (invalid regex argument).
 
 ### 5.2.10 `$split` (`string_funcs.go:418`)
 
@@ -1429,7 +1458,7 @@ For builtins: always `[]any{value}` only.
 - **0 args**: Uses focus.
 - **>1 args**: **T0410**.
 - **nil**: undefined propagation.
-- **Null**: **T0410** ("cannot cast null to number").
+- **Null**: **T0410** ("cannot cast null to number"). Null, array and object *focus* values are **T0411** instead — the reference parameter is `(nsb)-` (5.1.4).
 - **Coercion**:
   - `float64`: identity.
   - `json.Number`: parses to float64. Parse error: **D3030**.
@@ -1639,7 +1668,7 @@ For builtins: always `[]any{value}` only.
 - **Parameters**: `(object, function)` or `(function)` with focus.
 - **0 args**: **T0410** (Go reference: D3006).
 - **nil object**: undefined propagation.
-- **Non-map**: **T0410**.
+- **Non-map**: **T0410** for an explicit argument, **T0411** when the object came from the focus (5.1.4). An *array* focus keeps the jsntrs array-mapping behaviour below rather than raising; the reference rejects arrays outright.
 - **Callback arity** (`siftArgs`, line 161): Lambda param count determines args:
   - 0 params: `[]`
   - 1 param: `[value]`
@@ -1655,7 +1684,7 @@ For builtins: always `[]any{value}` only.
 - **Parameters**: `(object, function)` or `(function)` with focus.
 - **0 args**: **T0410** (Go reference: D3006).
 - **nil object**: undefined propagation.
-- **Non-map**: **T0410**.
+- **Non-map**: **T0410** for an explicit argument, **T0411** when the object came from the focus (5.1.4).
 - **Callback arity**: same trimming as `$sift` above (`(value, key, object)`
   cut to the callback's declared parameter count; builtins get `[value]`).
   **Deviation from the Go reference**, which always called back with exactly
@@ -1758,7 +1787,7 @@ For builtins: always `[]any{value}` only.
 - **Parameters**: `(millis [, picture [, timezone]])`.
 - **0 args**: Uses focus, or returns nil.
 - **nil first arg**: undefined propagation.
-- **Non-number**: **T0410**.
+- **Non-number**: **T0410** for an explicit argument, **T0411** when the millis value came from the focus (5.1.4).
 - **No picture**: Returns ISO 8601 with milliseconds and timezone offset (via `formatDefaultISO`, line 81). UTC offset renders as `"Z"`.
 - **With picture**: Formats via `formatWithPicture`.
 - **Non-string picture**: **T0410**.

@@ -1,0 +1,7 @@
+{
+    "expr": "$each(function($v) { $v })",
+    "data": {
+        "a": 1
+    },
+    "result": 1
+}

@@ -1,0 +1,5 @@
+{
+    "expr": "$uppercase()",
+    "data": "abc",
+    "result": "ABC"
+}

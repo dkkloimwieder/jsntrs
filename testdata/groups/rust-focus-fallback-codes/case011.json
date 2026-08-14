@@ -1,0 +1,5 @@
+{
+    "expr": "$contains(\"a\")",
+    "data": 5,
+    "code": "T0411"
+}

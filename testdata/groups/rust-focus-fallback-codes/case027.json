@@ -1,0 +1,9 @@
+{
+    "expr": "$sift(function($v) { true })",
+    "data": {
+        "a": 1
+    },
+    "result": {
+        "a": 1
+    }
+}

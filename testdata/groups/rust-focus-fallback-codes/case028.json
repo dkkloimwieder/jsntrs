@@ -1,0 +1,5 @@
+{
+    "expr": "$each(function($v) { $v })",
+    "data": "abc",
+    "code": "T0411"
+}

@@ -1,0 +1,5 @@
+{
+    "expr": "$sift(function($v) { true })",
+    "data": 5,
+    "code": "T0411"
+}

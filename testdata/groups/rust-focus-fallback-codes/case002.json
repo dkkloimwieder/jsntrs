@@ -1,0 +1,7 @@
+{
+    "expr": "$uppercase()",
+    "data": {
+        "a": 1
+    },
+    "code": "T0411"
+}

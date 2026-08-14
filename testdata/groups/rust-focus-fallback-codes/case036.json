@@ -1,0 +1,7 @@
+{
+    "expr": "$boolean()",
+    "data": {
+        "a": 1
+    },
+    "result": true
+}

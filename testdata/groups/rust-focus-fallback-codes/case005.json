@@ -1,0 +1,5 @@
+{
+    "expr": "$lowercase()",
+    "data": true,
+    "code": "T0411"
+}

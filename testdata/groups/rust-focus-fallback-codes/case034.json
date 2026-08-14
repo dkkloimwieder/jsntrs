@@ -1,0 +1,5 @@
+{
+    "expr": "$substringAfter(\"b\")",
+    "data": 5,
+    "code": "T0411"
+}

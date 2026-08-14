@@ -83,6 +83,7 @@ pub fn fn_millis(_args: &[Value], _focus: &Value) -> JsonataResult {
 /// Returns `T0410` for type mismatches and `D3137` for date formatting errors.
 pub fn fn_from_millis(args: &[Value], focus: &Value) -> JsonataResult {
     // With no args, use focus as millis argument.
+    let from_focus = args.is_empty();
     let effective_args: &[Value];
     let tmp;
     if args.is_empty() {
@@ -103,7 +104,7 @@ pub fn fn_from_millis(args: &[Value], focus: &Value) -> JsonataResult {
         Some(v) => v as i64,
         None => {
             return Err(JsonataError::new(
-                "T0410",
+                crate::stdlib::context_arg_code(from_focus),
                 "$fromMillis: argument must be a number",
             ));
         }

@@ -1,0 +1,5 @@
+{
+    "expr": "$lowercase()",
+    "data": "ABC",
+    "result": "abc"
+}

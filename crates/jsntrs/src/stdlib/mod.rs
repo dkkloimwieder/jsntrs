@@ -39,6 +39,24 @@ thread_local! {
     ];
 }
 
+/// Pick the type-mismatch code for a builtin parameter that can be filled
+/// from the context value.
+///
+/// The reference drives context injection from the signature itself: a `-`
+/// after a parameter sets `param.context`, and when `signature.validate`
+/// finds that parameter unmatched it substitutes the context value — but
+/// only after testing the context's type against the parameter's regex. A
+/// context value of the wrong type is **T0411** ("context value is not a
+/// compatible type with argument N"), never the **T0410** reserved for an
+/// argument the caller actually wrote.
+///
+/// jsntrs resolves the fallback inside each builtin instead of in a
+/// signature gate, so the builtins that take a focus fallback route their
+/// first-argument type error through this (jsntrs-p0v.18).
+pub(crate) fn context_arg_code(from_focus: bool) -> &'static str {
+    if from_focus { "T0411" } else { "T0410" }
+}
+
 /// Look up the canonical builtin `Rc` for a prepared-fast-path name.
 pub(crate) fn canonical_prepared(name: &str) -> Option<Rc<BuiltinFn>> {
     CANONICAL_PREPARED.with(|table| {

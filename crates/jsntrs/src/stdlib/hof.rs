@@ -8,6 +8,7 @@ use crate::parser::AstArena;
 use crate::parser::ast::BinaryOp;
 use crate::value::{Sequence, Value};
 
+use super::context_arg_code;
 use super::hof_fast::{self, SimpleLambda, analyze_lambda};
 
 /// Wrap a filtered result in the sequence `$filter` is specified to build.
@@ -342,12 +343,12 @@ pub fn fn_each(
     arena: &AstArena,
 ) -> JsonataResult {
     // When called with 1 arg (function), use focus as the object.
-    let (obj_arg, func_arg) = if args.len() >= 2 {
-        (&args[0], &args[1])
+    let (obj_arg, func_arg, from_focus) = if args.len() >= 2 {
+        (&args[0], &args[1], false)
     } else if args.len() == 1 && args[0].is_function() {
-        (focus, &args[0])
+        (focus, &args[0], true)
     } else if args.len() == 1 {
-        (&args[0], focus)
+        (&args[0], focus, false)
     } else {
         return Err(JsonataError::new("T0410", "$each: requires 2 arguments"));
     };
@@ -356,7 +357,7 @@ pub fn fn_each(
     }
     let Value::Object(obj) = obj_arg else {
         return Err(JsonataError::new(
-            "T0410",
+            context_arg_code(from_focus),
             "$each: first argument must be an object",
         ));
     };
@@ -386,10 +387,10 @@ pub fn fn_sift(
     arena: &AstArena,
 ) -> JsonataResult {
     // When called with 1 arg (function), use focus as the object.
-    let (obj_arg, func_arg) = if args.len() >= 2 {
-        (&args[0], &args[1])
+    let (obj_arg, func_arg, from_focus) = if args.len() >= 2 {
+        (&args[0], &args[1], false)
     } else if args.len() == 1 && args[0].is_function() {
-        (focus, &args[0])
+        (focus, &args[0], true)
     } else {
         return Err(JsonataError::new("T0410", "$sift: requires 2 arguments"));
     };
@@ -415,7 +416,7 @@ pub fn fn_sift(
     }
     let Value::Object(obj) = obj_arg else {
         return Err(JsonataError::new(
-            "T0410",
+            context_arg_code(from_focus),
             "$sift: first argument must be an object",
         ));
     };

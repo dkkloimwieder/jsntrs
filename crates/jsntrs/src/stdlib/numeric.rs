@@ -4,7 +4,10 @@
 use crate::error::{JsonataError, JsonataResult};
 use crate::value::Value;
 
+use super::context_arg_code;
+
 pub fn fn_number(args: &[Value], focus: &Value) -> JsonataResult {
+    let from_focus = args.is_empty();
     let arg = match args.len() {
         0 => focus,
         1 => &args[0],
@@ -13,9 +16,12 @@ pub fn fn_number(args: &[Value], focus: &Value) -> JsonataResult {
     if arg.is_undefined() {
         return Ok(Value::Undefined);
     }
+    // The reference parameter is `(nsb)-`, so a context value outside
+    // number/string/boolean never reaches the cast: it is T0411 (jsntrs-p0v.18).
+    let code = context_arg_code(from_focus);
     match arg {
         Value::Null => Err(JsonataError::new(
-            "T0410",
+            code,
             "$number: cannot cast null to number",
         )),
         Value::Number(n) => Ok(Value::Number(*n)),
@@ -50,14 +56,14 @@ pub fn fn_number(args: &[Value], focus: &Value) -> JsonataResult {
             }
         }
         Value::Array(_) => Err(JsonataError::new(
-            "T0410",
+            code,
             "$number: cannot cast array to number",
         )),
         Value::Object(_) => Err(JsonataError::new(
-            "T0410",
+            code,
             "$number: cannot cast object to number",
         )),
-        _ => Err(JsonataError::new("T0410", "$number: unsupported type")),
+        _ => Err(JsonataError::new(code, "$number: unsupported type")),
     }
 }
 

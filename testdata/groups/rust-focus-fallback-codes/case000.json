@@ -1,0 +1,10 @@
+{
+    "expr": "items.$uppercase()",
+    "data": {
+        "items": [
+            1,
+            2
+        ]
+    },
+    "code": "T0411"
+}

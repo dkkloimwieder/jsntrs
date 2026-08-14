@@ -1,0 +1,5 @@
+{
+    "expr": "$contains(\"a\")",
+    "data": "abc",
+    "result": true
+}

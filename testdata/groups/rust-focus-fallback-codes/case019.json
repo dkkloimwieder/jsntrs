@@ -1,0 +1,5 @@
+{
+    "expr": "$number()",
+    "data": true,
+    "result": 1
+}
