@@ -558,6 +558,10 @@ impl<'a> Formatter<'a> {
     /// source, and inside a dot chain the only such token is the group's
     /// `{` — so writing the group directly after that step both restores the
     /// terminator and keeps the group on the same node (jsntrs-ecq.9).
+    ///
+    /// The joining `.` itself is padded where it would otherwise be eaten by
+    /// the step in front of it (see [`Formatter::dot_needs_padding`]); on the
+    /// broken-line layout the newline and indent already separate them.
     fn emit_path(&mut self, steps: &[NodeId], group: Option<&GroupExpr>, depth: usize) {
         let anchor = self.group_anchor(steps, group);
         let emit_step = |f: &mut Self, i: usize, step: NodeId, depth: usize| {
@@ -577,7 +581,13 @@ impl<'a> Formatter<'a> {
         } else {
             for (i, &step) in steps.iter().enumerate() {
                 if i > 0 {
-                    self.out.push('.');
+                    // The group written after the previous step (if any) ends
+                    // in `}`, which no `.` can be absorbed into.
+                    if anchor != Some(i - 1) && dot_needs_padding(self.arena, steps[i - 1], step) {
+                        self.out.push_str(" . ");
+                    } else {
+                        self.out.push('.');
+                    }
                 }
                 emit_step(self, i, step, depth);
             }
@@ -906,6 +916,32 @@ impl<'a> Formatter<'a> {
             }
         }
     }
+}
+
+/// True when the `.` joining these two steps has to be padded with spaces
+/// to stay a path separator.
+///
+/// `scan_number` takes a `.` followed by a digit as the start of a fraction,
+/// so the two-step path `0 . 0` printed as `0.0` lexes back as the single
+/// number `0.0`. That was invisible until something depended on the fold:
+/// `1 - --0 . 0` became `1 - --0.0` and then `1 - 0.0`, because unary minus
+/// folds into a number literal but not into a path (jsntrs-ecq.11).
+///
+/// Both halves of the test are exact. A step's text ends in a number token
+/// only when the step *is* a `NumberLit` — every other kind ends in `]`,
+/// `}`, `)`, a flag letter or a name character, and a name that would end in
+/// a bare number cannot be spelled bare in the first place. It begins with a
+/// digit only for the same reason: [`needs_backtick`] quotes any name whose
+/// first character is not alphabetic, and a negative literal starts with
+/// `-`. Padding a `.` that did not strictly need it (after `1.5`, say, where
+/// the fraction is already spent) is harmless, so the test does not look at
+/// the digits.
+fn dot_needs_padding(arena: &AstArena, prev: NodeId, next: NodeId) -> bool {
+    matches!(arena.try_get(prev), Some(Expr::NumberLit { .. }))
+        && matches!(
+            arena.try_get(next),
+            Some(Expr::NumberLit { raw, .. }) if raw.starts_with(|c: char| c.is_ascii_digit())
+        )
 }
 
 /// The flags of a regex literal as they were written in the source.
@@ -2105,6 +2141,57 @@ mod tests {
                 "not idempotent: {src}"
             );
         }
+    }
+
+    /// A `.` between two numeric steps was written bare, so `0 . 0` came
+    /// back as the single number `0.0`. Invisible until a fold depended on
+    /// it: `1 - --0 . 0` printed `1 - --0.0`, which folds to `1 - 0.0` = 1,
+    /// where the path is an S0213 (jsntrs-ecq.11).
+    #[test]
+    fn numeric_path_steps_keep_their_joining_dot() {
+        assert_eq!(fmt("0 . 0"), "0 . 0");
+        assert_eq!(fmt("1 - --0 . 0"), "1 - --0 . 0");
+        assert_eq!(fmt("0 . 0 . 0"), "0 . 0 . 0");
+        assert_eq!(fmt("-1 . 0"), "-1 . 0");
+        assert_eq!(fmt(r#"0 . 0{"k": $}"#), r#"0 . 0{"k": $}"#);
+        // The broken-line layout separates them already.
+        assert_eq!(fmt("0 . 0 . 0 . 0"), "0\n  .0\n  .0\n  .0");
+        // Nothing else can weld: only a number can end in a bare number
+        // token, and only a number can start with a digit.
+        assert_eq!(fmt("0 . a"), "0.a");
+        assert_eq!(fmt("a . 0"), "a.0");
+        assert_eq!(fmt("0 . -1"), "0.-1");
+        for src in [
+            "0 . 0",
+            "1 - --0 . 0",
+            "0 . 0 . 0 . 0",
+            "1.5 . 0",
+            "1e5 . 0",
+        ] {
+            let once = fmt(src);
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src}"
+            );
+        }
+    }
+
+    /// And the round trip keeps the *meaning*: a numeric path step is an
+    /// S0213 at evaluation, where the welded number is a plain value.
+    #[test]
+    fn welded_numeric_steps_would_change_the_result() {
+        use crate::Expression;
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate("{}")
+                .map_or_else(|e| e.code.to_string(), |v| v.to_string())
+        };
+        assert_eq!(eval("1 - --0 . 0"), "S0213");
+        assert_eq!(eval(&fmt("1 - --0 . 0")), "S0213");
+        // The spelling the old formatter produced, for contrast.
+        assert_eq!(eval("1 - --0.0"), "1");
     }
 
     /// Wrapping the step in parentheses instead would not do: a block step

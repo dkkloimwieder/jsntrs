@@ -27,21 +27,17 @@
 //!   *different* expression, i.e. break idempotence (jsntrs-ecq.8).
 //!
 //! Turning the assertions on then surfaced four further gaps, all unrelated to
-//! those and to each other. Two are fixed — `emit` dropped the `{…}` group of a
-//! unary node (`-a{"k": 1}` → `-a`) and every `keep_array` outside
+//! those and to each other. Three are fixed — `emit` dropped the `{…}` group of
+//! a unary node (`-a{"k": 1}` → `-a`) and every `keep_array` outside
 //! `Name`/`Variable`/`Block` (`a[0][]` → `a[0]`), and a path group hoisted past
 //! a negated step changed the re-parsed step count (jsntrs-ecq.9); the comment
 //! scan skipped string literals but not backtick names or regex literals, so
 //! `` `a/*b*/c` `` grew a stray `/*b*/` line on every pass and `` `a'b` ``
-//! before a comment swallowed it (jsntrs-ecq.10). The rest are left for their
-//! own issues and fenced off in `known_unstable_gap` below, which is the
-//! authoritative list:
+//! before a comment swallowed it (jsntrs-ecq.10); the joining `.` was written
+//! bare, welding the two-step path `0 . 0` into the number `0.0`
+//! (jsntrs-ecq.11). The last is left for its own issue and fenced off in
+//! `known_unstable_gap` below, which is the authoritative list:
 //!
-//! - **numeric path steps welded by the joining dot.** Steps are joined with
-//!   a bare `.`, so the two-step path `0 . 0` formats to `0.0`, which lexes
-//!   back as one number. Invisible until a fold depends on it: `1 - --0 . 0`
-//!   formats to `1 - --0.0` and then to `1 - 0.0`, because the parser folds
-//!   unary minus into a number literal but not into a path.
 //! - **`trim_end` eats token text.** `format` finishes with
 //!   `String::trim_end`, whose notion of whitespace is Unicode's and so wider
 //!   than the lexer's (` `, `\t`, `\n`, `\r`, `\x0b`). A trailing `\x0c`,
@@ -65,17 +61,6 @@ fn is_alien_space(c: char) -> bool {
 /// pass differ from the first (see the header). No gap can still make the
 /// formatted text fail to *parse*: that assertion is unconditional.
 fn known_unstable_gap(src: &str) -> Option<&'static str> {
-    // A path dot with whitespace beside it may separate steps that the
-    // formatter welds together (`0 . 0` → the number `0.0`).
-    let bytes = src.as_bytes();
-    let lexer_space = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0B);
-    if bytes.iter().enumerate().any(|(i, &c)| {
-        c == b'.'
-            && (i > 0 && lexer_space(bytes[i - 1])
-                || i + 1 < bytes.len() && lexer_space(bytes[i + 1]))
-    }) {
-        return Some("spaced path dot");
-    }
     // The closing `trim_end` eats whitespace the lexer does not recognise
     // straight out of the last token.
     if src.chars().any(is_alien_space) {
