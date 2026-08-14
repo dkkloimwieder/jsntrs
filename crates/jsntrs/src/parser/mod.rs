@@ -372,6 +372,13 @@ impl Parser {
                 })?)
             }
             TokenType::Question => {
+                // A placeholder is a complete operand, like every other NUD
+                // value above: what follows it is infix context, so `?/x` is
+                // a division and not the start of a regex literal. Reading
+                // it as a regex made `? / x` an S0302 "unterminated regex"
+                // (jsntrs-ecq.9); jsonata-js rejects `?` in this position
+                // outright (S0211), so nothing can regress.
+                self.infix = true;
                 self.advance()?;
                 Ok(self.arena.alloc(Expr::Placeholder { pos: tok.pos })?)
             }

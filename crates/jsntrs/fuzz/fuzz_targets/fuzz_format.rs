@@ -27,8 +27,12 @@
 //!   *different* expression, i.e. break idempotence (jsntrs-ecq.8).
 //!
 //! Turning the assertions on then surfaced four further gaps, all unrelated to
-//! those and to each other. They are left for their own issues and fenced off
-//! in `known_gap` below, which is the authoritative list:
+//! those and to each other. One is fixed — `emit` dropped the `{…}` group of a
+//! unary node (`-a{"k": 1}` → `-a`) and every `keep_array` outside
+//! `Name`/`Variable`/`Block` (`a[0][]` → `a[0]`), and a path group hoisted past
+//! a negated step changed the re-parsed step count (jsntrs-ecq.9). The rest are
+//! left for their own issues and fenced off in `known_unstable_gap` below,
+//! which is the authoritative list:
 //!
 //! - **comment scan vs. names and regexes.** `extract_comments` skips string
 //!   literals, but not backtick-quoted names and not regex literals, so a
@@ -42,15 +46,6 @@
 //!   formatter's own scanner does not.) Broad enough that any comment in the
 //!   text is exempt from idempotence; comments never broke *parsing*, so
 //!   that assertion still applies to them.
-//! - **groups and bindings hung off inner nodes.** `emit` ignores the `{…}`
-//!   group of a unary node — `-a{"k": 1}` → `-a`, `[1, 2]{"k": $}` →
-//!   `[1, 2]` — and the `#$i` index binding of a placeholder: `o#$>?#$i/x` →
-//!   `o#$ > ? / x`. Where the group survives as the path's own, it can still
-//!   move: `2.a.--b{}.c@$v` re-parses from the moved form with a different
-//!   step count, which changes the line-breaking. Besides losing meaning, the
-//!   shortened text can leave a `/` in prefix position where the lexer reads
-//!   a regex instead of division (`-?{}/0` → `-? / 0` → S0302), so the
-//!   fallout is any parse error at all, not one code.
 //! - **numeric path steps welded by the joining dot.** Steps are joined with
 //!   a bare `.`, so the two-step path `0 . 0` formats to `0.0`, which lexes
 //!   back as one number. Invisible until a fold depends on it: `1 - --0 . 0`
@@ -75,26 +70,9 @@ fn is_alien_space(c: char) -> bool {
     c.is_whitespace() && !matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{b}')
 }
 
-/// `Some(reason)` when this pair hits a known gap that can make the
-/// formatted text fail to parse (see the header).
-fn known_unparsable_gap(src: &str, once: &str) -> Option<&'static str> {
-    // A construct that got dropped took its punctuation with it, and nothing
-    // else in the formatter removes a `{`, `#` or `@`.
-    let dropped = |c: char| once.matches(c).count() < src.matches(c).count();
-    if dropped('{') || dropped('#') || dropped('@') {
-        return Some("group or binding dropped");
-    }
-    // A group hung off a unary node (negate or array constructor) is dropped
-    // or relocated; both spellings need a `{` next to a `-` or a `[`.
-    if src.contains('{') && (src.contains('-') || src.contains('[')) {
-        return Some("group possibly attached to a unary node");
-    }
-    None
-}
-
 /// `Some(reason)` when this pair hits a known gap that makes the *second*
-/// pass differ from the first (see the header). Everything that can break
-/// parsing can also break this, so that list is included by the caller.
+/// pass differ from the first (see the header). No gap can still make the
+/// formatted text fail to *parse*: that assertion is unconditional.
 fn known_unstable_gap(src: &str, once: &str) -> Option<&'static str> {
     // The comment scan is blind to backtick names and regex literals, so a
     // comment marker anywhere in the text may be dropped or duplicated.
@@ -128,9 +106,6 @@ fuzz_target!(|data: &[u8]| {
     let Ok(once) = jsntrs::format(src) else {
         return;
     };
-    if known_unparsable_gap(src, &once).is_some() {
-        return;
-    }
     // Formatter output is itself user input to the next `format` call
     // (editors reformat on every save), so it must parse …
     let twice = match jsntrs::format(&once) {

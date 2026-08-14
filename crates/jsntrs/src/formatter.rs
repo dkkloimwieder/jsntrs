@@ -158,6 +158,45 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Write one node.
+    ///
+    /// # Decoration audit
+    ///
+    /// Five slots decorate a node *after* its own text — `stages`
+    /// (`[pred]`, `#$i`), `keep_array` (`[]`), `focus` (`@$v`), `index`
+    /// (`#$i`) and `group` (`{…}`) — and each is carried only by the node
+    /// kinds the parser's `set_*` helpers can reach. Dropping one is silent
+    /// semantic loss, so this table is the contract; `every_decorated_node_kind_round_trips`
+    /// exercises one expression per ✓ (jsntrs-ecq.9).
+    ///
+    /// | node        | stages | keep_array | focus | index | group |
+    /// |-------------|--------|------------|-------|-------|-------|
+    /// | `Name`      | ✓      | ✓          | ✓     | ✓     | ✓     |
+    /// | `Variable`  | –      | ✓          | ✓     | ✓     | ✓     |
+    /// | `Binary`    | –      | ✓          | ✓     | ✓     | ✓     |
+    /// | `Unary`     | –      | ✓          | –     | –     | ✓     |
+    /// | `Block`     | –      | ✓          | ✓     | ✓     | –     |
+    /// | `Function`  | –      | ✓          | –     | –     | ✓     |
+    /// | `Sort`      | –      | ✓          | ✓     | ✓     | –     |
+    /// | `Path`      | –      | (derived)  | –     | –     | ✓     |
+    /// | `Grouped`   | –      | –          | –     | –     | ✓     |
+    ///
+    /// Every other kind (`StringLit`, `NumberLit`, `ValueLit`, `Wildcard`,
+    /// `Descendant`, `Parent`, `Regex`, `Placeholder`, `Condition`, `Bind`,
+    /// `Partial`, `Lambda`, `Transform`) has no decoration slot at all: the
+    /// parser's `set_group` wraps such a node in `Grouped` and `set_focus` /
+    /// `set_index` / `set_keep_array` drop the decoration outright, so there
+    /// is nothing for `emit` to write.
+    ///
+    /// `Path::keep_singleton_array` is *derived*: `process_ast` raises it
+    /// when any step carries `keep_array`, and the step keeps its own flag,
+    /// so emitting the step's `[]` reproduces it.
+    ///
+    /// Slot order is fixed: `[]` before `{…}`, everywhere. The reverse
+    /// spelling is an S0209 ("a predicate cannot follow a grouping
+    /// expression"), which also makes `keep_array` unreachable on a negated
+    /// `Unary` — `-a[]` puts the `[]` on `a`, and the only spelling that
+    /// would not, `-a{}[]`, is that same S0209.
     #[expect(clippy::too_many_lines)]
     fn emit(&mut self, id: NodeId, depth: usize) {
         if id.is_empty() {
@@ -264,6 +303,7 @@ impl<'a> Formatter<'a> {
                 lhs,
                 rhs,
                 ref group,
+                keep_array,
                 ref focus,
                 ref index,
                 ..
@@ -273,6 +313,7 @@ impl<'a> Formatter<'a> {
                     lhs,
                     rhs,
                     group.as_ref(),
+                    keep_array,
                     focus.as_deref(),
                     index.as_deref(),
                     depth,
@@ -285,19 +326,22 @@ impl<'a> Formatter<'a> {
                 ref expressions,
                 ref lhs,
                 ref group,
+                keep_array,
                 ..
-            } => match op {
-                UnaryOp::Negate => {
-                    self.out.push('-');
-                    self.emit(operand, depth);
+            } => {
+                match op {
+                    UnaryOp::Negate => {
+                        self.out.push('-');
+                        self.emit(operand, depth);
+                    }
+                    UnaryOp::ArrayCons => self.emit_array(expressions, depth),
+                    UnaryOp::ObjCons => self.emit_object(lhs, depth),
                 }
-                UnaryOp::ArrayCons => {
-                    self.emit_array(expressions, depth);
+                if keep_array {
+                    self.out.push_str("[]");
                 }
-                UnaryOp::ObjCons => {
-                    self.emit_object(lhs, group.as_ref(), depth);
-                }
-            },
+                self.emit_group(group.as_ref(), depth);
+            }
 
             Expr::Block {
                 ref expressions,
@@ -332,10 +376,14 @@ impl<'a> Formatter<'a> {
                 procedure,
                 ref arguments,
                 ref group,
+                keep_array,
                 ..
             } => {
                 self.emit(procedure, depth);
                 self.emit_args(arguments, depth);
+                if keep_array {
+                    self.out.push_str("[]");
+                }
                 self.emit_group(group.as_ref(), depth);
             }
 
@@ -377,6 +425,7 @@ impl<'a> Formatter<'a> {
             Expr::Sort {
                 expr,
                 ref terms,
+                keep_array,
                 ref focus,
                 ref index,
                 ..
@@ -395,6 +444,9 @@ impl<'a> Formatter<'a> {
                     self.emit(term.expression, depth);
                 }
                 self.out.push(')');
+                if keep_array {
+                    self.out.push_str("[]");
+                }
                 self.emit_bindings(focus.as_deref(), index.as_deref());
             }
 
@@ -441,24 +493,91 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Emit the steps of a path, then its group-by.
+    ///
+    /// The group normally goes last: `process_ast` hoists a group written
+    /// mid-chain onto the path itself (`a.b{"k": $}.c` → `a.b.c{"k": $}`),
+    /// exactly as jsonata-js does, and that hoisted form is the canonical
+    /// spelling — pinned by the `rust-path-group-hoist` conformance group.
+    ///
+    /// One step kind cannot be followed by a bare `.` though. A `-` parses
+    /// its operand at binding power 70, below the dot's 75, so a re-read of
+    /// `2.a.--b.c` folds the tail into the operand (`--(b.c)`) and yields a
+    /// *shorter* path than the one being printed. Such a step exists only
+    /// because something at binding power ≤ 70 ended the operand in the
+    /// source, and inside a dot chain the only such token is the group's
+    /// `{` — so writing the group directly after that step both restores the
+    /// terminator and keeps the group on the same node (jsntrs-ecq.9).
     fn emit_path(&mut self, steps: &[NodeId], group: Option<&GroupExpr>, depth: usize) {
+        let anchor = self.group_anchor(steps, group);
+        let emit_step = |f: &mut Self, i: usize, step: NodeId, depth: usize| {
+            f.emit(step, depth);
+            if anchor == Some(i) {
+                f.emit_group(group, depth);
+            }
+        };
         if steps.len() > BREAK_THRESHOLD {
-            self.emit(steps[0], depth);
-            for &step in &steps[1..] {
+            emit_step(self, 0, steps[0], depth);
+            for (i, &step) in steps.iter().enumerate().skip(1) {
                 self.out.push('\n');
                 self.indent(depth + 1);
                 self.out.push('.');
-                self.emit(step, depth + 1);
+                emit_step(self, i, step, depth + 1);
             }
         } else {
             for (i, &step) in steps.iter().enumerate() {
                 if i > 0 {
                     self.out.push('.');
                 }
-                self.emit(step, depth);
+                emit_step(self, i, step, depth);
             }
         }
-        self.emit_group(group, depth);
+        if anchor.is_none() {
+            self.emit_group(group, depth);
+        }
+    }
+
+    /// The step index the path's group must follow, or `None` for the
+    /// default "after the last step" placement (see [`Formatter::emit_path`]).
+    ///
+    /// Records an error when a step needs a terminator that no group can
+    /// supply. That is unreachable today — every dot-absorbing step comes
+    /// from a `{…}` in the chain, and a chain carries at most one (S0210) —
+    /// but reporting beats printing a shorter path.
+    fn group_anchor(&mut self, steps: &[NodeId], group: Option<&GroupExpr>) -> Option<usize> {
+        let last = steps.len().checked_sub(1)?;
+        let mut anchor = None;
+        for (i, &step) in steps.iter().enumerate().take(last) {
+            if !self.step_absorbs_dot(step) {
+                continue;
+            }
+            if group.is_none() || anchor.is_some() {
+                if self.error.is_none() {
+                    self.error = Some(JsonataError::new(
+                        "S0210",
+                        "path step has no JSONata spelling: a negated step needs a \
+                         following group expression to end it",
+                    ));
+                }
+                return anchor;
+            }
+            anchor = Some(i);
+        }
+        anchor
+    }
+
+    /// True when re-reading this step followed by `.` would swallow the
+    /// rest of the path into the step. Only unary minus does: its operand
+    /// binds looser than `.`, unless its own `{…}` group already ends it.
+    fn step_absorbs_dot(&self, step: NodeId) -> bool {
+        matches!(
+            self.arena.try_get(step),
+            Some(Expr::Unary {
+                op: UnaryOp::Negate,
+                group: None,
+                ..
+            })
+        )
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -468,6 +587,7 @@ impl<'a> Formatter<'a> {
         lhs: NodeId,
         rhs: NodeId,
         group: Option<&GroupExpr>,
+        keep_array: bool,
         focus: Option<&str>,
         index: Option<&str>,
         depth: usize,
@@ -492,6 +612,9 @@ impl<'a> Formatter<'a> {
                 self.out.push(' ');
                 self.emit(rhs, depth);
             }
+        }
+        if keep_array {
+            self.out.push_str("[]");
         }
         self.emit_bindings(focus, index);
         self.emit_group(group, depth);
@@ -547,7 +670,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn emit_object(&mut self, lhs: &[NodeId], group: Option<&GroupExpr>, depth: usize) {
+    fn emit_object(&mut self, lhs: &[NodeId], depth: usize) {
         // lhs is flat [k0, v0, k1, v1, ...]
         let pair_count = lhs.len() / 2;
         if pair_count > BREAK_THRESHOLD {
@@ -576,7 +699,6 @@ impl<'a> Formatter<'a> {
             }
             self.out.push('}');
         }
-        self.emit_group(group, depth);
     }
 
     fn emit_block(&mut self, expressions: &[NodeId], depth: usize) {
@@ -1746,6 +1868,154 @@ mod tests {
                 eval(&first),
                 expected,
                 "formatted output changed semantics for: {expr} -> {first}"
+            );
+        }
+    }
+
+    // ── Decoration slots (group, focus, index, keep_array, stages) ──
+
+    /// The audit on [`Formatter::emit`] made executable: one expression per
+    /// decoration slot the parser can fill, each of which must survive a
+    /// round trip. `emit` used to ignore the `Unary` group and every
+    /// `keep_array` outside `Name`/`Variable`/`Block`, so `-a{"k": 1}` came
+    /// back as `-a` and `a[0][]` as `a[0]` (jsntrs-ecq.9).
+    #[test]
+    fn every_decorated_node_kind_round_trips() {
+        // (source, the decoration text that must survive)
+        let cases = [
+            // Name: stages, keep_array, focus, index, group.
+            ("a[b > 3]", "[b > 3]"),
+            ("a[]", "[]"),
+            ("a@$v", "@$v"),
+            ("a#$i", "#$i"),
+            (r#"a{"k": $}"#, r#"{"k": $}"#),
+            // Variable: keep_array, focus, index, group.
+            ("$x[]", "[]"),
+            ("$x@$v", "@$v"),
+            ("$x#$i", "#$i"),
+            (r#"$x{"k": $}"#, r#"{"k": $}"#),
+            // Binary: keep_array, index, group. (`@` after a predicate is
+            // S0215, so `focus` on a Binary has no spelling.)
+            ("a[0][]", "[]"),
+            ("a[0]#$i", "#$i"),
+            (r#"a[0]{"k": $}"#, r#"{"k": $}"#),
+            // Unary: keep_array and group, for all three operators.
+            ("[1, 2][]", "[]"),
+            (r#"-a{"k": $}"#, r#"{"k": $}"#),
+            (r#"[1, 2]{"k": $}"#, r#"{"k": $}"#),
+            (r#"{"a": 1}{"k": $}"#, r#"{"k": $}"#),
+            // Block: keep_array, focus, index.
+            ("(a)[]", "[]"),
+            ("(a)@$v", "@$v"),
+            ("(a)#$i", "#$i"),
+            // Function: keep_array and group.
+            ("$f()[]", "[]"),
+            (r#"$f(){"k": $}"#, r#"{"k": $}"#),
+            // Sort: keep_array and index. (`@` after `^(…)` is S0216.)
+            ("a^(<b)[]", "[]"),
+            ("a^(<b)#$i", "#$i"),
+            // Path: its own group; `keep_singleton_array` is derived from
+            // the steps, so the step's own `[]` carries it.
+            (r#"a.b{"k": $}"#, r#"{"k": $}"#),
+            ("a.b[]", "[]"),
+            // Grouped: the fallback wrapper for a node with no group slot.
+            (r#"(1){"k": $}"#, r#"{"k": $}"#),
+            (r#"-1{"k": $}"#, r#"{"k": $}"#),
+        ];
+        for (src, decoration) in cases {
+            let once = fmt(src);
+            assert!(
+                once.contains(decoration),
+                "decoration {decoration:?} dropped from `{src}`: {once:?}"
+            );
+            let twice = format(&once)
+                .unwrap_or_else(|e| panic!("formatted `{src}` -> {once:?} does not parse: {e}"));
+            assert_eq!(once, twice, "not idempotent for: {src}");
+        }
+    }
+
+    /// The dropped decorations were real meaning, not decoration: each of
+    /// these evaluates to something the stripped spelling does not.
+    /// Reference-verified against jsonata-js 2.x (2026-08-14).
+    #[test]
+    fn decorations_keep_their_meaning_through_a_round_trip() {
+        use crate::Expression;
+        let data = r#"{"a": [{"b": 3}, {"b": 4}], "d": [{"p": 2}, {"p": 1}]}"#;
+        let cases = [
+            (r#"-a[0].b{"k": $}"#, r#"{"k":-3}"#),
+            (r#"[1, 2]{"k": $}"#, r#"{"k":[1,2]}"#),
+            (r#"[1, 2][]{"k": $}"#, r#"{"k":[1,2]}"#),
+            ("a[0][]", r#"[{"b":3}]"#),
+            ("a[0][].b", "[3]"),
+            ("a.b[]", "[3,4]"),
+            ("d^(<p)[]", r#"[{"p":1},{"p":2}]"#),
+        ];
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate(data)
+                .unwrap_or_else(|e| panic!("eval `{src}`: {e}"))
+                .to_string()
+        };
+        for (src, expected) in cases {
+            assert_eq!(eval(src), expected, "unexpected source result: {src}");
+            let once = fmt(src);
+            assert_eq!(
+                eval(&once),
+                expected,
+                "formatted output changed semantics: {src} -> {once:?}"
+            );
+        }
+    }
+
+    /// A `-` step parses its operand below the dot's binding power, so a
+    /// path group written after the last step would let the step swallow
+    /// the tail: `2.a.--b{}.c@$v` printed `2.a.--b.c@$v{}`, which re-reads
+    /// as `--(b.c@$v)` — one step short, and so not idempotent either. The
+    /// group goes back where it ends the operand (jsntrs-ecq.9).
+    #[test]
+    fn path_group_ends_a_negated_step() {
+        assert_eq!(fmt("2.a.--b{}.c@$v"), "2\n  .a\n  .--b{}\n  .c@$v");
+        assert_eq!(fmt("-a{}.--b{}.c"), "-a{}.--b{}.c");
+        // A negated step with its own group already ends itself, and the
+        // path group keeps the canonical trailing position.
+        assert_eq!(fmt("-a{}.b"), "-a{}.b");
+        assert_eq!(fmt(r#"x.--y{"k": $}.k"#), r#"x.--y{"k": $}.k"#);
+        // A negated *last* step needs no terminator.
+        assert_eq!(fmt("a.-b"), "a.-b");
+        for src in ["2.a.--b{}.c@$v", "-a{}.--b{}.c", r#"x.--y{"k": $}.k"#] {
+            let once = fmt(src);
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src}"
+            );
+        }
+    }
+
+    /// Wrapping the step in parentheses instead would not do: a block step
+    /// adds an ancestry level, so `%` inside it points one step further out
+    /// (`a.b.-%.n` → `[-1, -2]`, `a.b.(-%).n` → D1002). The formatter must
+    /// therefore never parenthesize a step.
+    #[test]
+    fn negated_step_is_not_parenthesized() {
+        assert_eq!(fmt("a.b.-%.n"), "a.b.-%.n");
+        assert!(!fmt("2.a.--b{}.c@$v").contains("(-"));
+    }
+
+    /// A placeholder is a complete operand, so the token after it is lexed
+    /// in infix context: `-?{}/0` formats to `-?{} / 0`, whose `/` is a
+    /// division and not the start of a regex (jsntrs-ecq.9).
+    #[test]
+    fn placeholder_is_an_operand_for_the_lexer() {
+        assert_eq!(fmt("-?{}/0"), "-?{} / 0");
+        assert_eq!(fmt("o#$>?#$i/x"), "o#$ > ? / x");
+        for src in ["-?{}/0", "o#$>?#$i/x", "?/2", "$f(?/2)"] {
+            let once = fmt(src);
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src}"
             );
         }
     }
