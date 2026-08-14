@@ -1,0 +1,19 @@
+{
+    "expr": "lib.books#$i{genre: title}",
+    "data": {
+        "lib": {
+            "books": [
+                {
+                    "genre": "a",
+                    "title": "t1"
+                },
+                {
+                    "genre": null,
+                    "title": "t2"
+                }
+            ]
+        }
+    },
+    "bindings": {},
+    "code": "T1003"
+}

@@ -1693,6 +1693,45 @@ mod tests {
         }
     }
 
+    /// Tuple mode (`#$v` / `@$v` / `%` anywhere in the path) applies the same
+    /// key rules as the standard group path: undefined skips the item, null
+    /// and every other non-string raises T1003, and a group whose keys all
+    /// resolve to undefined yields `{}` rather than undefined.
+    /// jsonata-js 2.x-verified 2026-08-14 (jsntrs-p0v.1).
+    #[test]
+    fn tuple_group_by_key_null_vs_undefined() {
+        let data = r#"{"lib":{"books":[{"g":"a","t":"t1"},{"t":"t2"}]}}"#;
+        let none = r#"{"lib":{"books":[{"t":"t1"},{"t":"t2"}]}}"#;
+        // Undefined key: item skipped, not an error — same as `lib.books{g: t}`.
+        for expr in ["lib.books#$i{g: t}", "lib.books@$b{$b.g: $b.t}"] {
+            assert_eq!(
+                eval_with_data(expr, data),
+                eval_simple(r#"{"a": "t1"}"#),
+                "for {expr}"
+            );
+            assert_eq!(
+                eval_with_data(expr, none),
+                eval_simple("{}"),
+                "all-undefined keys must yield an empty object for {expr}"
+            );
+        }
+        // Null (or any other non-string) key: T1003, not a skip.
+        for (expr, json) in [
+            (
+                "lib.books#$i{g: t}",
+                r#"{"lib":{"books":[{"g":"a"},{"g":null}]}}"#,
+            ),
+            (
+                "lib.books@$b{$b.g: $b.t}",
+                r#"{"lib":{"books":[{"g":"a"},{"g":true}]}}"#,
+            ),
+        ] {
+            let input = Value::from_json_str(json).expect("invalid JSON");
+            let err = eval_expr(expr, &input).unwrap_err();
+            assert_eq!(err.code, "T1003", "expected T1003 for {expr}");
+        }
+    }
+
     /// S0210 (one group per step) and S0209 (no predicate after group)
     /// apply to Grouped wrappers exactly as to inline groups (Go-verified).
     #[test]

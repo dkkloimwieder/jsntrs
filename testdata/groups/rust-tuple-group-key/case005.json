@@ -1,0 +1,20 @@
+{
+    "expr": "lib.books@$b{$b.genre: $b.title}",
+    "data": {
+        "lib": {
+            "books": [
+                {
+                    "genre": "a",
+                    "title": "t1"
+                },
+                {
+                    "title": "t2"
+                }
+            ]
+        }
+    },
+    "bindings": {},
+    "result": {
+        "a": "t1"
+    }
+}

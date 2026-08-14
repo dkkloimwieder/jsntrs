@@ -1,0 +1,23 @@
+{
+    "expr": "lib.books.review.%{genre: title}",
+    "data": {
+        "lib": {
+            "books": [
+                {
+                    "title": "t1",
+                    "review": {
+                        "stars": 5
+                    }
+                },
+                {
+                    "title": "t2",
+                    "review": {
+                        "stars": 3
+                    }
+                }
+            ]
+        }
+    },
+    "bindings": {},
+    "result": {}
+}

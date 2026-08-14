@@ -1,0 +1,24 @@
+{
+    "expr": "lib.books#$i{genre: $join(title, \",\")}",
+    "data": {
+        "lib": {
+            "books": [
+                {
+                    "genre": "a",
+                    "title": "t1"
+                },
+                {
+                    "title": "t2"
+                },
+                {
+                    "genre": "a",
+                    "title": "t3"
+                }
+            ]
+        }
+    },
+    "bindings": {},
+    "result": {
+        "a": "t1,t3"
+    }
+}

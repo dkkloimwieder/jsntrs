@@ -49,12 +49,20 @@ pub(super) fn eval_tuple_group(
 
         for (item, item_env) in ctxs {
             let key_val = eval_no_stack_check(arena, key_node, item, item_env)?;
+            // Undefined keys skip the item; null (and any other non-string) is
+            // T1003. Same rule as the standard group path in
+            // `collect_group_items` — tuple mode is selected by the mere
+            // presence of `#$v`/`@$v`/`%` in the path, so it must not change
+            // the group semantics (jsonata-js-verified, jsntrs-p0v.1).
+            if key_val.is_undefined() {
+                continue;
+            }
             let key: compact_str::CompactString = match &key_val {
                 Value::String(s) => s.clone(),
                 _ => {
                     return Err(JsonataError::new(
                         "T1003",
-                        "key expression must evaluate to a string",
+                        format!("key expression must evaluate to a string, got {key_val:?}"),
                     ));
                 }
             };
@@ -89,11 +97,11 @@ pub(super) fn eval_tuple_group(
         }
     }
 
-    if result_map.is_empty() {
-        Ok(Value::Undefined)
-    } else {
-        Ok(Value::Object(Rc::new(result_map)))
-    }
+    // A group over a non-empty tuple stream whose keys (or values) all resolve
+    // to undefined yields `{}`, exactly as the standard group path does — an
+    // empty tuple stream never reaches here (`eval_path_tuple` returns
+    // undefined first).
+    Ok(Value::Object(Rc::new(result_map)))
 }
 
 /// Merge environments from a group of records.
