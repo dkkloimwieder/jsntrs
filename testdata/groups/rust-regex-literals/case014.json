@@ -1,0 +1,7 @@
+{
+    "expr": "$match(\"x\\\\y\", /\\\\(y)/).match",
+    "dataset": null,
+    "bindings": {},
+    "result": "\\y",
+    "comment": "An escaped backslash re-arms the next character, so the '(' opens a real group. Deliberate deviation: jsonata-js reports S0302 here (docs/spec.md 2.5)."
+}

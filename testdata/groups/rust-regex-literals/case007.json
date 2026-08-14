@@ -1,0 +1,10 @@
+{
+    "expr": "$split(\"a(b(c\", /\\(/)",
+    "dataset": null,
+    "bindings": {},
+    "result": [
+        "a",
+        "b",
+        "c"
+    ]
+}

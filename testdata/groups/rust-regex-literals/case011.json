@@ -1,0 +1,6 @@
+{
+    "expr": "$replace(\"a/b\", /\\//, \":\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "a:b"
+}

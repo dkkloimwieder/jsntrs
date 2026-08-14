@@ -1,0 +1,7 @@
+{
+    "expr": "$match(\"a\\\\\\\\b\", /\\\\{2}/).match",
+    "dataset": null,
+    "bindings": {},
+    "result": "\\\\",
+    "comment": "Same rule with a repetition quantifier. Deliberate deviation: jsonata-js reports S0302 here (docs/spec.md 2.5)."
+}

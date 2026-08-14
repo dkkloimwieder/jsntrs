@@ -1,0 +1,6 @@
+{
+    "expr": "$match(\"aa\", /a(b/)",
+    "dataset": null,
+    "bindings": {},
+    "code": "S0302"
+}

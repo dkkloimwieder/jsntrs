@@ -1,0 +1,6 @@
+{
+    "expr": "$replace(\"a[b\", /\\[/, \"X\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "aXb"
+}

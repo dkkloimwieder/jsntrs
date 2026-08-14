@@ -173,6 +173,12 @@ impl Lexer {
         Some(Token::new(tt, value, start_pos))
     }
 
+    /// Scans a regex literal: `/pattern/` plus optional `i`/`m` flags.
+    ///
+    /// The closing `/` is the first one at bracket depth 0 that is not part of
+    /// a `\`-escape. Escapes are consumed as a unit, so an escaped bracket
+    /// (`\(`, `\[`, …) never moves the depth counter, while a bracket after an
+    /// escaped backslash (`/\\(x)/`) still does.
     fn scan_regex(&mut self, start_pos: usize) -> Result<Token, JsonataError> {
         self.pos += 1; // consume opening '/'
         let pat_start = self.pos;
@@ -180,6 +186,15 @@ impl Lexer {
 
         while self.pos < self.src.len() {
             match self.src[self.pos] {
+                // A backslash escapes the next character: the pair is plain
+                // pattern text and takes part in neither the bracket-depth
+                // bookkeeping nor the search for the closing '/'. Skipping the
+                // whole escaped character keeps the walk on char boundaries
+                // when a multi-byte character follows the backslash.
+                b'\\' => {
+                    self.pos += 1;
+                    self.pos += char_len_at(&self.src, self.pos);
+                }
                 b'(' | b'[' | b'{' => {
                     depth += 1;
                     self.pos += 1;
@@ -189,43 +204,32 @@ impl Lexer {
                     self.pos += 1;
                 }
                 b'/' if depth == 0 => {
-                    // Count backslashes before this '/'
-                    let mut bs_count = 0;
-                    let mut i = self.pos;
-                    while i > pat_start && self.src[i - 1] == b'\\' {
-                        bs_count += 1;
-                        i -= 1;
+                    // Unescaped closing '/' — escaped ones were consumed above.
+                    let pattern = std::str::from_utf8(&self.src[pat_start..self.pos])
+                        .unwrap_or("")
+                        .to_owned();
+                    if pattern.is_empty() {
+                        return Err(lex_error("S0301", "empty regex pattern"));
                     }
-                    if bs_count % 2 == 0 {
-                        // Unescaped closing '/'
-                        let pattern = std::str::from_utf8(&self.src[pat_start..self.pos])
-                            .unwrap_or("")
-                            .to_owned();
-                        if pattern.is_empty() {
-                            return Err(lex_error("S0301", "empty regex pattern"));
-                        }
-                        self.pos += 1; // consume closing '/'
+                    self.pos += 1; // consume closing '/'
 
-                        // Collect flags: only 'i' and 'm' are valid
-                        let mut flags = String::new();
-                        while self.pos < self.src.len()
-                            && (self.src[self.pos] as char).is_alphabetic()
-                        {
-                            match self.src[self.pos] {
-                                b'i' | b'm' => {
-                                    flags.push(self.src[self.pos] as char);
-                                    self.pos += 1;
-                                }
-                                _ => {
-                                    return Err(lex_error("S0302", "invalid regex flag"));
-                                }
+                    // Collect flags: only 'i' and 'm' are valid
+                    let mut flags = String::new();
+                    while self.pos < self.src.len() && (self.src[self.pos] as char).is_alphabetic()
+                    {
+                        match self.src[self.pos] {
+                            b'i' | b'm' => {
+                                flags.push(self.src[self.pos] as char);
+                                self.pos += 1;
+                            }
+                            _ => {
+                                return Err(lex_error("S0302", "invalid regex flag"));
                             }
                         }
-                        flags.push('g');
-
-                        return Ok(Token::regex(pattern, flags, start_pos));
                     }
-                    self.pos += 1;
+                    flags.push('g');
+
+                    return Ok(Token::regex(pattern, flags, start_pos));
                 }
                 _ => {
                     self.pos += 1;
@@ -630,6 +634,79 @@ mod tests {
         assert_eq!(tok.typ, TokenType::Regex);
         assert_eq!(tok.regex_pat, "abc");
         assert_eq!(tok.regex_flg, "ig");
+    }
+
+    fn lex_regex(src: &str) -> Result<Token, JsonataError> {
+        Lexer::new(src).next(false)
+    }
+
+    #[test]
+    fn regex_escaped_brackets_do_not_count_toward_depth() {
+        // Each of these is unbalanced only because the bracket is escaped.
+        for (src, pat) in [
+            (r"/\(/", r"\("),
+            (r"/\)/", r"\)"),
+            (r"/\[/", r"\["),
+            (r"/\]/", r"\]"),
+            (r"/\{/", r"\{"),
+            (r"/\}/", r"\}"),
+            (r"/a\(b/", r"a\(b"),
+        ] {
+            let tok = lex_regex(src).unwrap_or_else(|e| panic!("{src} failed to lex: {e:?}"));
+            assert_eq!(tok.typ, TokenType::Regex, "{src}");
+            assert_eq!(tok.regex_pat, pat, "{src}");
+            assert_eq!(tok.regex_flg, "g", "{src}");
+        }
+    }
+
+    #[test]
+    fn regex_escaped_dash_in_character_class() {
+        let tok = lex_regex(r"/[\-]/").unwrap();
+        assert_eq!(tok.regex_pat, r"[\-]");
+    }
+
+    #[test]
+    fn regex_escaped_backslash_does_not_escape_following_bracket() {
+        // `\\` is a literal backslash; the `(` after it opens a real group,
+        // so the `)` is needed to get back to depth 0.
+        let tok = lex_regex(r"/\\(x)/").unwrap();
+        assert_eq!(tok.regex_pat, r"\\(x)");
+        let tok = lex_regex(r"/\\{2}/").unwrap();
+        assert_eq!(tok.regex_pat, r"\\{2}");
+        assert_eq!(lex_regex(r"/\\(x/").unwrap_err().code, "S0302");
+        // Same rule seen from the other side: the closer is live too, so a
+        // lone one is unbalanced. (jsonata-js accepts `/\\}/` because its
+        // depth guard only looks at the single character before the bracket;
+        // see the deviation note in docs/spec.md 2.5.)
+        assert_eq!(lex_regex(r"/\\}/").unwrap_err().code, "S0302");
+    }
+
+    #[test]
+    fn regex_escaped_slash_is_not_a_terminator() {
+        let tok = lex_regex(r"/a\/b/").unwrap();
+        assert_eq!(tok.regex_pat, r"a\/b");
+        // An escaped backslash before the '/' leaves the '/' unescaped.
+        let tok = lex_regex(r"/a\\/").unwrap();
+        assert_eq!(tok.regex_pat, r"a\\");
+    }
+
+    #[test]
+    fn regex_unescaped_bracket_still_needs_balancing() {
+        assert_eq!(lex_regex("/a(b/").unwrap_err().code, "S0302");
+        assert_eq!(lex_regex("/]/").unwrap_err().code, "S0302");
+        assert_eq!(lex_regex("/abc").unwrap_err().code, "S0302");
+        // A '/' inside a character class does not terminate the literal.
+        let tok = lex_regex("/[/]/").unwrap();
+        assert_eq!(tok.regex_pat, "[/]");
+    }
+
+    #[test]
+    fn regex_escaped_multibyte_char_keeps_scan_aligned() {
+        let tok = lex_regex("/\\é(x)/i").unwrap();
+        assert_eq!(tok.regex_pat, "\\é(x)");
+        assert_eq!(tok.regex_flg, "ig");
+        // Trailing backslash: no character to escape, so the literal is unterminated.
+        assert_eq!(lex_regex("/ab\\").unwrap_err().code, "S0302");
     }
 
     #[test]

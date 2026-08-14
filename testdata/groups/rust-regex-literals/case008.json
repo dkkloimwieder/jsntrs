@@ -1,0 +1,6 @@
+{
+    "expr": "$contains(\"a(b\", /\\(/)",
+    "dataset": null,
+    "bindings": {},
+    "result": true
+}

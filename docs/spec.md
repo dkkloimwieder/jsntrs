@@ -286,10 +286,29 @@ Parser sets `infix = true` after value-producing NUD tokens, resets to `false` a
 **Source:** `lexer.go` lines 70-124.
 
 - Only in prefix position (when `infix == false`)
-- Tracks bracket depth for `()[]{}` to allow `/` inside character classes
-- Backslash escaping of `/` via even/odd backslash counting
+- A `\` escapes the next character: the pair is scanned as plain pattern text
+  and takes part in neither the depth tracking nor the terminator search, so
+  `/\(/`, `/\}/` and `/\//` all lex. Consuming escapes pairwise subsumes the
+  even/odd backslash counting the Go code used for `/` alone: after an escaped
+  backslash the next character is live again, so `/\\(x)/` still needs its `)`
+  and `/a\\/` ends at that `/`.
+- Tracks bracket depth for `()[]{}` over the remaining (unescaped) characters;
+  the literal ends at the first unescaped `/` at depth 0, which lets `/` appear
+  inside a character class (`/[/]/`). Unbalanced unescaped brackets — `/a(b/`,
+  `/]/` — are S0302.
 - Valid flags: `i`, `m`; flag `g` always appended implicitly
 - Errors: S0301 (empty pattern), S0302 (bad flag or unterminated)
+
+> **Deviation from jsonata-js (deliberate, narrow).** jsonata-js guards each
+> depth change with a single-character `charAt(position - 1) !== '\\'` test, so
+> it treats a bracket preceded by an *escaped* backslash as escaped. The two
+> algorithms therefore disagree on exactly one shape: a bracket preceded by an
+> even number (≥ 2) of backslashes. jsntrs counts it, so `/\\(x)/` and
+> `/\\{2}/` lex here and are S0302 in jsonata-js; jsonata-js skips it, so
+> `/\\}/`, `/\\]/` and `/\\{/` lex there and are S0302 here. Everything else,
+> including every literal with singly-escaped brackets, lexes identically.
+> Counting was chosen because it keeps `\\` meaning "a literal backslash" —
+> the escape stops leaking into the character after it.
 
 ## 2.6 Other Lexer Features
 

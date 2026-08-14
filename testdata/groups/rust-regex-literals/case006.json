@@ -1,0 +1,6 @@
+{
+    "expr": "$match(\"a-b\", /[\\-]/).match",
+    "dataset": null,
+    "bindings": {},
+    "result": "-"
+}

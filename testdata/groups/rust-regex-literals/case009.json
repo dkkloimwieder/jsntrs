@@ -1,0 +1,6 @@
+{
+    "expr": "$replace(\"a(b\", /a\\(/, \"X\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "Xb"
+}
