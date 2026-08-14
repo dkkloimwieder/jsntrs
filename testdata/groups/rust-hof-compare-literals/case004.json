@@ -1,0 +1,6 @@
+{
+    "expr": "$filter(items, function($v){ null = $v.x })",
+    "data": {"items": [{"y": 1}]},
+    "bindings": {},
+    "undefinedResult": true
+}

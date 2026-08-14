@@ -1,0 +1,6 @@
+{
+    "expr": "$filter(items, function($v){ 2 > $v.x })",
+    "data": {"items": [{"x": 3}, {"y": 1}, {"x": 1}]},
+    "bindings": {},
+    "result": {"x": 1}
+}

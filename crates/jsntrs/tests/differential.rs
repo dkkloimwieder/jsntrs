@@ -120,6 +120,14 @@ const LAMBDA_ARITY: &str = r#"{
     "items": [{"x": "p"}, {"x": "q", "y": "z"}],
     "one": {"x": "p"}}"#;
 
+/// Items for reversed literal comparisons: `miss` has no `x` at all, so a
+/// `null`/boolean literal on the left of an ordering operator raises T2010
+/// on the general path while the swapped form would see undefined
+/// (jsntrs-6wr.6).
+const COMPARE_LITS: &str = r#"{
+    "miss": [{"y": 1}, {"y": 2}],
+    "items": [{"x": 3}, {"y": 1}, {"x": "s"}, {"x": null}, {"x": true}]}"#;
+
 /// (expression, data) pairs. Every pair runs fast vs general.
 const CASES: &[(&str, &str)] = &[
     // ── Pure paths over nested arrays (gnata-dx5.4) ──
@@ -568,6 +576,45 @@ const CASES: &[(&str, &str)] = &[
     (
         "( $f := function($a){ $a }; $map(items, function($v){ $f($v.x) }) )",
         LAMBDA_ARITY,
+    ),
+    // ── Reversed literal operands that compare cannot mirror (jsntrs-6wr.6) ──
+    // `Value::compare` checks the LEFT operand's type before undefined
+    // propagation, so `null > $v.x` raises T2010 on a missing field while the
+    // swapped `$v.x < null` propagates undefined: the flip must be declined.
+    ("$filter(miss, function($v){null > $v.x})", COMPARE_LITS),
+    ("$filter(miss, function($v){null < $v.x})", COMPARE_LITS),
+    ("$filter(miss, function($v){null >= $v.x})", COMPARE_LITS),
+    ("$filter(miss, function($v){false > $v.x})", COMPARE_LITS),
+    ("$filter(miss, function($v){true <= $v.x})", COMPARE_LITS),
+    ("$filter(items, function($v){null > $v.x})", COMPARE_LITS),
+    ("$filter(items, function($v){true < $v.x})", COMPARE_LITS),
+    ("$map(items, function($v){null > $v.x})", COMPARE_LITS),
+    ("$sort(items, function($a,$b){$a.x > $b.x})", COMPARE_LITS),
+    // Compound predicates reverse literals the same way, in either clause.
+    (
+        "$filter(miss, function($v){null > $v.x and $v.y = 1})",
+        COMPARE_LITS,
+    ),
+    (
+        "$filter(miss, function($v){$v.y = 1 and false >= $v.x})",
+        COMPARE_LITS,
+    ),
+    (
+        "$filter(miss, function($v){$v.y = 1 or true < $v.x})",
+        COMPARE_LITS,
+    ),
+    // Equality is symmetric and numbers/strings pass the left-operand check,
+    // so those reversed shapes must keep lifting.
+    ("$filter(miss, function($v){null = $v.x})", COMPARE_LITS),
+    ("$filter(miss, function($v){null != $v.x})", COMPARE_LITS),
+    ("$filter(items, function($v){null = $v.x})", COMPARE_LITS),
+    ("$filter(items, function($v){true = $v.x})", COMPARE_LITS),
+    ("$filter(miss, function($v){2 > $v.x})", COMPARE_LITS),
+    ("$filter(items, function($v){2 > $v.x})", COMPARE_LITS),
+    ("$filter(items, function($v){\"s\" <= $v.x})", COMPARE_LITS),
+    (
+        "$filter(items, function($v){2 > $v.x or $v.y = 1})",
+        COMPARE_LITS,
     ),
 ];
 

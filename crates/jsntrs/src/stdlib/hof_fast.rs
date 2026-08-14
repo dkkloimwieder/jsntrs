@@ -271,6 +271,7 @@ fn analyze_binary(
         // non-commutative arithmetic (lit - field ≠ field - lit).
         if is_relational(op)
             && let Some(lit) = extract_literal(lhs, arena)
+            && is_mirrorable_literal(op, &lit)
             && let Some(field) = extract_param_field(rhs, arena, param)
         {
             return Some(SimpleLambda::FieldPredicate {
@@ -422,6 +423,7 @@ fn collect_predicate_clauses(
             // mirror non-commutative arithmetic.
             if is_relational(*op)
                 && let Some(lit) = extract_literal(*lhs, arena)
+                && is_mirrorable_literal(*op, &lit)
                 && let Some(field) = extract_param_field(*rhs, arena, param)
             {
                 out.push(PredicateClause {
@@ -449,6 +451,22 @@ fn is_arithmetic(op: BinaryOp) -> bool {
         op,
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
     )
+}
+
+/// May a left-hand literal be moved to the right of the field, with the
+/// operator flipped by `flip_relational`?
+///
+/// `Eq`/`Ne` stay put and `eval_binary_simple` treats them symmetrically
+/// (undefined on either side → false, otherwise `deep_equal`), so any
+/// literal mirrors. The ordering operators go through `Value::compare`,
+/// which validates the LEFT operand's type *before* undefined propagation:
+/// with `null` or a boolean on the left the general path raises T2010 even
+/// when the field is undefined, while the swapped form would propagate
+/// undefined and silently drop the item. Numbers and strings always pass
+/// that left-operand check, so swapping them observes nothing
+/// (jsntrs-6wr.6).
+fn is_mirrorable_literal(op: BinaryOp, lit: &Value) -> bool {
+    matches!(op, BinaryOp::Eq | BinaryOp::Ne) || matches!(lit, Value::Number(_) | Value::String(_))
 }
 
 fn flip_relational(op: BinaryOp) -> BinaryOp {
@@ -1120,6 +1138,64 @@ mod tests {
         assert!(analyze_src("function(){1}").is_none());
         // Mixed and/or combiners cannot form a compound predicate.
         assert!(analyze_src("function($v){$v.a > 1 and $v.b < 5 or $v.c = 2}").is_none());
+    }
+
+    /// A `null` or boolean literal on the LEFT of an ordering operator is
+    /// not mirrored by swap-and-flip: `Value::compare` type-checks the left
+    /// operand before undefined propagation, so the general path raises
+    /// T2010 on a missing field where the swapped form returns undefined
+    /// (jsntrs-6wr.6).
+    #[test]
+    fn analyzer_rejects_reversed_null_and_boolean_literals() {
+        assert!(analyze_src("function($v){null > $v.x}").is_none());
+        assert!(analyze_src("function($v){null < $v.x}").is_none());
+        assert!(analyze_src("function($v){null >= $v.x}").is_none());
+        assert!(analyze_src("function($v){false > $v.x}").is_none());
+        assert!(analyze_src("function($v){true <= $v.x}").is_none());
+        // Compound predicates reverse their clauses the same way.
+        assert!(analyze_src("function($v){null > $v.x and $v.y = 1}").is_none());
+        assert!(analyze_src("function($v){$v.y = 1 or true < $v.x}").is_none());
+    }
+
+    /// The jsntrs-6wr.6 guard must not over-bail: equality is symmetric, and
+    /// numbers and strings pass `compare`'s left-operand check either way.
+    #[test]
+    fn analyzer_still_flips_mirrorable_literals() {
+        assert!(matches!(
+            analyze_src("function($v){null = $v.x}"),
+            Some(SimpleLambda::FieldPredicate {
+                op: BinaryOp::Eq,
+                literal: Value::Null,
+                ..
+            })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){true != $v.x}"),
+            Some(SimpleLambda::FieldPredicate {
+                op: BinaryOp::Ne,
+                literal: Value::Bool(true),
+                ..
+            })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){2 > $v.x}"),
+            Some(SimpleLambda::FieldPredicate {
+                op: BinaryOp::Lt,
+                literal: Value::Number(n),
+                ..
+            }) if n == 2.0
+        ));
+        assert!(matches!(
+            analyze_src("function($v){\"s\" <= $v.x}"),
+            Some(SimpleLambda::FieldPredicate {
+                op: BinaryOp::Ge,
+                ..
+            })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){2 > $v.x and $v.y = 1}"),
+            Some(SimpleLambda::CompoundPredicate { .. })
+        ));
     }
 
     /// `[]` on any step of a lambda-body path makes the path keep singletons
