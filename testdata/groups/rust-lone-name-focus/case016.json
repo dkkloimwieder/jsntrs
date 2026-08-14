@@ -1,0 +1,6 @@
+{
+    "expr": "b#$i[$i=0]",
+    "data": {"b": ["k1", "k2"]},
+    "bindings": {},
+    "result": "k1"
+}

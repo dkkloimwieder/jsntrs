@@ -994,6 +994,16 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("($f := function(){ name[] }; items.$f())", KEEP_ARRAY),
     ("($sum(prices))[]", POSTFIX),
     ("obj.($sum(x))[]", POSTFIX),
+    // Declined: a lone `@$v`/`#$i` name is a one-step tuple path
+    // (jsntrs-p0v.8). `collect_pure_path` refuses a step carrying a focus
+    // or index binding, so the tuple stream is always the general path's.
+    ("items@$v{$v.name: $v.x}", KEEP_ARRAY),
+    ("items#$i{$string($i): name}", KEEP_ARRAY),
+    ("items@$v", KEEP_ARRAY),
+    ("items#$i", KEEP_ARRAY),
+    ("items@$v.$v.name", KEEP_ARRAY),
+    ("items#$i.($i & name)", KEEP_ARRAY),
+    ("items@$v[]", KEEP_ARRAY),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

@@ -384,32 +384,46 @@ fn process_subscript_lhs(arena: &mut AstArena, node: NodeId) -> Result<NodeId, J
 /// `keepSingletonArray`. jsntrs keeps a bare `Name` as itself — it is the
 /// hottest node kind in the engine and the `Name` evaluator is a single
 /// field lookup — and wraps only when the name carries a decoration that
-/// evaluator cannot honour on its own. Today that is the `[]` suffix:
-/// without a path there is no `keep_singleton_array` to set, so `a[]` on
-/// `{"a": 1}` collapsed to `1` instead of `[1]` (jsntrs-ews).
+/// evaluator cannot honour on its own:
 ///
-/// A name that also carries a group-by is left alone: jsonata-js applies
-/// the group *after* marking the sequence, so the group result replaces it
-/// and the `[]` never shows (`a[]{"k": $}` → `{"k": 1}`) — which is what
-/// the un-wrapped `Name` already does.
+/// - the `[]` suffix — without a path there is no `keep_singleton_array`
+///   to set, so `a[]` on `{"a": 1}` collapsed to `1` instead of `[1]`
+///   (jsntrs-ews). A name that *also* carries a group-by is left alone
+///   here: jsonata-js applies the group after marking the sequence, so the
+///   group result replaces it and the `[]` never shows
+///   (`a[]{"k": $}` → `{"k": 1}`) — which is what the un-wrapped `Name`
+///   already does;
+/// - an `@$v` focus or `#$i` index binding — the variable is bound by the
+///   path's tuple machinery, which only runs over a `Path`. A single-step
+///   `books@$b{$b.g: $b.t}` routed through the standard group evaluator
+///   with `$b` unbound and produced `{}` (jsntrs-p0v.8). Multi-step forms
+///   were unaffected because the dot chain already built a path.
 ///
 /// Inside a dot chain the wrapper is transparent: `collect_path_steps`
 /// splices a single-step path back into the enclosing path and
 /// [`step_has_keep_array`] re-reads the flag off the `Name` step.
 fn wrap_decorated_name(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
     let Expr::Name {
-        keep_array: true,
-        group: None,
+        keep_array,
+        group,
+        focus,
+        index,
         pos,
         ..
     } = arena.get(node)
     else {
         return Ok(node);
     };
-    let pos = *pos;
+    let binds_tuple_var = focus.is_some() || index.is_some();
+    let keeps_singleton = *keep_array && group.is_none();
+    let needs_path = binds_tuple_var || keeps_singleton;
+    if !needs_path {
+        return Ok(node);
+    }
+    let (keep_singleton_array, pos) = (*keep_array, *pos);
     arena.alloc(Expr::Path {
         steps: vec![node],
-        keep_singleton_array: true,
+        keep_singleton_array,
         group: None,
         pos,
     })
@@ -771,6 +785,35 @@ mod tests {
                 assert!(matches!(arena.get(steps[0]), Expr::Name { value, .. } if value == "a"));
             }
             other => panic!("expected single-step Path, got {other:?}"),
+        }
+    }
+
+    /// jsntrs-p0v.8: `@$v`/`#$i` on a lone name needs the path tuple
+    /// machinery to bind the variable, so the name becomes a one-step path
+    /// while the binding stays on the step.
+    #[test]
+    fn lone_focus_bound_name_becomes_a_single_step_path() {
+        for src in ["books@$b{$b.g: $b.t}", "books#$i{$string($i): t}"] {
+            let (arena, root) = parse_and_process(src);
+            match arena.get(root) {
+                Expr::Path {
+                    steps,
+                    keep_singleton_array: false,
+                    ..
+                } => {
+                    assert_eq!(steps.len(), 1, "{src}");
+                    match arena.get(steps[0]) {
+                        Expr::Name {
+                            focus,
+                            index,
+                            group: Some(_),
+                            ..
+                        } => assert!(focus.is_some() || index.is_some(), "{src}"),
+                        other => panic!("{src}: expected bound Name step, got {other:?}"),
+                    }
+                }
+                other => panic!("{src}: expected single-step Path, got {other:?}"),
+            }
         }
     }
 

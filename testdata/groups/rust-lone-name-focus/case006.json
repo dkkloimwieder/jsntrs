@@ -1,0 +1,6 @@
+{
+    "expr": "books#$i{$string($i): t}",
+    "data": {"books": {"g": "a", "t": "t1"}},
+    "bindings": {},
+    "result": {"0": "t1"}
+}

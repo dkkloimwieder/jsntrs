@@ -1,0 +1,6 @@
+{
+    "expr": "b@$c.$c",
+    "data": {"b": ["k1", "k2"]},
+    "bindings": {},
+    "result": ["k1", "k2"]
+}

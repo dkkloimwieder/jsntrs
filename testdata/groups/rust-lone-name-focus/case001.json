@@ -1,0 +1,6 @@
+{
+    "expr": "books@$b{$b.g: $b.t}",
+    "data": {"books": [{"g": "a", "t": "t1"}, {"t": "t2"}]},
+    "bindings": {},
+    "result": {"a": "t1"}
+}
