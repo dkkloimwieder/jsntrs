@@ -146,6 +146,17 @@ impl FmtChars {
             || c == self.decimal_sep
             || self.exponent_sep == Some(c)
     }
+
+    /// Narrower notion of "active", used only when locating the picture's
+    /// first and last active character. jsonata-js excludes the exponent
+    /// separator there (`ch !== properties['exponent-separator']`), so a
+    /// separator outside the mantissa is passive text: `"e0.0"` has prefix
+    /// `"e"`, and the trailing `e` of `"0.0e"` lands in the suffix. The
+    /// separator stays active everywhere else — splitting the sub-picture
+    /// and emitting the exponent both rely on it.
+    fn is_region_edge_char(&self, c: char) -> bool {
+        self.is_active_char(c) && self.exponent_sep != Some(c)
+    }
 }
 
 // ── Sub-picture ───────────────────────────────────────────────────────────────
@@ -202,21 +213,29 @@ fn contains_scaling(s: &[char], fc: &FmtChars) -> Result<u8, JsonataError> {
 
 /// Find the active region (between first and last active char), extract prefix/suffix,
 /// validate internal chars, determine scale.
+///
+/// Returns the active slice and its offset in `runes`; the offset is where the
+/// search for the exponent separator begins (jsonata-js searches from
+/// `prefix.length`).
 fn scan_sub_picture_region<'a>(
     runes: &'a [char],
     fc: &FmtChars,
     sp: &mut SubPicture,
-) -> Result<&'a [char], JsonataError> {
+) -> Result<(&'a [char], usize), JsonataError> {
     let mut start = 0;
-    while start < runes.len() && !fc.is_active_char(runes[start]) {
+    while start < runes.len() && !fc.is_region_edge_char(runes[start]) {
         start += 1;
     }
     // end is inclusive; use isize arithmetic to handle empty-rune edge case safely.
     let mut end_i = runes.len() as isize - 1;
-    while end_i >= 0 && !fc.is_active_char(runes[end_i as usize]) {
+    while end_i >= 0 && !fc.is_region_edge_char(runes[end_i as usize]) {
         end_i -= 1;
     }
     if start as isize > end_i {
+        // A picture made only of exponent separators and passive characters
+        // ("e") leaves jsonata-js dereferencing an undefined prefix and
+        // throwing a TypeError; D3085 is the honest diagnosis and is what
+        // jsntrs has always answered here.
         return Err(JsonataError::new(
             "D3085",
             "$formatNumber: picture has no digit or separator characters",
@@ -238,16 +257,35 @@ fn scan_sub_picture_region<'a>(
     }
 
     sp.scale = contains_scaling(runes, fc)?;
-    Ok(active)
+    Ok((active, start))
+}
+
+/// Locate the exponent separator, as an index into the active slice.
+///
+/// The search starts at the prefix boundary, so a separator the prefix scan
+/// stepped over ("e0.0") is not picked up again. A separator sitting
+/// immediately *after* the active region (index `active.len()`, i.e. the
+/// first character of the suffix) still introduces an exponent part — an
+/// empty one, which `locate_sub_picture_separators` rejects. That is what
+/// makes `"0.0e"` a D3093 rather than a literal `e` suffix.
+fn locate_exponent(
+    runes: &[char],
+    start: usize,
+    active_len: usize,
+    fc: &FmtChars,
+) -> Option<usize> {
+    let sep = fc.exponent_sep?;
+    let rel = runes[start..].iter().position(|&c| c == sep)?;
+    (rel <= active_len).then_some(rel)
 }
 
 fn locate_sub_picture_separators(
     active: &[char],
+    exp_pos: Option<usize>,
     fc: &FmtChars,
     scale: u8,
-) -> Result<(Option<usize>, Option<usize>), JsonataError> {
+) -> Result<Option<usize>, JsonataError> {
     let mut dec_pos: Option<usize> = None;
-    let mut exp_pos: Option<usize> = None;
 
     for (i, &c) in active.iter().enumerate() {
         if c == fc.decimal_sep {
@@ -259,19 +297,27 @@ fn locate_sub_picture_separators(
             }
             dec_pos = Some(i);
         }
-        if fc.exponent_sep == Some(c) && exp_pos.is_none() {
-            exp_pos = Some(i);
-        }
     }
 
     if let Some(ep) = exp_pos {
+        // `ep` may be one past the active region, and it may be the last
+        // active character; either way the exponent part is empty, which
+        // jsonata-js reports as D3093 (the exponent part must comprise one
+        // or more digit-family characters).
+        let exp_part = active.get(ep + 1..).unwrap_or(&[]);
+        if exp_part.is_empty() {
+            return Err(JsonataError::new(
+                "D3093",
+                "$formatNumber: exponent part must contain at least one digit",
+            ));
+        }
         if scale != 0 {
             return Err(JsonataError::new(
                 "D3092",
                 "$formatNumber: percent/per-mille cannot appear in picture with exponent separator",
             ));
         }
-        if active[ep..].contains(&fc.grouping_sep) {
+        if exp_part.contains(&fc.grouping_sep) {
             return Err(JsonataError::new(
                 "D3093",
                 "$formatNumber: grouping separator cannot appear in exponent",
@@ -279,7 +325,7 @@ fn locate_sub_picture_separators(
         }
     }
 
-    Ok((dec_pos, exp_pos))
+    Ok(dec_pos)
 }
 
 fn parse_int_part(
@@ -379,12 +425,18 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
     let runes: Vec<char> = pic.chars().collect();
     let mut sp = SubPicture::default();
 
-    let active = scan_sub_picture_region(&runes, fc, &mut sp)?;
-    let (dec_pos, exp_pos) = locate_sub_picture_separators(active, fc, sp.scale)?;
+    let (active, start) = scan_sub_picture_region(&runes, fc, &mut sp)?;
+    let exp_pos = locate_exponent(&runes, start, active.len(), fc);
+    let dec_pos = locate_sub_picture_separators(active, exp_pos, fc, sp.scale)?;
 
+    // The exponent part was validated as non-empty above, so `e` indexes the
+    // active slice with at least one character behind it.
     let (int_part, frac_part, exp_part) = match (dec_pos, exp_pos) {
         (Some(d), Some(e)) => {
-            if e < d {
+            // `e == d` when one character is configured as both separators;
+            // splitting the mantissa there has no meaning. jsntrs used to
+            // panic on the empty slice range this produced.
+            if e <= d {
                 return Err(JsonataError::new("D3085", "$formatNumber: invalid picture"));
             }
             (&active[..d], &active[d + 1..e], &active[e + 1..])
@@ -825,5 +877,64 @@ mod tests {
             fmt_opts(1234.5678, "0.0e0", r#"{"bogus": "x"}"#),
             Ok("1.2e3".to_string())
         );
+    }
+
+    /// Expected values verified against jsonata-js 2.x (jsntrs-p0v.14): the
+    /// prefix/suffix scan ignores the exponent separator, so a separator
+    /// before the mantissa is passive text and one after it introduces an
+    /// empty — and therefore invalid — exponent part. Before the fix the
+    /// scan treated it as active: `"e0.0"` was D3085 and `"0.0e"` formatted
+    /// as "1234.6".
+    #[test]
+    fn exponent_separator_is_passive_in_the_prefix_suffix_scan() {
+        assert_eq!(fmt(1234.5678, "e0.0"), "e1234.6");
+        assert_eq!(fmt(0.234, "e0.0"), "e0.2");
+        assert_eq!(fmt(1234.5678, "ee0.0"), "ee1234.6");
+        // Still active inside the mantissa, and still emitted.
+        assert_eq!(fmt(1234.5678, "0.0e0"), "1.2e3");
+        assert_eq!(fmt(1234.5678, "0.0e0e"), "1.2e3e");
+        // A trailing separator leaves the exponent part empty.
+        assert_eq!(
+            fmt_args(&[Value::Number(1234.5678), Value::String("0.0e".into())]),
+            Err("D3093")
+        );
+        assert_eq!(
+            fmt_args(&[Value::Number(1234.5678), Value::String("e0.0e".into())]),
+            Err("D3093")
+        );
+        assert_eq!(
+            fmt_args(&[Value::Number(1234.5678), Value::String("0e".into())]),
+            Err("D3093")
+        );
+        // A picture of nothing but separators has no mantissa at all.
+        assert_eq!(
+            fmt_args(&[Value::Number(1234.5678), Value::String("e".into())]),
+            Err("D3085")
+        );
+
+        // The same rules follow a custom exponent-separator, and the default
+        // `e` becomes ordinary passive text.
+        let e_sep = r#"{"exponent-separator": "E"}"#;
+        assert_eq!(
+            fmt_opts(1234.5678, "E0.0", e_sep),
+            Ok("E1234.6".to_string())
+        );
+        assert_eq!(fmt_opts(1234.5678, "0.0E", e_sep), Err("D3093"));
+        assert_eq!(
+            fmt_opts(1234.5678, "e0.0", e_sep),
+            Ok("e1234.6".to_string())
+        );
+    }
+
+    /// jsntrs used to panic ("slice index starts at 2 but ends at 1") when
+    /// one character was configured as both the decimal and the exponent
+    /// separator, because the mantissa split ran backwards. It is a picture
+    /// error now. jsonata-js answers "1.3" here; matching that needs the
+    /// mantissa/exponent split reworked, which is left for a follow-up.
+    #[test]
+    fn separator_that_is_both_decimal_and_exponent_is_an_error() {
+        let both = r#"{"exponent-separator": "."}"#;
+        assert_eq!(fmt_opts(1234.5678, "0.0", both), Err("D3085"));
+        assert_eq!(fmt_opts(1234.5678, "0.00", both), Err("D3085"));
     }
 }
