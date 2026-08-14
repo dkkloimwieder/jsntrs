@@ -9,7 +9,7 @@
 //!
 //! Direct port of Go `internal/parser/process.go` and `internal/parser/tailcall.go`.
 
-use super::ast::{AstArena, BinaryOp, Expr, NodeId, push_children};
+use super::ast::{AstArena, BinaryOp, Expr, GroupExpr, NodeId, push_children};
 use crate::error::JsonataError;
 
 /// Check if a path step (or any node in its LHS chain) has keep_array set.
@@ -380,14 +380,14 @@ fn process_group(arena: &mut AstArena, node: NodeId) -> Result<(), JsonataError>
 
 /// Flatten a binary(".") node into a Path node.
 fn process_dot_binary(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
-    // Extract group from the binary "." node before collecting steps.
-    let bin_group = match arena.get(node) {
-        Expr::Binary { group, .. } => group.clone(),
-        _ => None,
-    };
-
+    // Collect the steps together with any group-by attached to a dot node
+    // in the chain: `{` binds looser than `.`, so `a.b{"k": $}.c` parses
+    // with the group on the *inner* dot. Like jsonata-js, every group in a
+    // chain hoists onto the flattened path and applies once, to the result
+    // of the whole path (jsntrs-5lw.3).
     let mut steps = Vec::new();
-    collect_path_steps(arena, node, &mut steps)?;
+    let mut chain_group = None;
+    collect_path_steps(arena, node, &mut steps, &mut chain_group)?;
 
     let pos = arena.get(node).pos();
 
@@ -403,7 +403,7 @@ fn process_dot_binary(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
     }
 
     // Process group-by key/value pairs so nested dot expressions within them are resolved.
-    let processed_group = if let Some(mut g) = bin_group {
+    let processed_group = if let Some(mut g) = chain_group {
         for pair in &mut g.pairs {
             pair[0] = process_node(arena, pair[0])?;
             pair[1] = process_node(arena, pair[1])?;
@@ -424,16 +424,20 @@ fn process_dot_binary(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
     Ok(node)
 }
 
-/// Recursively collect steps from nested binary(".") nodes.
+/// Recursively collect steps from nested binary(".") nodes, hoisting any
+/// group-by found on a dot node into `group` (S0210 if the chain carries
+/// more than one).
 fn collect_path_steps(
     arena: &mut AstArena,
     node: NodeId,
     steps: &mut Vec<NodeId>,
+    group: &mut Option<GroupExpr>,
 ) -> Result<(), JsonataError> {
     if let Expr::Binary {
         op: BinaryOp::Dot,
         lhs,
         rhs,
+        group: dot_group,
         ..
     } = arena.get(node)
     {
@@ -441,8 +445,20 @@ fn collect_path_steps(
         // (set by the parser's @ and # LED handlers), not on Binary "."
         // nodes. No propagation needed here.
         let (lhs, rhs) = (*lhs, *rhs);
-        collect_path_steps(arena, lhs, steps)?;
-        collect_path_steps(arena, rhs, steps)?;
+        let dot_group = dot_group.clone();
+        if let Some(g) = dot_group {
+            if group.is_some() {
+                // The parser's own check only sees groups on one node
+                // (`a.b{...}{...}`); a chain spreads them over several.
+                return Err(JsonataError::new(
+                    "S0210",
+                    "each step can only have one grouping expression",
+                ));
+            }
+            *group = Some(g);
+        }
+        collect_path_steps(arena, lhs, steps, group)?;
+        collect_path_steps(arena, rhs, steps, group)?;
         return Ok(());
     }
 

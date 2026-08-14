@@ -2983,4 +2983,46 @@ mod tests {
             Value::Number(12_502_500.0)
         );
     }
+
+    // ── Mid-path group-by hoisting (jsntrs-5lw.3) ─────────────────
+
+    /// `{` binds looser than `.`, so `a.b{"k": $}.c` parses with the group
+    /// on an inner dot node, where path flattening used to drop it (the
+    /// expression evaluated as a plain `a.b.c`). The group hoists onto the
+    /// flattened path and applies once, to the whole path's result — all
+    /// expectations jsonata-js 2.x-verified.
+    #[test]
+    fn group_by_on_a_mid_path_dot_applies_to_the_whole_path() {
+        let d1 = r#"{"a": {"b": {"c": 7}}}"#;
+        let d2 = r#"{"a": [{"b": {"c": 1}}, {"b": {"c": 2}}]}"#;
+        assert_eq!(
+            eval_with_data(r#"a.b{"k": $}.c"#, d1),
+            eval_simple(r#"{"k": 7}"#)
+        );
+        // Grouping happens after the last step, so all items land on "k".
+        assert_eq!(
+            eval_with_data(r#"a.b{"k": $}.c"#, d2),
+            eval_simple(r#"{"k": [1, 2]}"#)
+        );
+        // A predicate on a later step still runs before the group.
+        assert_eq!(
+            eval_with_data(r#"a.b{"k": $}.c[0]"#, d2),
+            eval_simple(r#"{"k": [1, 2]}"#)
+        );
+        // The grouped object is what the path yields.
+        assert_eq!(
+            eval_with_data(r#"(a.b{"k": $}.c).k"#, d1),
+            Value::Number(7.0)
+        );
+        // A trailing group on the whole chain is unchanged.
+        assert_eq!(
+            eval_with_data(r#"a.b.c{"k": $}"#, d1),
+            eval_simple(r#"{"k": 7}"#)
+        );
+        // Two groups in one chain are S0210, wherever they sit.
+        for expr in [r#"a.b{"k": $}.c{"j": $}"#, r#"a.b{"k": $}.c.d{"j": $}"#] {
+            let err = crate::Expression::compile(expr).expect_err("should not compile");
+            assert_eq!(err.code, "S0210", "for {expr}");
+        }
+    }
 }
