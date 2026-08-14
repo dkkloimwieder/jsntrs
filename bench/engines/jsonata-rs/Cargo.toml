@@ -1,0 +1,24 @@
+[package]
+name = "jsonata-rs-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Benchmark CLI wrapping jsonata-rs (Stedi), driven by bench/run_matrix.sh"
+
+# Standalone package: kept out of the repo workspace so its competitor
+# dependency tree and lockfile stay independent.
+[workspace]
+
+[dependencies]
+# Pinned exactly: the crate self-describes as alpha with unstable interfaces.
+jsonata-rs = "=0.3.4"
+# JsonAta::new takes &Bump — the arena is part of the public API.
+bumpalo = "3"
+
+# Same release profile jsntrs-bench is built with (workspace root Cargo.toml)
+# so both Rust engines get identical codegen settings.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

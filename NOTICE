@@ -1,0 +1,15 @@
+jsntrs is a JSONata 2.x query and transformation engine written in Rust.
+
+JSONata was originally created by Andrew Coleman and is maintained by the
+jsonata-js project: https://github.com/jsonata-js/jsonata
+
+jsntrs began as a Rust port of gnata, an independent Go implementation of
+JSONata (https://github.com/recolabs/gnata). gnata's behavior served as the
+reference for this port; docs/spec.md documents that behavior and cites the
+Go sources, which live in the gnata repository, not this one.
+
+Materials in testdata/ are derived from the upstream jsonata-js test suite;
+attribution and the upstream MIT license text are reproduced verbatim in
+testdata/NOTICE.
+
+This source code is licensed under the MIT License; see LICENSE.

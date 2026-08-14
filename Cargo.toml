@@ -1,0 +1,25 @@
+# Virtual workspace root. The engine crate lives in crates/jsntrs; fuzz/ is
+# its own workspace (cargo-fuzz convention, own Cargo.lock) and bench/ holds
+# standalone harness packages for competing engines that must not join this
+# workspace (independent pins, own lockfiles).
+[workspace]
+# Matches what the standalone edition-2024 package resolved to before the
+# workspace existed; the self-referential dev-dependency's feature unification
+# depends on it.
+resolver = "3"
+members = ["crates/jsntrs"]
+exclude = ["crates/jsntrs/fuzz", "bench"]
+
+# Cargo only honours [profile.*] in the workspace root manifest; profiles in
+# member manifests are silently ignored.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+# Release speed with debug symbols, for perf/DHAT profiling.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false

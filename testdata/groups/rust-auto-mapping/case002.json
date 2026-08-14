@@ -1,0 +1,6 @@
+{
+    "expr": "a",
+    "data": [{"b": 1}, {"c": 2}],
+    "bindings": {},
+    "undefinedResult": true
+}

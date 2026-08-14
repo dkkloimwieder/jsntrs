@@ -1,0 +1,6 @@
+{
+    "expr": "$exists(null)",
+    "dataset": null,
+    "bindings": {},
+    "result": true
+}

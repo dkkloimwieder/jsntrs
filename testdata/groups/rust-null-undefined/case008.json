@@ -1,0 +1,6 @@
+{
+    "expr": "notexist & \"hello\"",
+    "dataset": null,
+    "bindings": {},
+    "result": "hello"
+}

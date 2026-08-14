@@ -1,0 +1,6 @@
+{
+    "expr": "1 < \"hello\"",
+    "dataset": null,
+    "bindings": {},
+    "code": "T2009"
+}

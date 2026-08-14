@@ -1,0 +1,6 @@
+{
+    "expr": "( $f := function($n) { $n <= 1 ? $n : $f($n - 1) + $f($n - 2) }; $f(10) )",
+    "dataset": null,
+    "bindings": {},
+    "result": 55
+}

@@ -1,0 +1,24 @@
+[package]
+name = "jsonata-core-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Benchmark CLI wrapping jsonata-core, driven by bench/run_matrix.sh"
+
+# Standalone package: kept out of the repo workspace so its competitor
+# dependency tree and lockfile stay independent.
+[workspace]
+
+[dependencies]
+# Pinned so benchmark runs are reproducible; bumping the pin is a deliberate
+# act that invalidates prior comparisons (record it in bench/README.md).
+# Default features (as shipped from crates.io).
+jsonata-core = "=2.2.7"
+
+# Same release profile jsntrs-bench is built with (workspace root Cargo.toml)
+# so both Rust engines get identical codegen settings.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

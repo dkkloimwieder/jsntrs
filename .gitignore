@@ -1,0 +1,40 @@
+# Rust / cargo
+target/
+
+# wasm-pack output
+pkg/
+*.wasm
+
+# Profiling artifacts
+dhat-heap.json
+perf.data*
+flamegraph*.svg
+
+# Benchmarks: large regenerable fixtures (bench/generate_fixtures.py) and
+# transient results. data.json and data_1k.json are committed.
+bench/data_1k_long.json
+bench/data_10k*.json
+bench/data_100k*.json
+bench/fixtures/logs/10k.json
+bench/fixtures/logs/100k.json
+bench/fixtures/strings/10k.json
+bench/fixtures/strings/100k.json
+bench/fixtures/datetime/10k.json
+bench/fixtures/datetime/100k.json
+bench/bin/
+bench/results/
+bench/engines/js/node_modules/
+bench/engines/go/go.work
+bench/engines/go/go.work.sum
+
+# Beads / Dolt
+.dolt/
+*.db
+.beads-credential-key
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+
+# OS / editor
+.DS_Store

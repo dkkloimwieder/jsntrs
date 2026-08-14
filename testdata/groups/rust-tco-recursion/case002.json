@@ -1,0 +1,6 @@
+{
+    "expr": "( $f := function($n) { $n = 0 ? \"done\" : $f($n - 1) }; $f(5000) )",
+    "dataset": null,
+    "bindings": {},
+    "result": "done"
+}

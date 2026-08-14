@@ -1,0 +1,6 @@
+{
+    "expr": "$exists(a)",
+    "data": [{"a": []}, {"a": []}],
+    "bindings": {},
+    "result": true
+}

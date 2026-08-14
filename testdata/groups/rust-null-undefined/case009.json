@@ -1,0 +1,6 @@
+{
+    "expr": "null ?? \"default\"",
+    "dataset": null,
+    "bindings": {},
+    "result": null
+}

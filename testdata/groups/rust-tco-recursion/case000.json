@@ -1,0 +1,6 @@
+{
+    "expr": "( $f := function($n, $acc) { $n <= 0 ? $acc : $f($n - 1, $acc + $n) }; $f(1000, 0) )",
+    "dataset": null,
+    "bindings": {},
+    "result": 500500
+}

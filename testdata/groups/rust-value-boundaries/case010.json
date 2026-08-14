@@ -1,0 +1,6 @@
+{
+    "expr": "\"d\" in [\"a\", \"b\", \"c\"]",
+    "dataset": null,
+    "bindings": {},
+    "result": false
+}

@@ -1,0 +1,5 @@
+# unwrap/expect/panic are idiomatic failure reporting inside tests; the
+# crate-level warns (lib.rs) still apply to production code.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
