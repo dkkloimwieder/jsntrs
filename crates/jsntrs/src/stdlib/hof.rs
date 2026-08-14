@@ -30,7 +30,11 @@ fn try_fast_lambda(func: &FunctionValue, arena: &AstArena) -> Option<SimpleLambd
         if lambda.signature.is_some() {
             return None;
         }
-        analyze_lambda(&lambda.params, lambda.body, arena)
+        let lifted = analyze_lambda(&lambda.params, lambda.body, arena);
+        if lifted.is_some() {
+            crate::fast_path::testing::record_hit();
+        }
+        lifted
     } else {
         None
     }

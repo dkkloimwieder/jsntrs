@@ -18,13 +18,23 @@ use crate::parser::{AstArena, BinaryOp, Expr, NodeId};
 use crate::value::Value;
 
 /// Test-only escape hatch to force every fast path off so differential
-/// tests can compare fast-path results against the general evaluator.
+/// tests can compare fast-path results against the general evaluator, plus
+/// a hit counter so those tests can tell a real comparison from a vacuous
+/// one (both sides on the general evaluator).
 #[doc(hidden)]
 pub mod testing {
     use std::cell::Cell;
 
     thread_local! {
         static FAST_PATHS_DISABLED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    // Lifts taken on this thread since the last `reset_hits`. Only exists
+    // in the in-repo test/fuzz builds; `record_hit` is an empty function
+    // everywhere else, so no release build carries a counter in a hot path.
+    #[cfg(any(test, feature = "internals"))]
+    thread_local! {
+        static FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
     }
 
     /// Disable (or re-enable) all fast paths on the current thread.
@@ -40,6 +50,33 @@ pub mod testing {
     #[inline]
     pub(crate) fn fast_paths_disabled() -> bool {
         FAST_PATHS_DISABLED.with(std::cell::Cell::get)
+    }
+
+    /// Record that a lift was taken.
+    ///
+    /// Called from exactly the sites [`fast_paths_disabled`] guards, once
+    /// per lift *decision* (not per item), so a non-zero count means the
+    /// enabled run really did take code the disabled run could not. It
+    /// counts recognition rather than dispatch: a lambda that analyzes to a
+    /// shape its caller ends up not consuming still counts.
+    #[inline]
+    pub(crate) fn record_hit() {
+        #[cfg(any(test, feature = "internals"))]
+        FAST_PATH_HITS.with(|c| c.set(c.get().saturating_add(1)));
+    }
+
+    /// Lifts taken on this thread since the last [`reset_hits`].
+    #[cfg(any(test, feature = "internals"))]
+    #[doc(hidden)]
+    pub fn hits() -> u64 {
+        FAST_PATH_HITS.with(std::cell::Cell::get)
+    }
+
+    /// Zero the lift counter for this thread.
+    #[cfg(any(test, feature = "internals"))]
+    #[doc(hidden)]
+    pub fn reset_hits() {
+        FAST_PATH_HITS.with(|c| c.set(0));
     }
 }
 
@@ -363,12 +400,16 @@ pub fn eval_fast(fast_path: &FastPath, input: &Value) -> Option<Value> {
     if testing::fast_paths_disabled() {
         return None;
     }
-    match fast_path {
+    let lifted = match fast_path {
         FastPath::None => None,
         FastPath::PurePath(segments) => Some(eval_pure_path(segments, input)),
         FastPath::Comparison(cmp) => eval_comparison(cmp, input),
         FastPath::Function(func) => eval_function(func, input),
+    };
+    if lifted.is_some() {
+        testing::record_hit();
     }
+    lifted
 }
 
 /// [`eval_fast`] for entry points that evaluate under caller-supplied
@@ -956,6 +997,8 @@ pub fn eval_tape_path(
         return None;
     };
 
+    testing::record_hit();
+
     let mut buf = json_bytes.to_vec();
     let tape = match simd_json::to_tape(&mut buf) {
         Ok(t) => t,
@@ -1108,12 +1151,18 @@ mod tests {
     use super::*;
     use crate::Expression;
 
-    /// Helper: evaluate via Expression API (uses fast path when available)
-    /// and via full evaluator, then compare results.
-    fn assert_fast_matches_full(expr: &str, json: &str) {
-        let input = Value::from_json_str(json).unwrap_or(Value::Undefined);
+    /// Evaluate via the Expression API (fast paths live) and via the full
+    /// evaluator, and report both results plus the lifts the fast run took.
+    ///
+    /// A malformed fixture fails here rather than sinking to `Undefined`
+    /// and comparing two empty runs (jsntrs-6wr.8).
+    fn eval_both(expr: &str, json: &str) -> (serde_json::Value, serde_json::Value, u64) {
+        let input = Value::from_json_str(json)
+            .unwrap_or_else(|e| panic!("fixture for {expr:?} is not valid JSON: {e}"));
         let compiled = Expression::compile(expr).expect("compile failed");
+        testing::reset_hits();
         let fast_result = compiled.evaluate_value(&input).expect("eval failed");
+        let hits = testing::hits();
 
         // Also run through full evaluator (bypassing fast path).
         let (mut arena, root) = crate::parser::Parser::parse(expr).expect("parse failed");
@@ -1127,10 +1176,43 @@ mod tests {
         let full_result =
             crate::evaluator::eval(&arena, root, &input, &env).expect("full eval failed");
 
+        (fast_result.to_json(), full_result.to_json(), hits)
+    }
+
+    /// Helper: evaluate via Expression API (uses fast path when available)
+    /// and via full evaluator, then compare results.
+    ///
+    /// Asserts that a fast path was actually taken: on a shape the analysis
+    /// declines, both sides are the general evaluator and the comparison
+    /// proves nothing. Use [`assert_declined_matches_full`] when the decline
+    /// is the point.
+    fn assert_fast_matches_full(expr: &str, json: &str) {
+        let (fast_result, full_result, hits) = eval_both(expr, json);
+        assert!(
+            hits > 0,
+            "{expr:?} took no fast path — both runs were the general \
+             evaluator. Fix the fixture, or use assert_declined_matches_full \
+             if declining the lift is what the test pins."
+        );
         assert_eq!(
-            fast_result.to_json(),
-            full_result.to_json(),
+            fast_result, full_result,
             "fast-path and full evaluator disagree for expr={expr:?}"
+        );
+    }
+
+    /// [`assert_fast_matches_full`] for shapes no fast path may lift: pins
+    /// that the analysis keeps declining *and* that the general answer the
+    /// lift would have to reproduce is unchanged.
+    fn assert_declined_matches_full(expr: &str, json: &str) {
+        let (fast_result, full_result, hits) = eval_both(expr, json);
+        assert_eq!(
+            hits, 0,
+            "{expr:?} now takes a fast path; if that is intended, check the \
+             results still agree and move it to assert_fast_matches_full"
+        );
+        assert_eq!(
+            fast_result, full_result,
+            "declined shape disagrees with the full evaluator for expr={expr:?}"
         );
     }
 
@@ -1300,11 +1382,27 @@ mod tests {
 
     #[test]
     fn func_array_arg_string_keeps_wrapper() {
-        assert_fast_matches_full("$string([a.b])", r#"{"a": {"b": 42}}"#);
-        assert_fast_matches_full("$type([a.b])", r#"{"a": {"b": 42}}"#);
-        assert_fast_matches_full("$exists([a.b])", r#"{"a": {"c": 1}}"#);
+        // Non-aggregates observe the wrapper, so they must not lift…
+        assert_declined_matches_full("$string([a.b])", r#"{"a": {"b": 42}}"#);
+        assert_declined_matches_full("$type([a.b])", r#"{"a": {"b": 42}}"#);
+        assert_declined_matches_full("$exists([a.b])", r#"{"a": {"c": 1}}"#);
+        // …while the aggregates drop it and keep the lift.
         assert_fast_matches_full("$count([a.b])", r#"{"a": {"b": 42}}"#);
         assert_fast_matches_full("$sum([a.b])", r#"{"a": {"b": [1, 2, 3]}}"#);
+    }
+
+    /// The collection kinds (`Values`, `Reverse`, `Shuffle`, `Flatten`) had
+    /// no case that reached their lifted arm at all (jsntrs-6wr.8).
+    /// `$shuffle` is randomised, so only a singleton is comparable.
+    #[test]
+    fn func_collection_kinds() {
+        assert_fast_matches_full("$values(obj)", r#"{"obj": {"a": 1, "b": 2}}"#);
+        assert_fast_matches_full("$reverse(items)", r#"{"items": [1, 2, 3]}"#);
+        assert_fast_matches_full("$flatten(items)", r#"{"items": [[1, 2], [3]]}"#);
+        assert_fast_matches_full("$shuffle(items)", r#"{"items": [7]}"#);
+        // Wrong argument type defers to the general path (T0410 there).
+        assert_declined_matches_full("$reverse(name)", r#"{"name": "Alice"}"#);
+        assert_declined_matches_full("$values(items)", r#"{"items": [1, 2]}"#);
     }
 
     /// `[]` / `{…}` postfixes bind to the call node and must suppress the
@@ -1332,10 +1430,13 @@ mod tests {
     #[test]
     fn func_call_postfix_matches_full() {
         let data = r#"{"prices": [10, 20, 30], "obj": {"x": 1, "y": 2}}"#;
-        assert_fast_matches_full("$sum(prices)[]", data);
-        assert_fast_matches_full("$sum(prices){'k': $}", data);
-        assert_fast_matches_full("$count(prices)[]", data);
-        assert_fast_matches_full("$exists(prices){'e': $}", data);
+        assert_declined_matches_full("$sum(prices)[]", data);
+        assert_declined_matches_full("$sum(prices){'k': $}", data);
+        assert_declined_matches_full("$count(prices)[]", data);
+        assert_declined_matches_full("$exists(prices){'e': $}", data);
+        // The same calls without the postfix keep the lift.
+        assert_fast_matches_full("$sum(prices)", data);
+        assert_fast_matches_full("$count(prices)", data);
     }
 
     #[test]

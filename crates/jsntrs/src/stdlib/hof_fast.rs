@@ -779,6 +779,8 @@ pub(crate) fn analyze_mapped_call(
         _ => None,
     };
 
+    crate::fast_path::testing::record_hit();
+
     Some(MappedCall {
         func,
         arg_template,

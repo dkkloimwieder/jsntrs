@@ -838,6 +838,7 @@ fn eval_sort(
         };
 
     if let Some(fields) = simple_fields {
+        crate::fast_path::testing::record_hit();
         arr = crate::try_sort::try_sort_by(arr, |a, b| {
             for &(field, descending) in &fields {
                 match crate::stdlib::hof_fast::compare_by_field_checked(a, b, field)? {
