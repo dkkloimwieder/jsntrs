@@ -78,6 +78,21 @@ const DISTINCT_SHAPES: &str = r#"{
     "scalars": [1, "1", 1, true, "a", "a", null, null, 2.5, 2.5],
     "mixed": [1, {"x": 1}, 1, {"x": 1}]}"#;
 
+/// Shapes for `$func([path])`: the array constructor is transparent only to
+/// the aggregates, whose signatures flatten the argument anyway. Everything
+/// else observes the wrapper — a wrong type, a wrong string, or T0410
+/// (jsntrs-6wr.1).
+const ARRAY_ARG: &str = r#"{
+    "n": {"v": 42},
+    "s": {"v": "HELLO"},
+    "ns": {"v": "7"},
+    "sq": {"v": 9},
+    "miss": {"other": 1},
+    "obj": {"v": {"k": 1}},
+    "arr": {"v": [3, 1, 2]},
+    "seq": [{"v": 1}, {"v": 2}],
+    "emptyf": [{"v": []}]}"#;
+
 /// (expression, data) pairs. Every pair runs fast vs general.
 const CASES: &[(&str, &str)] = &[
     // ── Pure paths over nested arrays (gnata-dx5.4) ──
@@ -346,6 +361,54 @@ const CASES: &[(&str, &str)] = &[
     ("$distinct(zeros)", DISTINCT_SHAPES),
     ("$distinct(scalars)", DISTINCT_SHAPES),
     ("$distinct(mixed)", DISTINCT_SHAPES),
+    // ── $func([path]): only the aggregates may drop the array
+    //    constructor; every other kind must keep it (jsntrs-6wr.1) ──
+    ("$string([n.v])", ARRAY_ARG),
+    ("$string([miss.v])", ARRAY_ARG),
+    ("$string([s.v])", ARRAY_ARG),
+    ("$type([n.v])", ARRAY_ARG),
+    ("$type([miss.v])", ARRAY_ARG),
+    ("$boolean([n.v])", ARRAY_ARG),
+    ("$boolean([miss.v])", ARRAY_ARG),
+    ("$not([n.v])", ARRAY_ARG),
+    ("$exists([miss.v])", ARRAY_ARG),
+    ("$exists([n.v])", ARRAY_ARG),
+    ("$exists([emptyf.v])", ARRAY_ARG),
+    ("$number([ns.v])", ARRAY_ARG),
+    ("$sqrt([sq.v])", ARRAY_ARG),
+    ("$abs([n.v])", ARRAY_ARG),
+    ("$floor([n.v])", ARRAY_ARG),
+    ("$ceil([n.v])", ARRAY_ARG),
+    ("$lowercase([s.v])", ARRAY_ARG),
+    ("$uppercase([s.v])", ARRAY_ARG),
+    ("$trim([s.v])", ARRAY_ARG),
+    ("$length([s.v])", ARRAY_ARG),
+    ("$contains([s.v], \"ELL\")", ARRAY_ARG),
+    ("$keys([obj.v])", ARRAY_ARG),
+    ("$values([obj.v])", ARRAY_ARG),
+    ("$reverse([arr.v])", ARRAY_ARG),
+    ("$distinct([arr.v])", ARRAY_ARG),
+    ("$flatten([arr.v])", ARRAY_ARG),
+    ("$shuffle([n.v])", ARRAY_ARG),
+    // Aggregates keep the lift — these must stay identical too.
+    ("$count([n.v])", ARRAY_ARG),
+    ("$count([miss.v])", ARRAY_ARG),
+    ("$count([seq.v])", ARRAY_ARG),
+    ("$count([emptyf.v])", ARRAY_ARG),
+    ("$count([arr.v])", ARRAY_ARG),
+    ("$sum([n.v])", ARRAY_ARG),
+    ("$sum([arr.v])", ARRAY_ARG),
+    ("$sum([seq.v])", ARRAY_ARG),
+    ("$sum([miss.v])", ARRAY_ARG),
+    ("$sum([emptyf.v])", ARRAY_ARG),
+    ("$max([arr.v])", ARRAY_ARG),
+    ("$max([miss.v])", ARRAY_ARG),
+    ("$max([emptyf.v])", ARRAY_ARG),
+    ("$min([arr.v])", ARRAY_ARG),
+    ("$min([miss.v])", ARRAY_ARG),
+    ("$average([seq.v])", ARRAY_ARG),
+    ("$average([miss.v])", ARRAY_ARG),
+    ("$average([emptyf.v])", ARRAY_ARG),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

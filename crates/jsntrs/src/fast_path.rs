@@ -282,14 +282,15 @@ fn try_function(arena: &AstArena, node: NodeId) -> Option<FuncFastPath> {
     if arguments.len() != 1 {
         return None;
     }
-    // Unwrap single-element array constructor: $func([path]) → $func(path)
-    // In JSONata, [expr] doesn't nest when expr already yields an array.
+    // Unwrap single-element array constructor: $func([path]) → $func(path).
+    // Only sound for the aggregates, whose array signatures flatten the
+    // argument anyway — see `unwraps_array_constructor`.
     let inner_arg = match arena.get(arguments[0]) {
         Expr::Unary {
             op: crate::parser::ast::UnaryOp::ArrayCons,
             expressions,
             ..
-        } if expressions.len() == 1 => expressions[0],
+        } if expressions.len() == 1 && unwraps_array_constructor(kind) => expressions[0],
         _ => arguments[0],
     };
     let path = collect_pure_path(arena, inner_arg)?;
@@ -299,6 +300,34 @@ fn try_function(arena: &AstArena, node: NodeId) -> Option<FuncFastPath> {
         path,
         str_arg: None,
     })
+}
+
+/// Whether `$func([path])` may be rewritten to `$func(path)` for this kind.
+///
+/// `[expr]` is not a no-op wrapper: it appends the (flattened) argument into
+/// a fresh array, so an undefined path becomes `[]` and a singleton becomes
+/// `[x]`. Only the aggregates survive that: their `a<…>` signatures coerce a
+/// singleton to an array and flatten a sequence, so `[path]` and `path` feed
+/// them the same element list. Every other kind observes the wrapper —
+/// `$string([a.b])` is `"[42]"`, `$type([a.b])` is `"array"`,
+/// `$exists([a.b])` is always true, and the scalar-signature builtins
+/// (`$number`, `$sqrt`, `$lowercase`, …) raise T0410 on the array
+/// (jsntrs-6wr.1).
+///
+/// The aggregates' `[]`-vs-undefined difference (`$sum([])` is 0 while
+/// `$sum(undefined)` is undefined) never surfaces: `eval_function` defers to
+/// the general evaluator — which still sees the original, un-rewritten AST —
+/// whenever the path yields no leaves, except for `$max`/`$min`/`$average`,
+/// which return undefined for `[]` and undefined alike.
+const fn unwraps_array_constructor(kind: FuncFastKind) -> bool {
+    matches!(
+        kind,
+        FuncFastKind::Count
+            | FuncFastKind::Sum
+            | FuncFastKind::Max
+            | FuncFastKind::Min
+            | FuncFastKind::Average
+    )
 }
 
 /// Extract a literal value from an AST node.
@@ -1185,6 +1214,63 @@ mod tests {
     fn classification_function() {
         let expr = Expression::compile("$sum(prices)").unwrap();
         assert!(matches!(expr.fast_path_info(), FastPath::Function(_)));
+    }
+
+    /// `$func([path])` may only drop the array constructor for the
+    /// aggregates; the rest observe the wrapper (jsntrs-6wr.1).
+    #[test]
+    fn classification_array_arg_only_lifts_aggregates() {
+        for expr in [
+            "$count([a.b])",
+            "$sum([a.b])",
+            "$max([a.b])",
+            "$min([a.b])",
+            "$average([a.b])",
+        ] {
+            let compiled = Expression::compile(expr).unwrap();
+            assert!(
+                matches!(compiled.fast_path_info(), FastPath::Function(_)),
+                "{expr} should keep the aggregate lift"
+            );
+        }
+        for expr in [
+            "$string([a.b])",
+            "$type([a.b])",
+            "$exists([a.b])",
+            "$boolean([a.b])",
+            "$not([a.b])",
+            "$number([a.b])",
+            "$sqrt([a.b])",
+            "$abs([a.b])",
+            "$floor([a.b])",
+            "$ceil([a.b])",
+            "$lowercase([a.b])",
+            "$uppercase([a.b])",
+            "$trim([a.b])",
+            "$length([a.b])",
+            "$contains([a.b], \"x\")",
+            "$keys([a.b])",
+            "$values([a.b])",
+            "$reverse([a.b])",
+            "$distinct([a.b])",
+            "$shuffle([a.b])",
+            "$flatten([a.b])",
+        ] {
+            let compiled = Expression::compile(expr).unwrap();
+            assert!(
+                matches!(compiled.fast_path_info(), FastPath::None),
+                "{expr} must not lift through the array constructor"
+            );
+        }
+    }
+
+    #[test]
+    fn func_array_arg_string_keeps_wrapper() {
+        assert_fast_matches_full("$string([a.b])", r#"{"a": {"b": 42}}"#);
+        assert_fast_matches_full("$type([a.b])", r#"{"a": {"b": 42}}"#);
+        assert_fast_matches_full("$exists([a.b])", r#"{"a": {"c": 1}}"#);
+        assert_fast_matches_full("$count([a.b])", r#"{"a": {"b": 42}}"#);
+        assert_fast_matches_full("$sum([a.b])", r#"{"a": {"b": [1, 2, 3]}}"#);
     }
 
     #[test]

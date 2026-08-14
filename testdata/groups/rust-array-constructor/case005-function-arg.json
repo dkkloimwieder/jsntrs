@@ -1,0 +1,98 @@
+[
+    {
+        "expr": "$string([a.b])",
+        "data": {"a": {"b": 42}},
+        "bindings": {},
+        "result": "[42]"
+    },
+    {
+        "expr": "$string([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "result": "[]"
+    },
+    {
+        "expr": "$type([a.b])",
+        "data": {"a": {"b": 42}},
+        "bindings": {},
+        "result": "array"
+    },
+    {
+        "expr": "$type([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "result": "array"
+    },
+    {
+        "expr": "$exists([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "result": true
+    },
+    {
+        "expr": "$boolean([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "result": false
+    },
+    {
+        "expr": "$number([a.b])",
+        "data": {"a": {"b": "7"}},
+        "bindings": {},
+        "code": "T0410"
+    },
+    {
+        "expr": "$sqrt([a.b])",
+        "data": {"a": {"b": 9}},
+        "bindings": {},
+        "code": "T0410"
+    },
+    {
+        "expr": "$lowercase([a.b])",
+        "data": {"a": {"b": "HELLO"}},
+        "bindings": {},
+        "code": "T0410"
+    },
+    {
+        "expr": "$length([a.b])",
+        "data": {"a": {"b": "abc"}},
+        "bindings": {},
+        "code": "T0410"
+    },
+    {
+        "expr": "$count([a.b])",
+        "data": {"a": {"b": 42}},
+        "bindings": {},
+        "result": 1
+    },
+    {
+        "expr": "$count([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "result": 0
+    },
+    {
+        "expr": "$sum([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "result": 0
+    },
+    {
+        "expr": "$sum([a.b])",
+        "data": {"a": [{"b": 1}, {"b": 2}]},
+        "bindings": {},
+        "result": 3
+    },
+    {
+        "expr": "$max([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "$average([a.b])",
+        "data": {"a": {"c": 1}},
+        "bindings": {},
+        "undefinedResult": true
+    }
+]
