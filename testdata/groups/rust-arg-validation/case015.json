@@ -1,0 +1,5 @@
+{
+    "expr": "$single([1, 2, 3], function($v) { $v = 2 })",
+    "data": null,
+    "result": 2
+}

@@ -1,0 +1,5 @@
+{
+    "expr": "\"x\" ~> $undefined()",
+    "data": null,
+    "code": "T1006"
+}

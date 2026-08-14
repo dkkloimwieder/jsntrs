@@ -1,0 +1,5 @@
+{
+    "expr": "$substring(\"hello\", 1)",
+    "data": null,
+    "result": "ello"
+}

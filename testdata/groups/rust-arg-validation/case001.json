@@ -1,0 +1,5 @@
+{
+    "expr": "$replace(\"hello\", \"l\", \"L\", true)",
+    "data": null,
+    "code": "T0410"
+}

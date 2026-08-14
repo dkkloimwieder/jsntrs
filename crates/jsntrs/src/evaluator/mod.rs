@@ -1224,6 +1224,7 @@ fn compute_updated_object(
         // matching Go: Eval(node.Delete, target, env) where target is the original object.
         let delete_val = eval_operand(arena, del, target, env)?;
         if !delete_val.is_undefined() && !delete_val.is_null() {
+            check_delete_clause(&delete_val)?;
             match delete_val {
                 Value::String(key) => {
                     if let Value::Object(ref mut obj) = result {
@@ -1240,17 +1241,32 @@ fn compute_updated_object(
                         }
                     }
                 }
-                _ => {
-                    return Err(JsonataError::new(
-                        "T2012",
-                        "the delete clause of the transform expression must evaluate to an array of strings",
-                    ));
-                }
+                // `check_delete_clause` already rejected every other shape.
+                _ => {}
             }
         }
     }
 
     Ok(result)
+}
+
+/// The transform delete clause must be a string or an array of strings, the
+/// reference's `isArrayOfStrings` gate. A non-string array element is
+/// **T2012**, not a key that is quietly skipped (jsntrs-p0v.4).
+fn check_delete_clause(delete_val: &Value) -> Result<(), JsonataError> {
+    let ok = match delete_val {
+        Value::String(_) => true,
+        Value::Array(keys) => keys.iter().all(|k| matches!(k, Value::String(_))),
+        _ => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(JsonataError::new(
+            "T2012",
+            "the delete clause of the transform expression must evaluate to a string or array of strings",
+        ))
+    }
 }
 
 /// Single-pass replacement: walk `value` once and replace every occurrence of any
@@ -1301,15 +1317,7 @@ fn validate_transform_clauses(
     if let Some(del) = delete {
         let delete_val = eval_operand(arena, del, target, env)?;
         if !delete_val.is_undefined() && !delete_val.is_null() {
-            match &delete_val {
-                Value::Array(_) | Value::String(_) => {}
-                _ => {
-                    return Err(JsonataError::new(
-                        "T2012",
-                        "the delete clause of the transform expression must evaluate to an array of strings",
-                    ));
-                }
-            }
+            check_delete_clause(&delete_val)?;
         }
     }
     Ok(())

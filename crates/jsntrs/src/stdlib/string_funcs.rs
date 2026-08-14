@@ -52,7 +52,10 @@ pub fn fn_length(args: &[Value], focus: &Value) -> JsonataResult {
 }
 
 pub fn fn_substring(args: &[Value], _focus: &Value) -> JsonataResult {
-    if args.is_empty() {
+    // Reference signature `<s-nn?:s>`: `start` is mandatory. A lone string
+    // argument leaves it unmatched, so the reference reports T0410 rather
+    // than quietly substringing from 0 (jsntrs-p0v.4).
+    if args.len() < 2 {
         return Err(JsonataError::new(
             "T0410",
             "$substring: requires at least 2 arguments",
@@ -73,19 +76,15 @@ pub fn fn_substring(args: &[Value], _focus: &Value) -> JsonataResult {
             ));
         }
     };
-    // arg2 (start) must be a number if provided.
-    let start = if let Some(arg2) = args.get(1) {
-        match arg2.as_f64() {
-            Some(n) => n as i64,
-            None => {
-                return Err(JsonataError::new(
-                    "T0410",
-                    "$substring: argument 2 must be a number",
-                ));
-            }
+    // arg2 (start) must be a number; the arity gate above guarantees it exists.
+    let start = match args[1].as_f64() {
+        Some(n) => n as i64,
+        None => {
+            return Err(JsonataError::new(
+                "T0410",
+                "$substring: argument 2 must be a number",
+            ));
         }
-    } else {
-        0
     };
 
     let chars: Vec<char> = s.chars().collect();

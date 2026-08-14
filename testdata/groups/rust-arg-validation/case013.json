@@ -1,0 +1,5 @@
+{
+    "expr": "$single([1], \"x\")",
+    "data": null,
+    "code": "T0410"
+}

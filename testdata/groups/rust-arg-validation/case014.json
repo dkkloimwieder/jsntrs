@@ -1,0 +1,5 @@
+{
+    "expr": "$single([1, 2, 3], $undefined)",
+    "data": null,
+    "code": "T0410"
+}

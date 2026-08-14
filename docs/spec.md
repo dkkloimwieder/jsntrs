@@ -1124,7 +1124,7 @@ Returns a `BuiltinFunction` closure. When called, applies the transform to the f
 ### 4.13.3 `applyTransformTarget` (line 117)
 
 - **Update clause** (line 119): If non-nil and non-Null, must be a map (**T2011** otherwise). Merges via `transformMerge` (copies all keys from update into target).
-- **Delete clause** (line 128): If non-nil and non-Null, must be `[]any` (of strings) or a single string (**T2012** otherwise). Deletes named keys via `transformDelete`.
+- **Delete clause** (line 128): If non-nil and non-Null, must be `[]any` (of strings) or a single string (**T2012** otherwise). Deletes named keys via `transformDelete`. Every array element is checked, matching jsonata-js `isArrayOfStrings`: a single non-string element rejects the whole clause with **T2012** rather than being skipped (jsntrs-p0v.4).
 
 ### 4.13.4 `deepClone` (line 7)
 
@@ -1329,7 +1329,7 @@ For builtins: always `[]any{value}` only.
 - **replacement**: string (with `$N` back-references) or function.
   - Back-references: `$0` = full match, `$1`-`$N` = groups. `$$` = literal `$`. Invalid group numbers use greedy-left prefix matching.
   - Function replacement: Called with match object, must return string (**D3012** if not).
-- **limit**: non-negative number. Negative: **D3011**.
+- **limit**: non-negative number, `undefined`, or absent. Negative: **D3011**. Any other type (null, string, boolean, array, object, function): **T0410**, ahead of the D3011 range check — the reference signature is `<s-(sf)(sf)n?:s>`, so this is signature validation (jsntrs-p0v.4).
 - **Zero-length regex match**: **D1004**.
 - **Error codes**: T0410, D3010, D3011, D3012, D1004, D3137.
 
@@ -1534,7 +1534,10 @@ For builtins: always `[]any{value}` only.
 - **Parameters**: `(array [, comparator])` -- flexible arity with focus.
 - **0 args**: Uses focus as array.
 - **1 arg**: If function, uses focus as array + arg as comparator. Otherwise, arg as array.
-- **2 args**: arg[0] = array, arg[1] = comparator.
+- **2 args**: arg[0] = array, arg[1] = comparator. The comparator must be a
+  function: the reference signature `<af?:a>` matches the slot with `f?`,
+  which rejects `undefined` and every non-function value with **T0410**
+  (jsntrs-p0v.4).
 - **nil array**: undefined propagation.
 - **Without comparator**: Default sort. All elements must be same type (all numbers or all strings). Mixed: **D3070**.
 - **With comparator**: `fn(a, b)` returns true when a should come before b. Internally reverses args: calls `fn(b, a)` and maps `true -> -1`.
@@ -1688,7 +1691,7 @@ For builtins: always `[]any{value}` only.
 
 - **Parameters**: `(array [, function])` or `(function)` with focus. Or `()` with focus.
 - **0 args/no function**: Returns single element. 0 items: **D3139**. >1 items: **D3138**.
-- **With function predicate**: Filters first, then expects exactly 1 match. 0 matches: **D3139**. >1 matches: **D3138**.
+- **With function predicate**: Filters first, then expects exactly 1 match. 0 matches: **D3139**. >1 matches: **D3138**. A second argument that is not a function (including `undefined`) is **T0410**, the same `f?` rule as `$sort` (jsntrs-p0v.4).
 - **nil array**: undefined propagation.
 
 ### 5.6.4 `$reduce` (`hof_funcs.go:176`) -- EnvAwareBuiltin

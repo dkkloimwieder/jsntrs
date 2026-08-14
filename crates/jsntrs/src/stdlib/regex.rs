@@ -330,32 +330,28 @@ pub fn fn_replace(
         ));
     }
 
-    if let Some(v) = args.get(3)
-        && v.is_null()
-    {
-        return Err(JsonataError::new(
-            "T0410",
-            "$replace: fourth argument must be a number",
-        ));
-    }
-    let limit: Option<usize> = args.get(3).and_then(|v| {
-        v.as_f64().map(|n| {
-            if n < 0.0 {
-                usize::MAX // will be caught below
-            } else {
-                n as usize
+    // Reference signature `<s-(sf)(sf)n?:s>`: the limit parameter accepts a
+    // number, `undefined`, or nothing at all. Every other type — null, string,
+    // boolean, array, object, function — fails signature validation with
+    // T0410 before the D3011 range check gets a say (jsntrs-p0v.4).
+    let limit: Option<usize> = match args.get(3) {
+        None | Some(Value::Undefined) => None,
+        Some(Value::Number(n)) => {
+            if *n < 0.0 {
+                return Err(JsonataError::new(
+                    "D3011",
+                    "$replace: fourth argument must not be negative",
+                ));
             }
-        })
-    });
-    if let Some(v) = args.get(3)
-        && let Some(n) = v.as_f64()
-        && n < 0.0
-    {
-        return Err(JsonataError::new(
-            "D3011",
-            "$replace: fourth argument must not be negative",
-        ));
-    }
+            Some(*n as usize)
+        }
+        Some(_) => {
+            return Err(JsonataError::new(
+                "T0410",
+                "$replace: fourth argument must be a number",
+            ));
+        }
+    };
 
     // String pattern with string replacement — simple case.
     if let (Value::String(pattern), Value::String(replacement)) = (&args[1], &args[2]) {

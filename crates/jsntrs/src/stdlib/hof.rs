@@ -442,10 +442,20 @@ pub fn fn_sort(
         };
         (focus, f)
     } else {
-        let f = args.get(1).and_then(|v| match v {
-            Value::Function(f) => Some(f.clone()),
-            _ => None,
-        });
+        // Reference signature `<af?:a>`: the comparator slot matches `f?`,
+        // which accepts a function or nothing — not `undefined`, and not a
+        // value of some other type. Dropping a bad comparator silently would
+        // sort by natural order and hide the mistake (jsntrs-p0v.4).
+        let f = match args.get(1) {
+            None => None,
+            Some(Value::Function(f)) => Some(f.clone()),
+            Some(_) => {
+                return Err(JsonataError::new(
+                    "T0410",
+                    "$sort: argument 2 must be a function",
+                ));
+            }
+        };
         (&args[0], f)
     };
     if arr_val.is_undefined() {
@@ -559,10 +569,19 @@ pub fn fn_single(
         return Ok(Value::Undefined);
     }
     let arr = args[0].coerce_to_array();
-    let func = args.get(1).and_then(|v| match v {
-        Value::Function(f) => Some(f.clone()),
-        _ => None,
-    });
+    // Reference signature `<af?>`: same `f?` rule as `$sort` — a non-function
+    // predicate is T0410, not an ignored argument that turns `$single` into
+    // "the one and only element" (jsntrs-p0v.4).
+    let func = match args.get(1) {
+        None => None,
+        Some(Value::Function(f)) => Some(f.clone()),
+        Some(_) => {
+            return Err(JsonataError::new(
+                "T0410",
+                "$single: argument 2 must be a function",
+            ));
+        }
+    };
 
     // Fast path: field predicate or compound predicate
     if let Some(f) = &func
