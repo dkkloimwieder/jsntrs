@@ -1,0 +1,11 @@
+{
+    "expr": "$sift($, $uppercase)",
+    "data": {
+        "a": "x",
+        "b": ""
+    },
+    "bindings": {},
+    "result": {
+        "a": "x"
+    }
+}

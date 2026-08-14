@@ -1,0 +1,9 @@
+{
+    "expr": "$sift($, function($v, $k, $o, $x){$x})",
+    "data": {
+        "a": 1,
+        "b": 2
+    },
+    "bindings": {},
+    "undefinedResult": true
+}

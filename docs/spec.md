@@ -1579,6 +1579,9 @@ For builtins: always `[]any{value}` only.
   - 1 param: `[value]`
   - 2 params: `[value, key]`
   - 3+ params: `[value, key, object]`
+  Builtin callbacks get `[value]` only, as in 5.1.3 -- a one-argument builtin
+  such as `$exists` would otherwise reject the key with **T0410**
+  (jsonata-js: `$sift(obj, $exists)` returns `obj`).
 - **Returns**: `*OrderedMap` of key-value pairs where predicate is truthy. Empty result returns nil.
 
 ### 5.5.8 `$each` (`object_funcs.go:222`) -- EnvAwareBuiltin
@@ -1587,7 +1590,13 @@ For builtins: always `[]any{value}` only.
 - **0 args**: **T0410** (Go reference: D3006).
 - **nil object**: undefined propagation.
 - **Non-map**: **T0410**.
-- **Callback**: Called with `(value, key)` for each entry.
+- **Callback arity**: same trimming as `$sift` above (`(value, key, object)`
+  cut to the callback's declared parameter count; builtins get `[value]`).
+  **Deviation from the Go reference**, which always called back with exactly
+  `(value, key)`: jsonata-js routes `$each` through `hofFuncArgs` like every
+  other HOF, so `$each(obj, $exists)` succeeds and
+  `$each(obj, function($v,$k,$o){...})` sees the whole object in `$o`. jsntrs
+  follows jsonata-js (jsntrs-p0v.2).
 - **Returns**: `*Sequence` of callback results.
 
 ---

@@ -1,0 +1,11 @@
+{
+    "expr": "$sift($, $number)",
+    "data": {
+        "a": "1",
+        "b": "0"
+    },
+    "bindings": {},
+    "result": {
+        "a": "1"
+    }
+}

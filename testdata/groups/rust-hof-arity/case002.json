@@ -1,0 +1,11 @@
+{
+    "expr": "$sift($, $not)",
+    "data": {
+        "a": false,
+        "b": 1
+    },
+    "bindings": {},
+    "result": {
+        "a": false
+    }
+}

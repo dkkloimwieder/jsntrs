@@ -1,0 +1,12 @@
+{
+    "expr": "$each($, function($v, $k, $o){$count($keys($o))})",
+    "data": {
+        "a": 1,
+        "b": 2
+    },
+    "bindings": {},
+    "result": [
+        2,
+        2
+    ]
+}

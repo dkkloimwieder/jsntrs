@@ -1,0 +1,12 @@
+{
+    "expr": "$sift($, function($v, $k, $o){$count($keys($o)) = 2})",
+    "data": {
+        "a": 1,
+        "b": 2
+    },
+    "bindings": {},
+    "result": {
+        "a": 1,
+        "b": 2
+    }
+}

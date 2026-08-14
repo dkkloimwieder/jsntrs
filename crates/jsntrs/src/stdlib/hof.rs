@@ -36,9 +36,19 @@ fn try_fast_lambda(func: &FunctionValue, arena: &AstArena) -> Option<SimpleLambd
     }
 }
 
-/// Build HOF callback args trimmed to the lambda's declared arity.
-/// Mirrors Go's `hofArgs`: avoids passing index/array when the lambda doesn't use them.
-fn hof_args(func: &FunctionValue, item: Value, index: f64, arr: &Value) -> Vec<Value> {
+/// Build HOF callback args trimmed to the callee's declared arity.
+///
+/// Mirrors Go's `hofArgs` and jsonata-js `hofFuncArgs`: the value is always
+/// passed, while `second` (the index for array HOFs, the key for the object
+/// HOFs `$sift`/`$each`) and `third` (the whole array/object) are supplied
+/// only when the callee declares enough parameters. `second` is a closure so
+/// callers pay nothing to build it for arity-0/1 callbacks.
+fn hof_args(
+    func: &FunctionValue,
+    item: Value,
+    second: impl FnOnce() -> Value,
+    third: &Value,
+) -> Vec<Value> {
     let arity = match func {
         FunctionValue::Lambda(lam) => lam.params.len(),
         _ => 1, // builtins get (value) only to avoid arity rejections
@@ -46,8 +56,8 @@ fn hof_args(func: &FunctionValue, item: Value, index: f64, arr: &Value) -> Vec<V
     match arity {
         0 => vec![],
         1 => vec![item],
-        2 => vec![item, Value::Number(index)],
-        _ => vec![item, Value::Number(index), arr.clone()],
+        2 => vec![item, second()],
+        _ => vec![item, second(), third.clone()],
     }
 }
 
@@ -116,7 +126,7 @@ pub fn fn_map(
     let arr_val = Value::Array(arr.clone()); // clone once, reuse
     let mut seq = Sequence::new();
     for (i, item) in arr.iter().enumerate() {
-        let call_args = hof_args(&func, item.clone(), i as f64, &arr_val);
+        let call_args = hof_args(&func, item.clone(), || Value::Number(i as f64), &arr_val);
         let val = call_function(&func, &call_args, item, env, arena)?;
         if !val.is_undefined() {
             seq.values.push(val);
@@ -205,7 +215,7 @@ pub fn fn_filter(
     let arr_val = Value::Array(arr.clone()); // clone once, reuse
     let mut result = Vec::new();
     for (i, item) in arr.iter().enumerate() {
-        let call_args = hof_args(&func, item.clone(), i as f64, &arr_val);
+        let call_args = hof_args(&func, item.clone(), || Value::Number(i as f64), &arr_val);
         let val = call_function(&func, &call_args, item, env, arena)?;
         if val.to_boolean() {
             result.push(item.clone());
@@ -333,7 +343,14 @@ pub fn fn_each(
     let func = func_arg.require_function("$each")?;
     let mut seq = Sequence::new();
     for (key, val) in obj.iter() {
-        let call_args = vec![val.clone(), Value::String(key.as_str().into())];
+        // (value, key, object), trimmed to the callback's arity: a 1-arg
+        // builtin like $exists must not be handed the key (T0410).
+        let call_args = hof_args(
+            &func,
+            val.clone(),
+            || Value::String(key.as_str().into()),
+            obj_arg,
+        );
         let r = call_function(&func, &call_args, val, env, arena)?;
         if !r.is_undefined() {
             seq.values.push(r);
@@ -559,7 +576,7 @@ pub fn fn_single(
     for (i, item) in arr.iter().enumerate() {
         let keep = match &func {
             Some(f) => {
-                let call_args = hof_args(f, item.clone(), i as f64, &arr_val);
+                let call_args = hof_args(f, item.clone(), || Value::Number(i as f64), &arr_val);
                 call_function(f, &call_args, item, env, arena)?.to_boolean()
             }
             None => true,
@@ -583,7 +600,8 @@ pub fn fn_single(
     }
 }
 
-/// Helper: sift a single object, passing (value, key, object) to the predicate.
+/// Helper: sift a single object, passing (value, key, object) to the
+/// predicate, trimmed to the predicate's declared arity.
 fn sift_object(
     obj: &Rc<crate::value::ObjectMap>,
     func: &crate::evaluator::functions::FunctionValue,
@@ -593,11 +611,14 @@ fn sift_object(
 ) -> JsonataResult {
     let mut result = crate::value::ObjectMap::default();
     for (key, val) in obj.iter() {
-        let call_args = vec![
+        // Trimming matters for builtin predicates: $exists rejects a second
+        // argument with T0410, so it must be called with the value alone.
+        let call_args = hof_args(
+            func,
             val.clone(),
-            Value::String(key.as_str().into()),
-            obj_val.clone(),
-        ];
+            || Value::String(key.as_str().into()),
+            obj_val,
+        );
         let keep = call_function(func, &call_args, val, env, arena)?;
         if keep.to_boolean() {
             result.insert(key.clone(), val.clone());
@@ -680,6 +701,37 @@ mod tests {
             r#"$each({"a":1, "b":2}, function($v,$k){$k & $v})"#,
             r#"["a1", "b2"]"#,
         );
+    }
+
+    /// jsntrs-p0v.2: `$sift`/`$each` must trim callback args to the callee's
+    /// arity like `$map`/`$filter` do, or single-argument builtins reject the
+    /// extra key/object arguments with T0410.
+    #[test]
+    fn sift_and_each_trim_args_for_builtin_callbacks() {
+        assert_evals_to(r#"$sift({"a":1, "b":2}, $exists)"#, r#"{"a":1, "b":2}"#);
+        assert_evals_to(r#"$each({"a":1, "b":2}, $exists)"#, "[true, true]");
+        assert_evals_to(r#"$sift({"a":false, "b":1}, $not)"#, r#"{"a":false}"#);
+        assert_evals_to(r#"$each({"a":false, "b":1}, $not)"#, "[true, false]");
+    }
+
+    /// jsntrs-p0v.2: a three-parameter `$each` callback receives the whole
+    /// object as its third argument (it used to see undefined); a callback
+    /// declaring more parameters than that gets undefined for the surplus.
+    #[test]
+    fn each_supplies_object_by_arity() {
+        assert_evals_to(
+            r#"$each({"a":1, "b":2}, function($v,$k,$o){$count($keys($o))})"#,
+            "[2, 2]",
+        );
+        assert_evals_to(
+            r#"$each({"a":1}, function($v,$k,$o){$o})"#,
+            r#"{"a":1}"#, // single result collapses out of the sequence
+        );
+        assert_evals_to(
+            r#"$each({"a":1, "b":2}, function($v,$k,$o,$x){[$v, $k, $string($x)]})"#,
+            r#"[[1, "a"], [2, "b"]]"#,
+        );
+        assert_evals_to(r#"$each({"a":1, "b":2}, function(){"z"})"#, r#"["z", "z"]"#);
     }
 
     /// Sort is stable for equal keys (behavioral invariant #7) — on both

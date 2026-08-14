@@ -1,0 +1,9 @@
+{
+    "expr": "$each({'x': {'p': 1, 'q': 2}}, function($v, $k, $o){$each($v, function($val, $key, $inner){$k & '.' & $key & '=' & $string($count($keys($inner)))})})",
+    "data": {},
+    "bindings": {},
+    "result": [
+        "x.p=2",
+        "x.q=2"
+    ]
+}

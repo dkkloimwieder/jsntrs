@@ -1,0 +1,12 @@
+{
+    "expr": "$each($, $not)",
+    "data": {
+        "a": false,
+        "b": 1
+    },
+    "bindings": {},
+    "result": [
+        true,
+        false
+    ]
+}

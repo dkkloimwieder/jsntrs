@@ -1,0 +1,12 @@
+{
+    "expr": "$sift(function($v, $k, $o){$k = $string($o.pick)})",
+    "data": {
+        "pick": "b",
+        "a": 1,
+        "b": 2
+    },
+    "bindings": {},
+    "result": {
+        "b": 2
+    }
+}

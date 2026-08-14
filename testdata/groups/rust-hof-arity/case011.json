@@ -1,0 +1,11 @@
+{
+    "expr": "$sift($, function($v, $k){$k = 'a'})",
+    "data": {
+        "a": 1,
+        "b": 2
+    },
+    "bindings": {},
+    "result": {
+        "a": 1
+    }
+}
