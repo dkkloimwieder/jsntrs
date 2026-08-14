@@ -1,0 +1,6 @@
+{
+    "expr": "$formatInteger(0/0, \"#,##0\")",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3001"
+}

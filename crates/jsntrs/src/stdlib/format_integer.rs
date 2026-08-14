@@ -38,6 +38,20 @@ pub fn fn_format_integer(args: &[Value], _focus: &Value) -> JsonataResult {
         }
     };
 
+    // Inf/NaN must never reach the formatters: every non-finite magnitude
+    // falls outside the i64 window below, and the words pictures route
+    // out-of-range values to `float_to_words`, whose 1e12 normalisation
+    // loop cannot terminate for infinity (jsntrs-ecq.3). NaN merely
+    // formatted as "zero". JSON input carries no Inf/NaN, but `1/0`,
+    // `evaluate_value` and custom-function results all do. Same guard the
+    // other string-producing builtin uses ($string, string_funcs.rs).
+    if !n.is_finite() {
+        return Err(JsonataError::new(
+            "D3001",
+            "$formatInteger: Number out of range",
+        ));
+    }
+
     let truncated = n.trunc();
 
     if !(-MAX_I64_F64..=MAX_I64_F64).contains(&truncated) {
@@ -279,7 +293,13 @@ fn apply_digit_family_rune(s: &str, zero: char) -> String {
 
 // ── Float to words (for very large numbers) ──────────────────────────────────
 
+/// Words for magnitudes past the i64 window, in units of trillions.
+///
+/// The caller must have rejected Inf/NaN: the normalisation loop below
+/// divides until the value drops under 1e12, which never happens for
+/// infinity (jsntrs-ecq.3).
 fn float_to_words(f: f64) -> String {
+    debug_assert!(f.is_finite(), "float_to_words requires a finite magnitude");
     if f == 0.0 {
         return "zero".to_string();
     }
@@ -427,5 +447,57 @@ mod tests {
         assert!(words.starts_with("minus "), "got {words:?}");
         // The margin bound itself still formats normally.
         assert!(fmt(-9_223_372_036_854_774_784.0, "0").starts_with('-'));
+    }
+
+    /// Non-finite input is rejected at entry for *every* picture family
+    /// (jsntrs-ecq.3). Before the guard, `+/-Inf` with a words picture
+    /// spun forever in `float_to_words` (the `f /= 1e12` loop never drops
+    /// infinity below the threshold) and NaN silently formatted as
+    /// "zero"; the other families reported D3137 "too large", which is
+    /// the wrong diagnosis for Inf/NaN.
+    #[test]
+    fn non_finite_errors_for_every_picture() {
+        let pictures = [
+            "w", "W", "Ww", "w;o", "W;o", "Ww;o", "i", "I", "a", "A", "0", "#,##0", "1;o",
+        ];
+        for picture in pictures {
+            for n in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+                let err = match fn_format_integer(
+                    &[Value::Number(n), Value::String(picture.into())],
+                    &Value::Undefined,
+                ) {
+                    Err(e) => e,
+                    other => panic!("expected D3001 for {picture:?} / {n}, got {other:?}"),
+                };
+                assert_eq!(err.code, "D3001", "picture {picture:?}, input {n}");
+            }
+        }
+    }
+
+    /// The same guard through the public API: `evaluate_value` accepts a
+    /// `Value` built in Rust, so Inf/NaN reach the builtin without going
+    /// through JSON (which cannot represent them). `1/0` and `0/0` inside
+    /// an expression are the other route — division deliberately lets
+    /// non-finite results propagate.
+    #[test]
+    fn non_finite_errors_through_evaluate_value() {
+        for picture in ["w", "W;o", "i", "0"] {
+            let src = format!("$formatInteger($, '{picture}')");
+            let expr = crate::expression::Expression::compile(&src).unwrap();
+            for n in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+                let err = expr.evaluate_value(&Value::Number(n)).unwrap_err();
+                assert_eq!(err.code, "D3001", "picture {picture:?}, input {n}");
+            }
+
+            let from_div = crate::expression::Expression::compile(&format!(
+                "$formatInteger(1/0, '{picture}')"
+            ))
+            .unwrap();
+            assert_eq!(
+                from_div.evaluate_value(&Value::Undefined).unwrap_err().code,
+                "D3001",
+                "1/0 with picture {picture:?}"
+            );
+        }
     }
 }
