@@ -9,14 +9,34 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use jsntrs::Expression;
 use jsntrs::Value;
 
+/// Exit status for a bad expression, unreadable input, or a failed evaluation.
+const EXIT_FAILURE: i32 = 1;
+/// Exit status for a malformed command line (missing or unparseable flag).
+const EXIT_USAGE: i32 = 2;
+
+/// Report a fatal error on stderr and exit with `status`.
+///
+/// Everything the caller can get wrong from the command line funnels through
+/// here, so a syntax error in `-expr` prints `compile error: S0201: …` — the
+/// spec code and message — instead of panicking with a `Debug`-formatted
+/// `JsonataError` (jsntrs-6ug).
+fn die(status: i32, msg: &str) -> ! {
+    eprintln!("{msg}");
+    std::process::exit(status)
+}
+
 fn flag_value(args: &[String], i: usize) -> &str {
     args.get(i + 1).map_or_else(
-        || {
-            eprintln!("missing value for {} flag", args[i]);
-            std::process::exit(2);
-        },
+        || die(EXIT_USAGE, &format!("missing value for {} flag", args[i])),
         String::as_str,
     )
+}
+
+/// Parse the input document, reporting a malformed payload rather than
+/// silently benchmarking against undefined.
+fn parse_input(data_str: &str) -> Value {
+    Value::from_json_str(data_str)
+        .unwrap_or_else(|e| die(EXIT_FAILURE, &format!("input JSON error: {e}")))
 }
 
 fn main() {
@@ -38,11 +58,16 @@ fn main() {
                 i += 2;
             }
             "-datafile" => {
-                data_str = std::fs::read_to_string(flag_value(&args, i)).expect("read file failed");
+                let path = flag_value(&args, i);
+                data_str = std::fs::read_to_string(path)
+                    .unwrap_or_else(|e| die(EXIT_FAILURE, &format!("cannot read {path}: {e}")));
                 i += 2;
             }
             "-n" => {
-                n = flag_value(&args, i).parse().expect("invalid -n");
+                let raw = flag_value(&args, i);
+                n = raw
+                    .parse()
+                    .unwrap_or_else(|e| die(EXIT_USAGE, &format!("invalid -n {raw:?}: {e}")));
                 i += 2;
             }
             "-stream" => {
@@ -64,12 +89,15 @@ fn main() {
 
 fn run_single_bench(expr_str: &str, data_str: &str, n: u64) {
     if expr_str.is_empty() {
-        eprintln!("usage: jsntrs-bench -expr EXPR [-data JSON | -datafile FILE] [-n ITERS]");
-        std::process::exit(1);
+        die(
+            EXIT_FAILURE,
+            "usage: jsntrs-bench -expr EXPR [-data JSON | -datafile FILE] [-n ITERS]",
+        );
     }
 
-    let compiled = Expression::compile(expr_str).expect("compile failed");
-    let input = Value::from_json_str(data_str).unwrap_or(Value::Undefined);
+    let compiled = Expression::compile(expr_str)
+        .unwrap_or_else(|e| die(EXIT_FAILURE, &format!("compile error: {e}")));
+    let input = parse_input(data_str);
 
     // Benchmark the public API directly: evaluate_value() runs on a
     // per-eval child of the thread-cached stdlib root, so per-iteration
@@ -77,7 +105,9 @@ fn run_single_bench(expr_str: &str, data_str: &str, n: u64) {
     // pre-cached-root workaround here was a prebuilt new_custom_env.)
     let mut result = Value::Undefined;
     for _ in 0..n {
-        result = compiled.evaluate_value(&input).expect("eval failed");
+        result = compiled
+            .evaluate_value(&input)
+            .unwrap_or_else(|e| die(EXIT_FAILURE, &format!("evaluation error: {e}")));
     }
 
     println!("{}", result.to_json_string());
@@ -96,13 +126,18 @@ fn run_stream_bench(data_str: &str, n: u64) {
     let mut se = StreamEvaluator::new(Vec::new());
     let indices: Vec<usize> = exprs
         .iter()
-        .map(|e| se.compile(e).expect("compile failed"))
+        .map(|e| {
+            se.compile(e)
+                .unwrap_or_else(|err| die(EXIT_FAILURE, &format!("compile error in {e:?}: {err}")))
+        })
         .collect();
-    let input = Value::from_json_str(data_str).unwrap_or(Value::Undefined);
+    let input = parse_input(data_str);
 
     let mut results = Vec::new();
     for _ in 0..n {
-        results = se.eval_many(&input, &indices).expect("eval failed");
+        results = se
+            .eval_many(&input, &indices)
+            .unwrap_or_else(|e| die(EXIT_FAILURE, &format!("evaluation error: {e}")));
     }
     println!("{} expressions, {} results", exprs.len(), results.len());
 }
