@@ -1063,6 +1063,13 @@ fn eval_mapped_call_step(
 
 /// Evaluate a function call step in path context.
 /// For lambdas, prepend the path element as the first argument.
+///
+/// A bare function path step (`items.$uppercase(name)`) is a *call site*, so
+/// it owes a `SignedBuiltin` callee the same signature validation and
+/// coercion that [`eval_function`] performs for every other call site — the
+/// reference implementation validates in `apply()`, which every invocation
+/// funnels through. Skipping it let `items.$uppercase(name, 1)` return
+/// `"ALICE"` instead of raising `T0410` (jsntrs-p0v.7).
 fn eval_path_function_step(
     arena: &AstArena,
     step: NodeId,
@@ -1103,6 +1110,18 @@ fn eval_path_function_step(
         && args.len() < lam.params.len()
     {
         args.insert(0, item.clone());
+    }
+
+    // Same signature gate as `eval_function` (a lambda never reaches it —
+    // `call_function` validates a lambda's own signature further in).
+    if let FunctionValue::SignedBuiltin { signature, .. } = &*func {
+        let (coerced, return_undefined) = super::process_call_args(signature, &args)?;
+        if return_undefined {
+            return Ok(Value::Undefined);
+        }
+        if let Some(coerced) = coerced {
+            args = coerced;
+        }
     }
 
     call_function(&func, &args, item, env, arena)

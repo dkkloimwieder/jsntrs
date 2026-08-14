@@ -553,9 +553,10 @@ const CASES: &[(&str, &str)] = &[
     ("$map(items, function($v){$uppercase($v.name, 1)})", SIGNED),
     ("$map(items, function($v){$sum($v.x, 1)})", SIGNED),
     ("$map(items, function($v){$uppercase($v.x)})", SIGNED),
-    // A bare function path step is the other route: there the general path
-    // is eval_path_function_step, which calls the builtin unvalidated, so
-    // the lift must NOT validate either.
+    // A bare function path step is the other route: its general path is
+    // eval_path_function_step, which now runs the same validation
+    // (jsntrs-p0v.7). Before that fix both sides agreed on the *unvalidated*
+    // answer, so these pairs passed while pinning the bug.
     ("items.$uppercase(name, 1)", SIGNED),
     ("items.$sum(x, 1)", SIGNED),
     ("items.$string(x, 1)", SIGNED),
@@ -563,6 +564,18 @@ const CASES: &[(&str, &str)] = &[
     ("items.$sum(x)", SIGNED),
     ("items.$uppercase(name)", SIGNED),
     ("items.$string(x)", SIGNED),
+    // ── Bare-step signature validation (jsntrs-p0v.7) — track:
+    //    step-validate-group-lift ──
+    ("items.$lowercase(name, 1)", SIGNED),
+    ("items.$max(x, 2)", SIGNED),
+    ("items.$uppercase(x)", SIGNED),
+    ("items.$sum(name)", SIGNED),
+    ("items.$average(x)", SIGNED),
+    ("items.$min(x)", SIGNED),
+    ("items.$boolean(x)", SIGNED),
+    ("items.$uppercase(missing)", SIGNED),
+    ("items.$sum(missing)", SIGNED),
+    ("items.$string(missing)", SIGNED),
     // ── `[]` on a call, where the lift is still legal (jsntrs-e8l) ──
     ("items.$string(x)[]", KEEP_ARRAY),
     ("items.$count(x)[]", KEEP_ARRAY),

@@ -666,9 +666,6 @@ pub(crate) struct MappedCall {
     func: Box<FunctionValue>,
     arg_template: Vec<CallArg>,
     prepared: Option<PreparedState>,
-    /// True when the general path for this call site runs `eval_function`,
-    /// which validates and coerces `SignedBuiltin` arguments (jsntrs-6wr.7).
-    check_signature: bool,
 }
 
 /// Classification of a function argument for lifted dispatch.
@@ -699,14 +696,6 @@ pub(crate) fn analyze_mapped_call(
     }
     // The node should be a Function call, possibly wrapped in a Block.
     let func_node = unwrap_block(node, arena);
-
-    // Which general path does this lift stand in for? A block-wrapped step
-    // and a lambda body are both evaluated by `eval_function`, which runs
-    // `process_call_args` for `SignedBuiltin` callees; a bare function path
-    // step goes through `eval_path_function_step`, which calls
-    // `call_function` directly and performs no signature check
-    // (jsntrs-6wr.7).
-    let check_signature = param.is_some() || matches!(arena.get(node), Expr::Block { .. });
 
     let (procedure, arguments) = match arena.get(func_node) {
         Expr::Function {
@@ -785,7 +774,6 @@ pub(crate) fn analyze_mapped_call(
         func,
         arg_template,
         prepared,
-        check_signature,
     })
 }
 
@@ -1005,14 +993,13 @@ pub(crate) fn exec_mapped_call(
             CallArg::Expr(_node) => unreachable!("complex args filtered out in analysis"),
         }
     }
-    // Mirror `eval_function`: at call sites the general path routes through
-    // it, a SignedBuiltin's arguments are validated and coerced before
-    // dispatch. `call_function` hands them to the raw fn unchecked, which
-    // silently accepted extra arguments and skipped singleton coercion
-    // (jsntrs-6wr.7).
-    if mc.check_signature
-        && let FunctionValue::SignedBuiltin { signature, .. } = &*mc.func
-    {
+    // Mirror the general path: *every* call site validates and coerces a
+    // `SignedBuiltin`'s arguments before dispatch — `eval_function` for a
+    // block-wrapped step or a lambda body, `eval_path_function_step` for a
+    // bare function path step (jsntrs-6wr.7, jsntrs-p0v.7). `call_function`
+    // hands them to the raw fn unchecked, which silently accepted extra
+    // arguments and skipped singleton coercion.
+    if let FunctionValue::SignedBuiltin { signature, .. } = &*mc.func {
         let (coerced, return_undefined) = crate::evaluator::process_call_args(signature, &args)?;
         if return_undefined {
             return Ok(Value::Undefined);
@@ -1412,11 +1399,13 @@ mod tests {
         eval(&arena, root, input, &env)
     }
 
-    /// Regression test for jsntrs-6wr.7: a lifted call whose general path is
-    /// `eval_function` — a block-wrapped `.( … )` step, or a lambda body —
-    /// must run the same `SignedBuiltin` signature validation. The raw
-    /// builtins ignore surplus arguments, so the lift used to answer
-    /// "ALICE" where the general path (and jsonata-js) raise T0410.
+    /// Regression test for jsntrs-6wr.7 and jsntrs-p0v.7: every call site
+    /// runs `SignedBuiltin` signature validation, whichever route it takes —
+    /// a block-wrapped `.( … )` step and a lambda body through
+    /// `eval_function`, a bare function path step through
+    /// `eval_path_function_step`. The raw builtins ignore surplus arguments,
+    /// so both the lift and the bare-step general path used to answer
+    /// "ALICE" where jsonata-js raises T0410.
     #[test]
     fn lifted_signed_builtin_validates_signature() {
         let input = Value::from_json_str(r#"{"items": [{"x": 3, "name": "alice"}]}"#)
@@ -1428,35 +1417,47 @@ mod tests {
             "items.($boolean(x, 1))",
             "items.($sum(x, 1))",
             "$map(items, function($v){$uppercase($v.name, 1)})",
+            // jsntrs-p0v.7: the bare-step route validates too.
+            "items.$uppercase(name, 1)",
+            "items.$lowercase(name, 1)",
+            "items.$string(x, 1)",
+            "items.$boolean(x, 1)",
+            "items.$sum(x, 1)",
         ] {
             let err = try_eval_expr(src, &input).expect_err("expected a signature error");
             assert_eq!(err.code, "T0410", "{src}: got {err:?}");
         }
     }
 
-    /// The jsntrs-6wr.7 check is route-specific and must not over-reach: a
-    /// bare function path step is dispatched by `eval_path_function_step`,
-    /// which calls the builtin unvalidated, and well-formed lifted calls
-    /// must keep working.
+    /// The signature check must not over-reach: well-formed calls keep
+    /// working on every route, including the bare function path step that
+    /// jsntrs-p0v.7 brought under validation.
     #[test]
-    fn lifted_signed_builtin_check_is_route_specific() {
+    fn lifted_signed_builtin_check_accepts_well_formed_calls() {
         let input = Value::from_json_str(r#"{"items": [{"x": 3, "name": "alice"}]}"#)
             .expect("valid test JSON");
         let alice = Value::String("ALICE".into());
         for src in [
             "items.($uppercase(name))",
             "$map(items, function($v){$uppercase($v.name)})",
-            // No validation on this route, so the surplus arg is ignored.
-            "items.$uppercase(name, 1)",
+            "items.$uppercase(name)",
         ] {
             let got = eval_expr(src, &input);
             assert!(got.deep_equal(&alice), "{src}: got {got:?}");
         }
-        let summed = eval_expr("items.($sum(x))", &input);
-        assert!(
-            summed.deep_equal(&Value::Number(3.0)),
-            "expected 3, got {summed:?}"
-        );
+        for src in ["items.($sum(x))", "items.$sum(x)"] {
+            let summed = eval_expr(src, &input);
+            assert!(
+                summed.deep_equal(&Value::Number(3.0)),
+                "{src}: expected 3, got {summed:?}"
+            );
+        }
+        // Nil propagation still fires on the bare-step route rather than
+        // reaching the builtin: a missing field is undefined, not an error.
+        for src in ["items.$uppercase(missing)", "items.$sum(missing)"] {
+            let got = eval_expr(src, &input);
+            assert!(got.is_undefined(), "{src}: got {got:?}");
+        }
     }
 
     #[test]

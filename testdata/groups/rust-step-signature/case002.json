@@ -1,0 +1,42 @@
+[
+    {
+        "expr": "items.$uppercase(name)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": ["ALICE", "BOB"]
+    },
+    {
+        "expr": "items.$sum(x)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": [3, 4]
+    },
+    {
+        "expr": "items.$string(x)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": ["3", "4"]
+    },
+    {
+        "expr": "items.$string(x, true)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": ["3", "4"]
+    },
+    {
+        "expr": "items.$boolean(x)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": [true, true]
+    },
+    {
+        "expr": "items.$substring(name, 1)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": ["lice", "ob"]
+    },
+    {
+        "expr": "items.$string()",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "result": ["{\"x\":3,\"name\":\"alice\"}", "{\"x\":4,\"name\":\"bob\"}"]
+    },
+    {
+        "expr": "item.$uppercase(name)",
+        "data": {"item": {"x": 3, "name": "alice"}},
+        "result": "ALICE"
+    }
+]

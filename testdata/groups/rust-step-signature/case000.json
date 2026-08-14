@@ -1,0 +1,42 @@
+[
+    {
+        "expr": "items.$uppercase(name, 1)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$lowercase(name, 1)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$string(x, 1)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$boolean(x, 1)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$sum(x, 1)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$max(x, 2)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$min(x, 2)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$average(x, 2)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    }
+]

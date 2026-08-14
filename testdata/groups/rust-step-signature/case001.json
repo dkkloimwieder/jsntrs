@@ -1,0 +1,27 @@
+[
+    {
+        "expr": "items.$uppercase(x)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0410"
+    },
+    {
+        "expr": "items.$sum(name)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0412"
+    },
+    {
+        "expr": "items.$max(name)",
+        "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+        "code": "T0412"
+    },
+    {
+        "expr": "item.$uppercase(name, 1)",
+        "data": {"item": {"x": 3, "name": "alice"}},
+        "code": "T0410"
+    },
+    {
+        "expr": "item.$sum(x, 1)",
+        "data": {"item": {"x": 3, "name": "alice"}},
+        "code": "T0410"
+    }
+]
