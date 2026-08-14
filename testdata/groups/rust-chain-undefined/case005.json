@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $filter(function($v){true}) ~> $count() ~> $boolean()",
+    "data": {},
+    "bindings": {},
+    "result": false
+}

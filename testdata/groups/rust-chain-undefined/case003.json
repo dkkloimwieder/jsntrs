@@ -1,0 +1,6 @@
+{
+    "expr": "[1,2,3] ~> $filter(function($v){$v > 10}) ~> $count() ~> $string()",
+    "data": {},
+    "bindings": {},
+    "result": "0"
+}

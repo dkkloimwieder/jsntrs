@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $substringAfter(\"@\") ~> $uppercase() ~> $length()",
+    "data": {},
+    "bindings": {},
+    "undefinedResult": true
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $substringAfter(\"@\") ~> $exists()",
+    "data": {},
+    "bindings": {},
+    "result": false
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $sort() ~> $reverse() ~> $count()",
+    "data": {},
+    "bindings": {},
+    "result": 0
+}

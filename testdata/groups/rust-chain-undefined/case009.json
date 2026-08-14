@@ -1,0 +1,6 @@
+{
+    "expr": "($f := function($x){$x}; foo ~> $f ~> $exists())",
+    "data": {},
+    "bindings": {},
+    "result": false
+}

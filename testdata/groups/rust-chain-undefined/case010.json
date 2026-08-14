@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $string() ~> function($x){ \"reached\" }",
+    "data": {},
+    "bindings": {},
+    "result": "reached"
+}

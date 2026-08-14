@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $string() ~> $error()",
+    "data": {},
+    "bindings": {},
+    "code": "D3137"
+}

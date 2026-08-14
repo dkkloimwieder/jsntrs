@@ -473,12 +473,16 @@ fn eval_chain(
     }
     steps.push(current);
 
+    // Every stage runs unconditionally, even when the previous one produced
+    // undefined: `~>` is sugar for nested application, so
+    // `x ~> $f() ~> $g()` must equal `$g($f(x))`. Builtins that reject or
+    // propagate undefined do so on their own (jsonata-js
+    // `evaluateApplyExpression` behaves the same). Short-circuiting here made
+    // `[1,2,3] ~> $filter(…) ~> $count()` yield undefined while the
+    // parenthesized form yielded 0.
     let mut result = piped.clone();
     for step in steps {
         result = eval_chain_step(arena, step, &result, input, env)?;
-        if result.is_undefined() {
-            return Ok(Value::Undefined);
-        }
     }
     Ok(result)
 }

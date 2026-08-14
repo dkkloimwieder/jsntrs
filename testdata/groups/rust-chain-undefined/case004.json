@@ -1,0 +1,6 @@
+{
+    "expr": "foo ~> $count() ~> $string() ~> $length()",
+    "data": {},
+    "bindings": {},
+    "result": 1
+}
