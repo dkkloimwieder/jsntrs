@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(1234.5678, \"０.０E０\", {\"exponent-separator\": \"E\", \"zero-digit\": \"０\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "１.２E３"
+}

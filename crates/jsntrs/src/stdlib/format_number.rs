@@ -54,6 +54,9 @@ pub fn fn_format_number(args: &[Value], _focus: &Value) -> JsonataResult {
 
 // ── Format character set ──────────────────────────────────────────────────────
 
+/// Default `exponent-separator`, used when the option is absent.
+const DEFAULT_EXPONENT_SEP: char = 'e';
+
 #[derive(Clone)]
 pub(crate) struct FmtChars {
     pub(crate) decimal_sep: char,
@@ -63,7 +66,11 @@ pub(crate) struct FmtChars {
     pub(crate) zero_digit: char,
     pub(crate) digit: char,
     pub(crate) pattern_sep: char,
-    pub(crate) exponent_sep: char,
+    /// Character treated as the exponent separator, or `None` when no
+    /// character can be: jsonata-js compares single picture characters against
+    /// the option value, so an empty or multi-character value never matches
+    /// and the picture then has no exponent part.
+    pub(crate) exponent_sep: Option<char>,
     pub(crate) per_mille_str: String,
 }
 
@@ -77,7 +84,7 @@ impl Default for FmtChars {
             zero_digit: '0',
             digit: '#',
             pattern_sep: ';',
-            exponent_sep: 'e',
+            exponent_sep: Some(DEFAULT_EXPONENT_SEP),
             per_mille_str: "\u{2030}".to_string(),
         }
     }
@@ -99,6 +106,13 @@ impl FmtChars {
                 "zero-digit" if chars.len() == 1 => fc.zero_digit = chars[0],
                 "digit" if chars.len() == 1 => fc.digit = chars[0],
                 "pattern-separator" if chars.len() == 1 => fc.pattern_sep = chars[0],
+                "exponent-separator" => {
+                    fc.exponent_sep = if chars.len() == 1 {
+                        Some(chars[0])
+                    } else {
+                        None
+                    };
+                }
                 _ => {}
             }
         }
@@ -114,7 +128,7 @@ impl FmtChars {
             || c == self.digit
             || c == self.grouping_sep
             || c == self.decimal_sep
-            || c == self.exponent_sep
+            || self.exponent_sep == Some(c)
     }
 }
 
@@ -229,7 +243,7 @@ fn locate_sub_picture_separators(
             }
             dec_pos = Some(i);
         }
-        if c == fc.exponent_sep && exp_pos.is_none() {
+        if fc.exponent_sep == Some(c) && exp_pos.is_none() {
             exp_pos = Some(i);
         }
     }
@@ -578,10 +592,10 @@ pub(crate) fn format_with_exponent(n: f64, sp: &SubPicture, fc: &FmtChars) -> St
         exp_str.insert(0, '0');
     }
 
-    format!(
-        "{}{}{}{}",
-        mantissa_part, fc.exponent_sep, exp_sign, exp_str
-    )
+    // Only reached when the picture had an exponent part, which implies a
+    // separator character was configured; the fallback keeps this total.
+    let exp_sep = fc.exponent_sep.unwrap_or(DEFAULT_EXPONENT_SEP);
+    format!("{mantissa_part}{exp_sep}{exp_sign}{exp_str}")
 }
 
 pub(crate) fn split_on_pattern_sep(picture: &str, sep: char) -> Vec<String> {
@@ -674,5 +688,50 @@ mod tests {
     fn negative_sub_picture_is_applied() {
         assert_eq!(fmt(-1.0, "#0.00;(#0.00)"), "(1.00)");
         assert_eq!(fmt(1.0, "#0.00;(#0.00)"), "1.00");
+    }
+
+    /// Format with an options object; `Err` carries the error code.
+    fn fmt_opts(n: f64, picture: &str, options: &str) -> Result<String, &'static str> {
+        let opts = Value::from_json_str(options).expect("options fixture must be valid JSON");
+        match fn_format_number(
+            &[Value::Number(n), Value::String(picture.into()), opts],
+            &Value::Undefined,
+        ) {
+            Ok(Value::String(s)) => Ok(s.to_string()),
+            Ok(other) => panic!("expected string, got {other:?}"),
+            Err(e) => Err(e.code),
+        }
+    }
+
+    /// Expected values verified against jsonata-js 2.x: `exponent-separator`
+    /// picks the picture character that introduces the exponent and the
+    /// character emitted in its place, and the default `e` is passive once
+    /// another separator is configured.
+    #[test]
+    fn exponent_separator_option_is_honoured() {
+        let e_sep = r#"{"exponent-separator": "E"}"#;
+        assert_eq!(fmt_opts(1234.5678, "0.0E0", e_sep), Ok("1.2E3".to_string()));
+        assert_eq!(
+            fmt_opts(1234.5678, "00.000E0", e_sep),
+            Ok("12.346E2".to_string())
+        );
+        assert_eq!(
+            fmt_opts(0.000_012_345, "0.00E0", e_sep),
+            Ok("1.23E-5".to_string())
+        );
+        // With a custom separator the default `e` is a passive character
+        // sandwiched between active ones.
+        assert_eq!(fmt_opts(1234.5678, "0.0e0", e_sep), Err("D3086"));
+        // A multi-character value matches no single picture character, so the
+        // picture has no exponent separator at all (jsonata-js agrees).
+        assert_eq!(
+            fmt_opts(1234.5678, "0.0e0", r#"{"exponent-separator": "EE"}"#),
+            Err("D3086")
+        );
+        // Unrecognised keys are ignored, as in jsonata-js.
+        assert_eq!(
+            fmt_opts(1234.5678, "0.0e0", r#"{"bogus": "x"}"#),
+            Ok("1.2e3".to_string())
+        );
     }
 }
