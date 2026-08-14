@@ -36,33 +36,37 @@ fn current_millis() -> i64 {
 
 /// `$now(picture?, timezone?)`
 ///
+/// jsonata-js binds `$now` to `fromMillis(now, picture, timezone)`, so the
+/// timezone applies whether or not a picture was supplied — `$now(undefined,
+/// "+0500")` renders the default ISO form at +05:00, not at UTC
+/// (jsntrs-p0v.5).
+///
 /// # Errors
 /// Returns `T0410` for invalid picture/timezone arguments and `D3137` for date formatting errors.
 pub fn fn_now(args: &[Value], _focus: &Value) -> JsonataResult {
     let millis = current_millis();
-    if !args.is_empty() && !args[0].is_undefined() {
-        let picture = match &args[0] {
-            Value::String(s) => s.clone(),
-            _ => {
-                return Err(JsonataError::new(
-                    "T0410",
-                    "$now: picture argument must be a string",
-                ));
-            }
-        };
-        let tz_offset = if args.len() >= 2 && !args[1].is_undefined() {
-            match &args[1] {
-                Value::String(s) => parse_tz(s)?,
-                _ => return Err(JsonataError::new("T0410", "timezone must be a string")),
-            }
-        } else {
-            0
-        };
-        let s = format_with_picture(millis, &picture, tz_offset)?;
-        return Ok(Value::String(s.into()));
+    let picture = match args.first() {
+        None | Some(Value::Undefined) => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(_) => {
+            return Err(JsonataError::new(
+                "T0410",
+                "$now: picture argument must be a string",
+            ));
+        }
+    };
+    let tz_offset = match args.get(1) {
+        None | Some(Value::Undefined) => 0,
+        Some(Value::String(s)) => parse_tz(s)?,
+        Some(_) => return Err(JsonataError::new("T0410", "timezone must be a string")),
+    };
+    match picture {
+        Some(p) => Ok(Value::String(
+            format_with_picture(millis, &p, tz_offset)?.into(),
+        )),
+        // Default: ISO 8601 with milliseconds.
+        None => Ok(Value::String(format_default_iso(millis, tz_offset).into())),
     }
-    // Default: ISO 8601 with milliseconds
-    Ok(Value::String(format_default_iso(millis, 0).into()))
 }
 
 /// `$millis()`
@@ -532,6 +536,73 @@ mod tests {
     }
 
     // ── $toMillis basic ──────────────────────────────────────────────
+
+    /// jsonata-js binds `$now` straight to `fromMillis(now, picture, tz)`,
+    /// so the timezone argument applies with no picture too — the offset
+    /// used to be dropped, leaving the default ISO form at UTC
+    /// (jsntrs-p0v.5).
+    #[test]
+    fn now_honours_the_timezone_without_a_picture() {
+        let with_tz = match fn_now(&[Value::Undefined, str_val("+0530")], &Value::Undefined) {
+            Ok(Value::String(s)) => s.to_string(),
+            other => panic!("expected string, got {other:?}"),
+        };
+        assert!(
+            with_tz.ends_with("+05:30"),
+            "expected a +05:30 offset, got {with_tz}"
+        );
+        // The picture form already honoured it and still does.
+        let with_picture = match fn_now(&[str_val("[Z]"), str_val("-0500")], &Value::Undefined) {
+            Ok(Value::String(s)) => s.to_string(),
+            other => panic!("expected string, got {other:?}"),
+        };
+        assert_eq!(with_picture, "-05:00");
+        // No timezone: unchanged, UTC with the trailing Z.
+        let plain = match fn_now(&[], &Value::Undefined) {
+            Ok(Value::String(s)) => s.to_string(),
+            other => panic!("expected string, got {other:?}"),
+        };
+        assert!(plain.ends_with('Z'), "expected UTC, got {plain}");
+    }
+
+    /// jsonata-js raises D3132 for an unknown component specifier and emits
+    /// the literal text "undefined" when the unknown marker carries a
+    /// presentation modifier; jsntrs raises D3132 for both instead of
+    /// echoing the marker back verbatim (jsntrs-p0v.5).
+    #[test]
+    fn unknown_format_component_is_d3132() {
+        for picture in ["[q]", "[q1]", "[qN]", "[G1]", "[]", "[ ]", "[Y]-[M01] [k]"] {
+            let result = fn_from_millis(&[millis_val(0), str_val(picture)], &Value::Undefined);
+            assert!(
+                matches!(result, Err(ref e) if e.code == "D3132"),
+                "picture {picture:?}: got {result:?}"
+            );
+        }
+        // The nineteen real specifiers keep working, including the two that
+        // render the calendar name.
+        assert_eq!(from_millis_picture(0, "[E]/[C]"), "ISO/ISO");
+    }
+
+    /// There is no IANA database behind the hand-rolled calendar math, so a
+    /// zone name is a clean D3137 rather than jsonata-js's `parseInt` NaN
+    /// (which formats as the literal text "NaN").
+    #[test]
+    fn unknown_timezone_name_is_d3137() {
+        for tz in ["America/New_York", "bogus", "+05:3", ""] {
+            let result = fn_from_millis(
+                &[millis_val(0), str_val("[Y]"), str_val(tz)],
+                &Value::Undefined,
+            );
+            assert!(
+                matches!(result, Err(ref e) if e.code == "D3137"),
+                "timezone {tz:?}: got {result:?}"
+            );
+        }
+        // The accepted spellings still resolve to a zero offset.
+        for tz in ["UTC", "utc", "GMT", "Z"] {
+            assert_eq!(from_millis_picture_tz(0, "[H01]", tz), "00");
+        }
+    }
 
     #[test]
     fn test_to_millis_iso8601() {

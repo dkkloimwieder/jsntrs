@@ -1,0 +1,6 @@
+{
+    "expr": "$fromMillis(0, undefined, \"+0530\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "1970-01-01T05:30:00.000+05:30"
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "$formatBase(1e21, 10)",
+    "dataset": null,
+    "bindings": {},
+    "result": "1e+21"
+}

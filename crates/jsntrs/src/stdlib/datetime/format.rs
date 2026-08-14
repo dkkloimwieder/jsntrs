@@ -43,7 +43,9 @@ pub(super) fn format_default_iso(ms: i64, tz_offset_secs: i32) -> String {
 /// Format epoch milliseconds using an XPath picture string.
 ///
 /// # Errors
-/// Returns `D3130`/`D3132` for invalid picture tokens and `D3137` for date construction errors.
+/// Returns `D3132` for an unknown component specifier, `D3133` for an
+/// unsupported modifier, `D3134` for an over-wide timezone specifier and
+/// `D3135` for an unclosed variable marker.
 pub fn format_with_picture(
     ms: i64,
     picture: &str,
@@ -140,14 +142,13 @@ pub(super) fn format_token(
     weekday: u8, // 0=Sun..6=Sat
     tz_offset_secs: i32,
 ) -> Result<String, JsonataError> {
-    if token.is_empty() {
-        return Ok(String::new());
-    }
-    let mut chars = token.chars();
-    let component = chars
-        .next()
-        .ok_or_else(|| JsonataError::new("D3130", "unexpected empty picture token"))?;
-    let modifier: String = chars.collect();
+    // An empty marker (`[]`, or `[ ]` once whitespace is stripped) has no
+    // component specifier at all — D3132 with an empty value, same as
+    // jsonata-js.
+    let Some(component) = token.chars().next() else {
+        return Err(unknown_component(""));
+    };
+    let modifier: String = token.chars().skip(1).collect();
 
     match component {
         'Y' => format_year_component(year, &modifier),
@@ -194,8 +195,21 @@ pub(super) fn format_token(
             let (_thy, thm, _thd) = iso_week_thursday(year, month, day);
             Ok(format_iso_week_month(thm, &modifier))
         }
-        _ => Ok(format!("[{token}]")),
+        // Not one of the nineteen XPath component specifiers. jsonata-js
+        // raises D3132 here when the marker carries no presentation
+        // modifier (`[q]`) and silently emits the JavaScript text
+        // "undefined" when it does (`[q1]`); jsntrs raises D3132 for both
+        // rather than echoing the marker back (jsntrs-p0v.5).
+        _ => Err(unknown_component(&component.to_string())),
     }
+}
+
+/// D3132, worded like jsonata-js's message for the same condition.
+fn unknown_component(component: &str) -> JsonataError {
+    JsonataError::new(
+        "D3132",
+        format!("unknown component specifier {component:?} in the date/time picture string"),
+    )
 }
 
 pub(super) fn format_year_component(y: i32, modifier: &str) -> Result<String, JsonataError> {

@@ -1,0 +1,6 @@
+{
+    "expr": "$contains($now(undefined, \"+0530\"), \"+05:30\")",
+    "dataset": null,
+    "bindings": {},
+    "result": true
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "$string(-0.4 + 0.4)",
+    "dataset": null,
+    "bindings": {},
+    "result": "0"
+}

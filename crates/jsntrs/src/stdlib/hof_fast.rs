@@ -643,8 +643,8 @@ pub(crate) enum PreparedState {
         neg_pic: super::format_number::SubPicture,
         fc: super::format_number::FmtChars,
     },
-    /// $round: pre-extracted precision
-    Round { precision: i64 },
+    /// $round: pre-extracted precision, narrowed exactly as `fn_round` does
+    Round { precision: i32 },
     /// $contains with string arg: pre-extracted needle
     Contains { needle: String },
     /// $formatBase: pre-extracted radix
@@ -886,8 +886,17 @@ fn try_prepare(func_name: &str, args: &[CallArg]) -> Option<PreparedState> {
             })
         }
         "round" => {
+            // Narrow f64 → i32 in one saturating step, exactly like
+            // `fn_round`. Going through i64 first wrapped on the way down
+            // (1e300 → i64::MAX → -1), so a nonsense precision rounded to
+            // tens on the fast path and was a no-op on the general one
+            // (jsntrs-p0v.5).
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "saturating f64 → i32, matching numeric::fn_round"
+            )]
             let precision = match args.get(1) {
-                Some(CallArg::Const(Value::Number(n))) => *n as i64,
+                Some(CallArg::Const(Value::Number(n))) => *n as i32,
                 None => 0,
                 _ => return None,
             };
@@ -901,14 +910,24 @@ fn try_prepare(func_name: &str, args: &[CallArg]) -> Option<PreparedState> {
             Some(PreparedState::Contains { needle })
         }
         "formatBase" => {
+            // $formatBase rounds the radix half-to-even before range-checking
+            // it, so truncating here diverged for e.g. 15.5 (base 16, not 15)
+            // and 36.6 (D3100, not base 36) — jsntrs-p0v.5.
             let radix = match args.get(1) {
-                Some(CallArg::Const(Value::Number(n))) => *n as u32,
+                Some(CallArg::Const(Value::Number(n))) => super::numeric::bankers_round(*n, 0),
                 _ => return None,
             };
-            if !(2..=36).contains(&radix) {
+            if !(2.0..=36.0).contains(&radix) {
                 return None;
             }
-            Some(PreparedState::FormatBase { radix })
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "range-checked to 2..=36 immediately above"
+            )]
+            Some(PreparedState::FormatBase {
+                radix: radix as u32,
+            })
         }
         _ => None,
     }
@@ -954,8 +973,7 @@ fn exec_prepared(prepared: &PreparedState, field_val: &Value) -> Option<JsonataR
             };
             // Must match $round exactly: half-to-even, same as numeric::fn_round.
             Some(Ok(Value::Number(super::numeric::bankers_round(
-                n,
-                *precision as i32,
+                n, *precision,
             ))))
         }
         PreparedState::Contains { needle } => {
@@ -1552,5 +1570,46 @@ mod tests {
             fast.deep_equal(&general),
             "fast path {fast:?} != general path {general:?}"
         );
+    }
+
+    /// Regression test for jsntrs-p0v.5: the prepared precision was narrowed
+    /// f64 → i64 → i32, and the second step *wraps* — 1e300 saturated to
+    /// i64::MAX and then wrapped to -1, so the lift rounded to tens where
+    /// `$round` (a single saturating f64 → i32) leaves the value alone.
+    #[test]
+    fn round_fast_path_saturates_extreme_precision_like_the_builtin() {
+        let input = nums_input(&[2.55, -37.5, 0.125]);
+        for precision in ["1e300", "-1e300", "1e10", "-1e10", "1/0", "-1/0"] {
+            let fast = eval_expr(&format!("nums.$round(x, {precision})"), &input);
+            let general = eval_expr(&format!("nums.($round(x + 0, {precision}))"), &input);
+            // Debug text, not deep_equal: an absurd negative scale
+            // underflows to NaN on both routes, and NaN != NaN.
+            assert_eq!(
+                format!("{fast:?}"),
+                format!("{general:?}"),
+                "precision {precision}"
+            );
+        }
+    }
+
+    /// Regression test for jsntrs-p0v.5: `$formatBase` rounds its radix
+    /// half-to-even, so the prepared radix cannot truncate — 15.5 is base
+    /// 16 and 36.6 is out of range.
+    #[test]
+    fn format_base_fast_path_rounds_the_radix_like_the_builtin() {
+        let input = nums_input(&[255.0, 100.0, -12.0]);
+        for radix in ["15.5", "16.5", "2.5", "1.5", "36.5", "36.6", "1.4"] {
+            let src = format!("nums.$formatBase(x, {radix})");
+            let fast = try_eval_expr(&src, &input);
+            let general = try_eval_expr(&format!("nums.($formatBase(x + 0, {radix}))"), &input);
+            match (fast, general) {
+                (Ok(f), Ok(g)) => assert!(
+                    f.deep_equal(&g),
+                    "radix {radix}: fast {f:?} != general {g:?}"
+                ),
+                (Err(f), Err(g)) => assert_eq!(f.code, g.code, "radix {radix}"),
+                (f, g) => panic!("radix {radix}: fast {f:?} != general {g:?}"),
+            }
+        }
     }
 }

@@ -631,6 +631,19 @@ const CASES: &[(&str, &str)] = &[
     ("items^(x)[]", CLEAN),
     ("items^(name)[]", KEEP_ARRAY),
     ("items^(x)[].name", CLEAN),
+    // ── Track numeric-datetime-edges (jsntrs-p0v.5): the prepared
+    //    $round precision and $formatBase radix are narrowed at analysis
+    //    time, so the narrowing has to match the builtin's. The precision
+    //    used to go f64 → i64 → i32 (the second step wraps: 1e300 became
+    //    -1 and rounded to tens) and the radix used to truncate (15.5 was
+    //    base 15, not 16). ──
+    //    (An absurd *negative* precision underflows to NaN on both routes,
+    //    which this harness's deep-equal cannot compare; that pair lives in
+    //    `hof_fast::tests::round_fast_path_saturates_extreme_precision_like_the_builtin`.)
+    ("items.$round(x, 1e300)", NUMS),
+    ("items.$round(x, 1e10)", NUMS),
+    ("items.$formatBase(x, 15.5)", CLEAN),
+    ("items.$formatBase(x, 2.5)", NUMS),
 ];
 
 /// (expression, data) pairs where **no** lift may fire.

@@ -1,0 +1,6 @@
+{
+    "expr": "$fromMillis(0, \"[Y]-[M01]-[D01]\", \"+0530\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "1970-01-01"
+}

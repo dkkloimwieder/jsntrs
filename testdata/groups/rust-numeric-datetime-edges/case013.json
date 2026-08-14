@@ -1,0 +1,6 @@
+{
+    "expr": "$formatBase(1/0, 10)",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3001"
+}

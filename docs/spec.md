@@ -93,6 +93,12 @@ type Sequence struct {
 
 **Rust port (shipped behavior).** Numbers are `Value::Number(f64)` only -- there is no second numeric variant (`crates/jsntrs/src/value.rs:82`). JSON input is converted to f64 at parse time (`Value::from_json`, `value.rs:464-467`, via `n.as_f64()`), so integers beyond 2^53 are **not** preserved verbatim; digits past that limit are lost on ingest. JSON output re-renders through `ryu-js` (`value.rs:521-528`) and `&`/`$string` coercion goes through `format_float` (`value.rs:399-401`). The Go `json.Number` verbatim-precision path was deliberately not ported, and `FormatNumber` has no Rust counterpart.
 
+**Rust port: negative zero (jsntrs-p0v.5).** `format_float` prints `-0.0` as
+`"0"`, not Go's `"-0"`. JavaScript agrees at both layers (`String(-0)` and
+`JSON.stringify(-0)` are both `"0"`) and the JSON side here already did
+(`ryu-js`), so `$string(0 * -1)` and the serialized form of the same value no
+longer disagree about the sign of zero.
+
 **Rust port: out-of-range JSON number literals (jsntrs-ztg).** Ingest accepts
 every literal `JSON.parse` accepts, widening it the way JavaScript does:
 an integer past `u64` range becomes the nearest f64
@@ -1422,7 +1428,20 @@ jsntrs-p0v.18 for the audit.
 - **<1 arg**: **T0410** (Go reference: D3006).
 - **nil**: undefined propagation.
 - **radix**: 2-36, default 10. Out of range: **D3100**.
-- **Returns**: `strconv.FormatInt(int64(math.Round(n)), base)`.
+- **Rounding (jsntrs-p0v.5, jsonata-js-verified 2026-08-14)**: *both*
+  arguments go through `$round` (half-to-even) first, so `$formatBase(255,
+  15.5)` is base 16 and `$formatBase(255, 1.5)` is base 2 rather than D3100.
+  The Go reference's `strconv.FormatInt(int64(math.Round(n)), base)` rounded
+  half-away-from-zero and truncated the radix; jsntrs follows jsonata-js.
+- **Returns**: base 10 is ECMAScript `Number::toString` (the exact `ryu-js`
+  layer, including the `1e+21` switch — *not* `$string`'s 15-significant-digit
+  form); other radices follow V8's `DoubleToRadixCString`, which zero-pads
+  digits below the double's precision (`$formatBase(1e30, 36)` is
+  `"2oy99wnkl1a000000000"`). Values past `i64` used to saturate to
+  `"9223372036854775807"`.
+- **Inf/NaN**: **D3001**, the guard the sibling formatters use
+  (`$string`/`$formatInteger`/`$formatNumber`, jsntrs-p0v.13). jsonata-js
+  emits the literal text `"Infinity"`/`"NaN"` here.
 
 ### 5.2.22 `$formatInteger` (`string_format_integer.go:47`)
 
@@ -1774,8 +1793,20 @@ jsntrs-p0v.18 for the audit.
 - **0 args**: Returns an ISO 8601 UTC timestamp with milliseconds, `YYYY-MM-DDTHH:MM:SS.sssZ` (JSONata-spec format). Go reference: RFC 3339 Nano.
 - **With picture**: Formats current time using XPath picture string.
 - **Non-string picture**: **T0410**.
-- **timezone**: Named timezone or numeric offset (e.g., `"+05:30"`, `"America/New_York"`).
-- **Unknown timezone**: **D3137**.
+- **timezone**: A numeric offset only — `"+0530"`, `"-05:00"`, `"0530"`, or the
+  zero-offset spellings `"UTC"` / `"GMT"` / `"Z"`. IANA zone names
+  (`"America/New_York"`) are **not** supported: the datetime layer is
+  hand-rolled calendar math with no timezone database (CLAUDE.md), so there
+  is nothing to resolve a name against.
+- **Unknown timezone**: **D3137**, naming the accepted forms. *jsonata-js
+  divergence (verified 2026-08-14):* the reference parses this argument as
+  `parseInt(timezone)` and never errors — a zone name yields `NaN` and
+  formats as the literal text `"NaN"`, and `"+05:30"` silently loses its
+  minutes. jsntrs reads the whole offset and reports unusable input
+  (jsntrs-p0v.5).
+- **timezone with no picture**: applies. `$now(undefined, "+0530")` renders
+  the default ISO form at +05:30, matching jsonata-js, which binds `$now` to
+  `fromMillis(now, picture, timezone)` (jsntrs-p0v.5).
 
 ### 5.8.2 `$millis` (`datetime_funcs.go:34`)
 
@@ -1812,7 +1843,14 @@ jsntrs-p0v.18 for the audit.
 **Token parsing**:
 - `[[` -> literal `[`; `]]` -> literal `]`.
 - `[component modifier]` -> formatted value.
-- Unknown component: **D3134**.
+- Unknown component (anything outside the nineteen specifiers in the table
+  below, including an empty marker `[]`): **D3132**, the same code the
+  parsing side uses. *Corrected 2026-08-14 (jsntrs-p0v.5):* this line used to
+  say D3134 and the Rust code echoed the marker back (`[q]`) instead of
+  erroring at all. jsonata-js raises D3132 for `[q]` and emits the literal
+  text `"undefined"` for `[q1]` (an unknown component with a presentation
+  modifier); jsntrs raises D3132 for both. D3134 is the *timezone* specifier
+  width error (`[Z010101t]`), which jsntrs already reports.
 - Unsupported modifier: **D3133** (e.g., `[YN]`).
 
 **Components** (line 135):

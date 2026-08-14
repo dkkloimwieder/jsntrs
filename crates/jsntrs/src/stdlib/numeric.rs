@@ -345,37 +345,92 @@ pub fn fn_format_base(args: &[Value], _focus: &Value) -> JsonataResult {
     let n = args[0].as_f64().ok_or_else(|| {
         JsonataError::new("T0410", "$formatBase: first argument must be a number")
     })?;
+    // jsonata-js rounds *both* arguments with $round (half-to-even) before
+    // the range check: `$formatBase(255, 15.5)` is base 16 and
+    // `$formatBase(255, 1.5)` is base 2, not D3100 (jsntrs-p0v.5).
     let radix = if args.len() >= 2 && !args[1].is_undefined() {
-        args[1].as_f64().ok_or_else(|| {
+        let raw = args[1].as_f64().ok_or_else(|| {
             JsonataError::new("T0410", "$formatBase: second argument must be a number")
-        })? as u32
+        })?;
+        bankers_round(raw, 0)
     } else {
-        10 // default base 10
+        10.0 // default base 10
     };
-    if !(2..=36).contains(&radix) {
+    // NaN fails both comparisons, so it lands here rather than in the
+    // formatter (jsonata-js hands NaN to Number.prototype.toString, which
+    // throws a raw RangeError).
+    if !(2.0..=36.0).contains(&radix) {
         return Err(JsonataError::new(
             "D3100",
             "$formatBase: radix must be between 2 and 36",
         ));
     }
-    let int_val = n.round() as i64;
-    let formatted = format_radix(int_val.unsigned_abs(), radix);
-    if int_val < 0 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "range-checked to 2..=36 immediately above"
+    )]
+    let radix = radix as u32;
+    // Inf/NaN would format as V8's literal "Infinity"/"NaN" text; the other
+    // string-producing formatters ($string, $formatInteger, $formatNumber)
+    // all raise D3001 instead, so this one does too (jsntrs-p0v.13 guard).
+    if !n.is_finite() {
+        return Err(JsonataError::new(
+            "D3001",
+            "$formatBase: Number out of range",
+        ));
+    }
+    let value = bankers_round(n, 0);
+    // jsonata-js's $round normalises -0 to 0 ("JSON doesn't do -0").
+    let value = if value == 0.0 { 0.0 } else { value };
+    if radix == 10 {
+        // `Number.prototype.toString(10)` is plain `Number::toString`: the
+        // exact ECMAScript digits (including the `1e+21` switch), not
+        // $string's 15-significant-digit approximation.
+        return Ok(Value::String(
+            ryu_js::Buffer::new().format_finite(value).into(),
+        ));
+    }
+    let formatted = format_radix(value.abs(), radix);
+    if value < 0.0 {
         Ok(Value::String(format!("-{formatted}").into()))
     } else {
         Ok(Value::String(formatted.into()))
     }
 }
 
-fn format_radix(mut n: u64, radix: u32) -> String {
-    if n == 0 {
-        return "0".to_string();
-    }
+/// Render a non-negative, integral `f64` in `radix`, matching V8's
+/// `DoubleToRadixCString` — the algorithm behind
+/// `Number.prototype.toString(radix)` that jsonata-js's `$formatBase` calls.
+///
+/// Digits below the double's precision come out as zeros: V8 divides by the
+/// radix while the quotient is still too large to be an exact integer,
+/// padding a `0` per shift, so `$formatBase(1e30, 36)` is
+/// `"2oy99wnkl1a000000000"` rather than the exact expansion of the stored
+/// double (`"2oy99wnkl1ce84e0krgg"`). Below 2^53 every step is exact, so
+/// small values are unaffected.
+fn format_radix(mut integer: f64, radix: u32) -> String {
+    let r = f64::from(radix);
     let mut digits = Vec::new();
-    while n > 0 {
-        let d = (n % u64::from(radix)) as u32;
+    // 2^53 — the first magnitude at which a double can no longer hold every
+    // integer, i.e. V8's `Double(integer / radix).Exponent() > 0`.
+    while integer / r >= 9_007_199_254_740_992.0 {
+        integer /= r;
+        digits.push('0');
+    }
+    loop {
+        let rem = integer % r;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "fmod of a non-negative value by radix is in 0..radix"
+        )]
+        let d = rem as u32;
         digits.push(char::from_digit(d, radix).unwrap_or('?'));
-        n /= u64::from(radix);
+        integer = (integer - rem) / r;
+        if integer <= 0.0 {
+            break;
+        }
     }
     digits.reverse();
     digits.into_iter().collect()
@@ -477,6 +532,81 @@ mod tests {
         assert_eq!(text(fn_format_base(&[n(12.0)], U)), "12");
         assert_eq!(code(fn_format_base(&[n(12.0), n(1.0)], U)), "D3100");
         assert_eq!(code(fn_format_base(&[n(12.0), n(37.0)], U)), "D3100");
+    }
+
+    /// jsonata-js-verified (2026-08-14): `$formatBase` rounds the value and
+    /// the radix with `$round` (half-to-even), so a fractional radix is not
+    /// truncated and 1.5 is base 2 rather than D3100 (jsntrs-p0v.5).
+    #[test]
+    fn format_base_rounds_both_arguments_half_to_even() {
+        assert_eq!(text(fn_format_base(&[n(2.5), n(2.0)], U)), "10");
+        assert_eq!(text(fn_format_base(&[n(3.5), n(2.0)], U)), "100");
+        assert_eq!(text(fn_format_base(&[n(-2.5), n(2.0)], U)), "-10");
+        assert_eq!(text(fn_format_base(&[n(0.5), n(2.0)], U)), "0");
+        // -0 renders unsigned, like jsonata-js's $round.
+        assert_eq!(text(fn_format_base(&[n(-0.4), n(2.0)], U)), "0");
+        // Radix rounds half-to-even too: 15.5 → 16, 16.5 → 16, 2.5 → 2.
+        assert_eq!(text(fn_format_base(&[n(255.0), n(15.5)], U)), "ff");
+        assert_eq!(text(fn_format_base(&[n(255.0), n(16.5)], U)), "ff");
+        assert_eq!(text(fn_format_base(&[n(255.0), n(2.5)], U)), "11111111");
+        assert_eq!(text(fn_format_base(&[n(255.0), n(1.5)], U)), "11111111");
+        assert_eq!(text(fn_format_base(&[n(255.0), n(36.5)], U)), "73");
+        // ...and 36.6 rounds *out* of range.
+        assert_eq!(code(fn_format_base(&[n(255.0), n(36.6)], U)), "D3100");
+    }
+
+    /// Values past i64 used to saturate to `"9223372036854775807"`. Base 10
+    /// is ECMAScript `Number::toString`; other radices follow V8's
+    /// `DoubleToRadixCString`, zero-padding below the double's precision.
+    /// All expectations verified against jsonata-js 2.x (2026-08-14).
+    #[test]
+    fn format_base_handles_values_past_i64() {
+        assert_eq!(
+            text(fn_format_base(&[n(1e20), n(10.0)], U)),
+            "100000000000000000000"
+        );
+        assert_eq!(text(fn_format_base(&[n(1e21), n(10.0)], U)), "1e+21");
+        assert_eq!(
+            text(fn_format_base(&[n(1.234_567_890_123_456_8e20), n(10.0)], U)),
+            "123456789012345680000"
+        );
+        assert_eq!(
+            text(fn_format_base(&[n(1e20), n(16.0)], U)),
+            "56bc75e2d63100000"
+        );
+        assert_eq!(
+            text(fn_format_base(&[n(1e21), n(16.0)], U)),
+            "3635c9adc5dea00000"
+        );
+        assert_eq!(
+            text(fn_format_base(&[n(1e30), n(36.0)], U)),
+            "2oy99wnkl1a000000000"
+        );
+        assert_eq!(
+            text(fn_format_base(&[n(-1e20), n(2.0)], U)),
+            "-1010110101111000111010111100010110101100011000100000000000000000000"
+        );
+        // 2^53 ± the first inexact step still expands exactly.
+        assert_eq!(
+            text(fn_format_base(&[n(9_007_199_254_740_992.0), n(16.0)], U)),
+            "20000000000000"
+        );
+    }
+
+    /// Non-finite input formats as V8's literal "Infinity"/"NaN" text in
+    /// jsonata-js; jsntrs keeps the D3001 guard the sibling formatters use.
+    #[test]
+    fn format_base_rejects_non_finite() {
+        for x in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            assert_eq!(code(fn_format_base(&[n(x), n(10.0)], U)), "D3001");
+        }
+        // The radix check still runs first.
+        assert_eq!(
+            code(fn_format_base(&[n(f64::INFINITY), n(1.0)], U)),
+            "D3100"
+        );
+        // A NaN radix is D3100, not a panic.
+        assert_eq!(code(fn_format_base(&[n(12.0), n(f64::NAN)], U)), "D3100");
     }
 
     #[test]

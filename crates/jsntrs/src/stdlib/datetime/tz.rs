@@ -107,13 +107,34 @@ pub(super) fn parse_tz_from_input(runes: &[char], component: char) -> (i32, usiz
 
 // ── Timezone parsing ─────────────────────────────────────────────────────────
 
-/// Parse timezone string to offset in seconds.
-/// Accepts: "UTC", "+05:30", "-05:00", "+0530", "-0500".
+/// Parse a `$now`/`$fromMillis` timezone argument into an offset in seconds.
+///
+/// Accepts a numeric offset (`"+0530"`, `"-05:00"`, `"0530"`) and the three
+/// zero-offset spellings `"UTC"`, `"GMT"` and `"Z"`. IANA zone names
+/// (`"America/New_York"`) are **not** supported and never will be: the
+/// datetime layer is hand-rolled calendar math with no timezone database,
+/// so there is nothing to resolve a name against. Such an argument gets a
+/// D3137 naming the accepted forms.
+///
+/// jsonata-js parses this argument as `parseInt(timezone)` and does not
+/// error at all: every name yields `NaN` and formats as the literal text
+/// `"NaN"` (`$fromMillis(0, "[Y]", "UTC")` is `"NaN"` there), and a
+/// colon-separated offset silently loses its minutes (`"+05:30"` parses as
+/// `+5`, then `5 / 100 = 0` hours). jsntrs deliberately reads the whole
+/// offset and reports the unusable input (jsntrs-p0v.5).
 pub(super) fn parse_tz(s: &str) -> Result<i32, JsonataError> {
     if s.eq_ignore_ascii_case("UTC") || s.eq_ignore_ascii_case("GMT") || s == "Z" {
         return Ok(0);
     }
-    parse_numeric_tz(s).map_err(|_| JsonataError::new("D3137", format!("unknown timezone {s:?}")))
+    parse_numeric_tz(s).map_err(|_| {
+        JsonataError::new(
+            "D3137",
+            format!(
+                "unknown timezone {s:?}: expected a numeric offset such as \"+0530\" or \"-05:00\", \
+                 or \"UTC\"/\"GMT\"/\"Z\" (there is no IANA timezone database)"
+            ),
+        )
+    })
 }
 
 pub(super) fn parse_numeric_tz(s: &str) -> Result<i32, String> {

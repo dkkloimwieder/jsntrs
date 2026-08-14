@@ -17,12 +17,14 @@ pub fn format_float(n: f64) -> String {
         return "null".into();
     }
 
+    // Negative zero prints unsigned. JavaScript agrees at both layers
+    // (`String(-0)` and `JSON.stringify(-0)` are both "0") and so does the
+    // JSON side here (`ryu-js`), so the two number-formatting layers must
+    // not disagree about the sign of zero (jsntrs-p0v.5). Go's
+    // FormatFloat('g') did print "-0"; that is the one place this function
+    // does not mirror it.
     if n == 0.0 {
-        return if n.is_sign_negative() {
-            "-0".into()
-        } else {
-            "0".into()
-        };
+        return "0".into();
     }
 
     // Fast path: integral values below 1e15 print as their plain digits —
@@ -192,7 +194,6 @@ mod tests {
     /// pipeline, including at its boundaries.
     #[test]
     fn format_integer_fast_path_matches_g15_pipeline() {
-        assert_eq!(format_float(-0.0), "-0");
         assert_eq!(format_float(123_456.0), "123456");
         assert_eq!(format_float(999_999_999_999_999.0), "999999999999999");
         assert_eq!(format_float(-999_999_999_999_999.0), "-999999999999999");
@@ -200,6 +201,18 @@ mod tests {
         // scientific and step 3 converts back to full decimal — same text
         // the fast path would have produced, via the slow route.
         assert_eq!(format_float(1e15), "1000000000000000");
+    }
+
+    /// jsonata-js-verified (2026-08-14): `$string(-0)` is "0", matching
+    /// `String(-0)` and the `ryu-js` JSON layer. The pre-jsntrs-p0v.5
+    /// output was Go's "-0", which made `$string(0 * -1)` disagree with the
+    /// serialized form of the same value.
+    #[test]
+    fn negative_zero_prints_unsigned() {
+        assert_eq!(format_float(-0.0), "0");
+        assert_eq!(format_float(0.0), "0");
+        // The way `0 * -1` reaches the formatter from an expression.
+        assert_eq!(format_float(f64::from(0) * f64::from(-1)), "0");
     }
 
     #[test]
