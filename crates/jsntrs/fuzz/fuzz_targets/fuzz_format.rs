@@ -27,25 +27,16 @@
 //!   *different* expression, i.e. break idempotence (jsntrs-ecq.8).
 //!
 //! Turning the assertions on then surfaced four further gaps, all unrelated to
-//! those and to each other. One is fixed — `emit` dropped the `{…}` group of a
+//! those and to each other. Two are fixed — `emit` dropped the `{…}` group of a
 //! unary node (`-a{"k": 1}` → `-a`) and every `keep_array` outside
 //! `Name`/`Variable`/`Block` (`a[0][]` → `a[0]`), and a path group hoisted past
-//! a negated step changed the re-parsed step count (jsntrs-ecq.9). The rest are
-//! left for their own issues and fenced off in `known_unstable_gap` below,
-//! which is the authoritative list:
+//! a negated step changed the re-parsed step count (jsntrs-ecq.9); the comment
+//! scan skipped string literals but not backtick names or regex literals, so
+//! `` `a/*b*/c` `` grew a stray `/*b*/` line on every pass and `` `a'b` ``
+//! before a comment swallowed it (jsntrs-ecq.10). The rest are left for their
+//! own issues and fenced off in `known_unstable_gap` below, which is the
+//! authoritative list:
 //!
-//! - **comment scan vs. names and regexes.** `extract_comments` skips string
-//!   literals, but not backtick-quoted names and not regex literals, so a
-//!   comment marker inside either is mistaken for a comment: `` `a/*b*/c` ``
-//!   formats to itself plus a stray `/*b*/` line, and every further pass
-//!   appends another copy (`λ/*/6*/*/\/*\x08*/` is the regex spelling of the
-//!   same thing). A lone quote inside a name is the other half of it —
-//!   `` `a'b` `` followed by `/*c*/` silently *drops* the real comment,
-//!   because the scan then treats the rest of the source as an unclosed
-//!   string literal. (`highlight.rs` already skips backtick names; the
-//!   formatter's own scanner does not.) Broad enough that any comment in the
-//!   text is exempt from idempotence; comments never broke *parsing*, so
-//!   that assertion still applies to them.
 //! - **numeric path steps welded by the joining dot.** Steps are joined with
 //!   a bare `.`, so the two-step path `0 . 0` formats to `0.0`, which lexes
 //!   back as one number. Invisible until a fold depends on it: `1 - --0 . 0`
@@ -59,8 +50,8 @@
 //!   differently on the next pass.
 //!
 //! A newly found gap is a bug in `format`, not in this target: fix the
-//! formatter, or — if the fix has to wait — add a fence to `known_gap` with
-//! its repro, and file the issue.
+//! formatter, or — if the fix has to wait — add a fence to
+//! `known_unstable_gap` with its repro, and file the issue.
 
 use libfuzzer_sys::fuzz_target;
 
@@ -73,12 +64,7 @@ fn is_alien_space(c: char) -> bool {
 /// `Some(reason)` when this pair hits a known gap that makes the *second*
 /// pass differ from the first (see the header). No gap can still make the
 /// formatted text fail to *parse*: that assertion is unconditional.
-fn known_unstable_gap(src: &str, once: &str) -> Option<&'static str> {
-    // The comment scan is blind to backtick names and regex literals, so a
-    // comment marker anywhere in the text may be dropped or duplicated.
-    if src.contains("/*") || once.contains("/*") {
-        return Some("comment placement");
-    }
+fn known_unstable_gap(src: &str) -> Option<&'static str> {
     // A path dot with whitespace beside it may separate steps that the
     // formatter welds together (`0 . 0` → the number `0.0`).
     let bytes = src.as_bytes();
@@ -112,7 +98,7 @@ fuzz_target!(|data: &[u8]| {
         Ok(twice) => twice,
         Err(e) => panic!("formatted output does not parse: {e}\n src: {src:?}\nonce: {once:?}"),
     };
-    if known_unstable_gap(src, &once).is_some() {
+    if known_unstable_gap(src).is_some() {
         return;
     }
     // … and one pass must already be the canonical form.

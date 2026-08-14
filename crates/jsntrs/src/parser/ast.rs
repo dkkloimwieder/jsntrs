@@ -234,6 +234,13 @@ impl AstArena {
         })
     }
 
+    /// Every node the arena holds, in allocation order. Node ids are indices
+    /// into this slice; a node no longer reachable from the root (one that
+    /// `process_ast` replaced) is still present.
+    pub fn nodes(&self) -> &[Expr] {
+        &self.nodes
+    }
+
     pub fn len(&self) -> usize {
         self.nodes.len()
     }

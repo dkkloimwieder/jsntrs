@@ -20,7 +20,47 @@ struct Comment {
     pos: usize,   // byte offset of the /*
 }
 
-/// Extract all block comments from source with their positions.
+/// Source spans of the tokens a `/*` can hide inside.
+///
+/// The comment scan works on raw bytes, so anything that only *looks* like
+/// a comment marker has to be stepped over. Skipping string literals was
+/// not enough: a `/*` inside a backtick-quoted name came back out as a
+/// stray comment line — one more copy on every reformat — and a lone quote
+/// inside such a name made the scan read the rest of the source as an
+/// unclosed string, silently dropping every later comment (jsntrs-ecq.10).
+/// `highlight.rs` already treats the AST's own token positions as opaque
+/// (gnata-0mb.2); this is the same rule.
+///
+/// Only the four token kinds whose text can *contain* a `/`, `*`, quote or
+/// backtick are collected, and each is re-lexed from its node's position so
+/// the extent is the lexer's rather than a guess. All four begin with a
+/// byte the lexer reads the same way in either context, so lexing them in
+/// prefix position is exact — which is what makes the `Regex` span, the one
+/// that hinges on a leading `/`, correct.
+fn token_spans(src: &str, arena: &AstArena) -> Vec<(usize, usize)> {
+    let mut lexer = crate::lexer::Lexer::new(src);
+    let mut spans = Vec::new();
+    for node in arena.nodes() {
+        let pos = match node {
+            Expr::Name { pos, .. }
+            | Expr::StringLit { pos, .. }
+            | Expr::Variable { pos, .. }
+            | Expr::Regex { pos, .. } => *pos,
+            _ => continue,
+        };
+        lexer.seek(pos);
+        // A node whose position is not a token start — there is none today —
+        // contributes nothing rather than a span covering the wrong bytes.
+        if matches!(lexer.next(false), Ok(tok) if tok.pos == pos) {
+            spans.push((pos, lexer.offset()));
+        }
+    }
+    spans.sort_unstable();
+    spans
+}
+
+/// Extract all block comments from source with their positions, skipping
+/// the token spans from [`token_spans`].
 ///
 /// This is a byte-level scan, so char-boundary safety is a precondition of
 /// every slice below. Each delimiter it looks for (`/`, `*`, `"`, `'`) is
@@ -30,12 +70,22 @@ struct Comment {
 /// be mid-character. Slicing that range panicked on input as small as
 /// `/*€` (jsntrs-ecq.2), so an unterminated comment ends the scan instead.
 /// Nothing is lost by dropping it: the lexer rejects an unclosed `/*` with
-/// S0106, so `format` returns that error rather than any comment text.
-fn extract_comments(src: &str) -> Vec<Comment> {
+/// S0106, so `format` has already returned that error.
+fn extract_comments(src: &str, spans: &[(usize, usize)]) -> Vec<Comment> {
     let bytes = src.as_bytes();
     let mut comments = Vec::new();
     let mut i = 0;
+    let mut span = 0;
     while i + 1 < bytes.len() {
+        // Step over any token covering this position. Spans are sorted by
+        // start, and `i` only ever moves forward, so one cursor suffices.
+        while span < spans.len() && spans[span].1 <= i {
+            span += 1;
+        }
+        if span < spans.len() && spans[span].0 <= i {
+            i = spans[span].1;
+            continue;
+        }
         if bytes[i] == b'/' && bytes[i + 1] == b'*' {
             let start = i;
             i += 2;
@@ -58,7 +108,8 @@ fn extract_comments(src: &str) -> Vec<Comment> {
                 pos: start,
             });
         } else if bytes[i] == b'"' || bytes[i] == b'\'' {
-            // Skip string literals to avoid false positives
+            // Belt and braces: a string literal always has a `StringLit`
+            // span, but skipping it here too costs nothing.
             let quote = bytes[i];
             i += 1;
             while i < bytes.len() {
@@ -72,9 +123,6 @@ fn extract_comments(src: &str) -> Vec<Comment> {
                 }
                 i += 1;
             }
-        } else if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] != b'*' {
-            // Could be regex or division — skip to avoid false comment detection
-            i += 1;
         } else {
             i += 1;
         }
@@ -89,9 +137,11 @@ fn extract_comments(src: &str) -> Vec<Comment> {
 /// field name that has no JSONata spelling (see [`name_spelling`]) — emitting
 /// text that does not parse back would be worse than reporting it.
 pub fn format(expr: &str) -> Result<String, JsonataError> {
-    let comments = extract_comments(expr);
+    // Parse first: the comment scan needs the AST's token positions, and a
+    // source the lexer rejects has no comments worth recovering anyway.
     let (mut arena, root) = Parser::parse(expr)?;
     let root = process_ast(&mut arena, root)?;
+    let comments = extract_comments(expr, &token_spans(expr, &arena));
     let mut f = Formatter::new(&arena, &comments);
     f.emit(root, 0);
     f.emit_trailing_comments();
@@ -1699,6 +1749,70 @@ mod tests {
         // carry was the implicit flag, dropped by jsntrs-ecq.6.)
         assert_eq!(fmt(r"/a\/*/"), r"/a\/*/");
         assert_eq!(fmt(r#"$match("a", /a\/*/)"#), r#"$match("a", /a\/*/)"#);
+    }
+
+    /// A `/*` inside a backtick-quoted name is not a comment. The scan only
+    /// skipped string literals, so it lifted one out and re-emitted it on a
+    /// line of its own — and appended one more copy on every pass, since the
+    /// stray line is itself a `/*` the next scan finds (jsntrs-ecq.10).
+    #[test]
+    fn comment_marker_inside_a_backtick_name_is_not_a_comment() {
+        for src in [
+            "`a/*b*/c`",
+            "`/*`",
+            "`a/*b`",
+            "x.`a/*b*/c`",
+            // The fuzzer's spelling of the same thing: a regex literal
+            // holding an escaped `/*`, next to a real comment.
+            "λ/*/6*/*/\\/*\u{8}*/",
+        ] {
+            let once = fmt(src);
+            let twice = format(&once)
+                .unwrap_or_else(|e| panic!("formatted `{src}` -> {once:?} does not parse: {e}"));
+            assert_eq!(
+                once, twice,
+                "not idempotent for: {src}\nfirst:  {once:?}\nsecond: {twice:?}"
+            );
+        }
+        assert_eq!(fmt("`a/*b*/c`"), "`a/*b*/c`", "stray comment line emitted");
+    }
+
+    /// The other half: a lone quote inside a backtick name (or a variable
+    /// name — the lexer does not stop an identifier run at a quote) made the
+    /// scan treat everything after it as an unclosed string literal, so a
+    /// real comment further on was dropped (jsntrs-ecq.10).
+    #[test]
+    fn quote_inside_a_name_does_not_swallow_later_comments() {
+        for src in [
+            "`a'b` /*c*/",
+            "`a\"b` /*c*/",
+            "$a'b /*c*/",
+            "`it's` & /*c*/ x",
+        ] {
+            let once = fmt(src);
+            assert!(
+                once.contains("/*c*/"),
+                "comment dropped from `{src}`: {once:?}"
+            );
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src}"
+            );
+        }
+    }
+
+    /// Regex literals are opaque to the scan for the same reason, and the
+    /// `/` that opens one must not be mistaken for a division (or the span
+    /// would end in the wrong place and expose the comment marker again).
+    #[test]
+    fn comment_marker_inside_a_regex_is_not_a_comment() {
+        assert_eq!(fmt(r"/a\/*/"), r"/a\/*/");
+        assert_eq!(fmt(r#"$match("a", /a\/*/)"#), r#"$match("a", /a\/*/)"#);
+        // A division `/` is not a regex: the comment beside it still lands.
+        assert_eq!(fmt("a /* c */ / b"), "/* c */\na / b");
+        assert_eq!(fmt("a / b /* c */"), "a / b\n/* c */");
+        assert_eq!(fmt("/* x */ /re/"), "/* x */\n/re/");
     }
 
     // ── Partial application ──────────────────────────────────

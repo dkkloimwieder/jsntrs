@@ -144,6 +144,19 @@ impl Lexer {
         }
     }
 
+    /// Byte offset of the next character to scan — after [`Lexer::next`],
+    /// the end of the token it returned.
+    pub(crate) fn offset(&self) -> usize {
+        self.pos
+    }
+
+    /// Restart scanning at `pos`, which the caller vouches is a token start
+    /// (or the end of the source). Lets one lexer re-read tokens the parser
+    /// already located instead of allocating one per position.
+    pub(crate) fn seek(&mut self, pos: usize) {
+        self.pos = pos;
+    }
+
     fn peek(&self, offset: usize) -> Option<u8> {
         self.src.get(self.pos + offset).copied()
     }
