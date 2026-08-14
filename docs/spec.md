@@ -93,6 +93,23 @@ type Sequence struct {
 
 **Rust port (shipped behavior).** Numbers are `Value::Number(f64)` only -- there is no second numeric variant (`crates/jsntrs/src/value.rs:82`). JSON input is converted to f64 at parse time (`Value::from_json`, `value.rs:464-467`, via `n.as_f64()`), so integers beyond 2^53 are **not** preserved verbatim; digits past that limit are lost on ingest. JSON output re-renders through `ryu-js` (`value.rs:521-528`) and `&`/`$string` coercion goes through `format_float` (`value.rs:399-401`). The Go `json.Number` verbatim-precision path was deliberately not ported, and `FormatNumber` has no Rust counterpart.
 
+**Rust port: out-of-range JSON number literals (jsntrs-ztg).** Ingest accepts
+every literal `JSON.parse` accepts, widening it the way JavaScript does:
+an integer past `u64` range becomes the nearest f64
+(`123456789012345678901` -> `1.2345678901234568e20`, re-serialized as
+`123456789012345680000`) and an exponent that overflows becomes `Infinity`
+(`1e400`), which `write_json`/`to_json` emit as `null` -- `JSON.stringify`
+does the same. Nothing else changes: an infinite value still raises **D1001**
+wherever `CheckNumeric` runs and **D3001** from `$string`/`$formatInteger`.
+simd-json rejects both literals, so `Value::from_json_bytes` (and
+`from_json_str`, `Expression::evaluate`, `Expression::evaluate_bytes`, which
+route through it) retry the rejected document through serde_json's
+arbitrary-precision path -- only on the error path, never on a document
+simd-json accepts. The zero-copy `Value::from_json_bytes_mut` is the one
+strict entry point: simd-json unescapes strings into the caller's buffer as
+it parses, so once it reports the bad literal the original document is gone
+and there is nothing left to re-parse.
+
 **Go reference implementation.** Numbers have two Go representations:
 
 1. **`float64`**: Used for computed values and literal numbers in AST.

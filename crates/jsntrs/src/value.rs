@@ -462,8 +462,16 @@ impl Value {
             serde_json::Value::Null => Value::Null,
             serde_json::Value::Bool(b) => Value::Bool(b),
             serde_json::Value::Number(n) => {
-                // With arbitrary_precision, n.as_f64() parses the string repr
-                Value::Number(n.as_f64().unwrap_or(f64::NAN))
+                // With arbitrary_precision, n.as_f64() parses the string repr —
+                // but it discards a non-finite result, because serde_json has no
+                // way to serialize one back. `JSON.parse("1e400")` is `Infinity`
+                // and JSONata computes with it (D1001 only where the spec says
+                // so), so re-read the raw text when as_f64 declines.
+                Value::Number(
+                    n.as_f64()
+                        .or_else(|| parse_number_token(&n.to_string()))
+                        .unwrap_or(f64::NAN),
+                )
             }
             serde_json::Value::String(s) => Value::String(CompactString::from(s)),
             serde_json::Value::Array(arr) => {
@@ -572,14 +580,15 @@ impl Value {
     /// Decode a JSON string into a Value, preserving object key order.
     ///
     /// Uses simd-json for SIMD-accelerated tokenization with a direct serde
-    /// Visitor — no intermediate value tree.
+    /// Visitor — no intermediate value tree. Number literals `JSON.parse`
+    /// accepts but simd-json refuses are recovered by a retry (see
+    /// [`Self::from_json_bytes`]).
     ///
     /// # Errors
     /// Returns `D0000` if the input is not valid JSON; the backend
     /// parser's diagnostic is embedded in the message.
     pub fn from_json_str(s: &str) -> JsonataResult<Self> {
-        let mut buf = s.as_bytes().to_vec();
-        Self::from_json_bytes_mut(&mut buf)
+        Self::from_json_bytes(s.as_bytes())
     }
 
     /// Decode a JSON byte slice into a Value, preserving object key order.
@@ -588,12 +597,24 @@ impl Value {
     /// copied into a scratch buffer because simd-json rewrites its input in
     /// place. Use [`Self::from_json_bytes_mut`] to skip the copy.
     ///
+    /// simd-json is stricter than `JSON.parse` about two number literals:
+    /// integers past `u64` range and exponents that overflow `f64`
+    /// (`1e400`). Because the caller's bytes survive the copy, a document
+    /// simd-json rejects is re-parsed leniently through serde_json before the
+    /// error is reported, so both widen to the value JavaScript would
+    /// produce — the nearest `f64`, and `Infinity`.
+    ///
     /// # Errors
     /// Returns `D0000` if the input is not valid JSON (or not valid UTF-8);
     /// the backend parser's diagnostic is embedded in the message.
     pub fn from_json_bytes(b: &[u8]) -> JsonataResult<Self> {
         let mut buf = b.to_vec();
-        Self::from_json_bytes_mut(&mut buf)
+        // `DeValue<false>`: simd-json hands every number to the visitor as a
+        // number, so object keys are taken literally (see the visitor below).
+        match simd_json::serde::from_slice::<DeValue<false>>(&mut buf) {
+            Ok(wrapped) => Ok(wrapped.0),
+            Err(e) => retry_lenient(b).ok_or_else(|| json_parse_error(&e)),
+        }
     }
 
     /// Decode a mutable byte slice using SIMD-accelerated parsing.
@@ -601,16 +622,60 @@ impl Value {
     /// This is the fastest path — no copy needed. The buffer is modified
     /// in-place by simd-json for SIMD alignment.
     ///
+    /// Strict where [`Self::from_json_bytes`] is lenient: simd-json unescapes
+    /// strings into the caller's buffer as it goes, so by the time an
+    /// out-of-range number literal is reached the original document is gone
+    /// and there is nothing left to re-parse. Callers that want `JSON.parse`
+    /// acceptance of oversized integers and overflowing exponents must pay
+    /// the copy and use [`Self::from_json_bytes`].
+    ///
     /// # Errors
     /// Returns `D0000` if the input is not valid JSON; the backend
     /// parser's diagnostic is embedded in the message.
     pub fn from_json_bytes_mut(b: &mut [u8]) -> JsonataResult<Self> {
-        // `DeValue<false>`: simd-json hands every number to the visitor as a
-        // number, so object keys are taken literally (see the visitor below).
         simd_json::serde::from_slice::<DeValue<false>>(b)
             .map(|wrapped| wrapped.0)
-            .map_err(|e| JsonataError::new("D0000", format!("JSON parse error: {e}")))
+            .map_err(|e| json_parse_error(&e))
     }
+}
+
+/// Wrap a simd-json failure in the `D0000` this crate reports.
+///
+/// simd-json's `Display` prints its `ErrorType` with `{:?}`, so the catch-all
+/// it raises for input its two-stage parser cannot even tokenize — a leading
+/// UTF-8 BOM is the everyday case — reaches users as the Rust variant name
+/// `InternalError(TapeError)`. Give that one plain wording and keep
+/// simd-json's own text for the diagnoses that already read as JSON problems
+/// (`InvalidNumber`, `UnterminatedString`, …).
+fn json_parse_error(e: &simd_json::Error) -> JsonataError {
+    if matches!(e.error(), simd_json::ErrorType::InternalError(_)) {
+        let msg = match e.character() {
+            Some(c) => format!("malformed JSON at character {} ('{c}')", e.index()),
+            None => format!("malformed JSON at character {}", e.index()),
+        };
+        return JsonataError::new("D0000", format!("JSON parse error: {msg}"));
+    }
+    JsonataError::new("D0000", format!("JSON parse error: {e}"))
+}
+
+/// Re-parse a document simd-json rejected, accepting the number literals
+/// `JSON.parse` accepts.
+///
+/// simd-json refuses integers past `u64` range and any literal whose value
+/// overflows to infinity (`numberparse/correct.rs` errors on `is_infinite`).
+/// serde_json is built here with `arbitrary_precision`, which hands every
+/// number to the visitor as raw text instead; [`parse_number_token`] widens
+/// it to the nearest `f64`, keeping `Infinity` exactly as `JSON.parse` does.
+///
+/// Runs only after simd-json has already failed, so the happy path never
+/// touches it, and returns `None` for genuinely malformed input so the
+/// caller can report simd-json's more precise diagnostic. One wrinkle comes
+/// with the lenient parser: unlike the strict pass it reads a lone
+/// `{"$serde_json::private::Number": "<number>"}` object as that number
+/// (serde_json's own `Value` does the same). Reaching it takes a document
+/// that pairs such an object with an out-of-range literal elsewhere.
+fn retry_lenient(original: &[u8]) -> Option<Value> {
+    serde_json::from_slice::<Value>(original).ok()
 }
 
 // ── Direct serde::Deserialize for Value ─────────────────────────────
@@ -896,9 +961,126 @@ mod tests {
         );
     }
 
+    /// jsntrs-ztg: simd-json refuses two number literals `JSON.parse` accepts
+    /// — integers past `u64` range and any literal that overflows to infinity.
+    /// The copying constructors retry leniently, so both land on the value
+    /// JavaScript produces: `JSON.parse("123456789012345678901")` is
+    /// `1.2345678901234568e20` (stringified back as `123456789012345680000`)
+    /// and `JSON.parse("1e400")` is `Infinity`, which `JSON.stringify` writes
+    /// as `null`.
+    #[test]
+    fn oversized_number_literals_parse_like_json_parse() {
+        let big = Value::from_json_str("123456789012345678901").unwrap();
+        assert_eq!(big.as_f64(), Some(1.234_567_890_123_456_8e20));
+        assert_eq!(big.to_json_string(), "123456789012345680000");
+
+        assert_eq!(
+            Value::from_json_str("1e400").unwrap().as_f64(),
+            Some(f64::INFINITY)
+        );
+        assert_eq!(
+            Value::from_json_bytes(b"-1e400").unwrap().as_f64(),
+            Some(f64::NEG_INFINITY)
+        );
+        assert_eq!(
+            Value::from_json_str("1e400").unwrap().to_json_string(),
+            "null"
+        );
+
+        // Nested, mixed with literals simd-json handles on the first pass.
+        let doc = r#"{"big":123456789012345678901,"inf":[1e400,-1E400],"ok":1.5}"#;
+        let nested = Value::from_json_bytes(doc.as_bytes()).unwrap();
+        let text = nested.to_json_string();
+        assert_eq!(
+            text,
+            r#"{"big":123456789012345680000,"inf":[null,null],"ok":1.5}"#
+        );
+        // The serialized form is back inside simd-json's range, so it
+        // re-parses on the strict pass (infinities land as null, like
+        // JSON.parse(JSON.stringify(…)) in JavaScript).
+        assert_eq!(Value::from_json_str(&text).unwrap().to_json_string(), text);
+
+        // Still a retry, not a second parser: malformed input keeps failing.
+        assert_eq!(Value::from_json_str("{nope").unwrap_err().code, "D0000");
+        assert_eq!(
+            Value::from_json_str("[1e400,").unwrap_err().code,
+            "D0000",
+            "an out-of-range literal must not rescue a truncated document"
+        );
+    }
+
+    /// The zero-copy constructor stays strict: simd-json unescapes strings
+    /// into the caller's buffer as it goes, so by the time it reaches the bad
+    /// literal the original document is gone and there is nothing left to
+    /// re-parse. Documented divergence — leniency costs the copy.
+    #[test]
+    fn from_json_bytes_mut_stays_strict_on_oversized_literals() {
+        for doc in ["1e400", "123456789012345678901"] {
+            let mut buf = doc.as_bytes().to_vec();
+            assert_eq!(
+                Value::from_json_bytes_mut(&mut buf).unwrap_err().code,
+                "D0000",
+                "{doc} must still be rejected by the zero-copy constructor"
+            );
+            assert!(
+                Value::from_json_bytes(doc.as_bytes()).is_ok(),
+                "{doc} must be accepted by the copying constructor"
+            );
+        }
+    }
+
+    /// A leading UTF-8 BOM is rejected, like `JSON.parse` rejects it — but
+    /// the diagnostic has to read as a JSON problem. simd-json's `Display`
+    /// prints its error enum with `{:?}`, which leaked the Rust variant name
+    /// `InternalError(TapeError)` (jsntrs-ztg).
+    #[test]
+    fn bom_error_reads_as_a_json_diagnostic() {
+        let bom_doc = "\u{feff}{\"a\":1}";
+        let mut buf = bom_doc.as_bytes().to_vec();
+        let errors = [
+            Value::from_json_str(bom_doc).unwrap_err(),
+            Value::from_json_bytes(bom_doc.as_bytes()).unwrap_err(),
+            Value::from_json_bytes_mut(&mut buf).unwrap_err(),
+        ];
+        for err in errors {
+            assert_eq!(err.code, "D0000");
+            assert!(
+                !err.message.contains("InternalError") && !err.message.contains("TapeError"),
+                "leaked simd-json internals: {}",
+                err.message
+            );
+            assert!(
+                err.message.contains("malformed JSON"),
+                "unexpected message: {}",
+                err.message
+            );
+        }
+    }
+
+    /// The serde_json interop path had the same ceiling from the other side:
+    /// `Number::as_f64` discards a non-finite result (serde_json cannot
+    /// re-serialize one), so `1e400` arrived as NaN. `JSON.parse` gives
+    /// Infinity, and the difference is observable — `Infinity > 1e308` is
+    /// true where NaN's comparison is false (jsntrs-ztg).
+    #[test]
+    fn from_json_keeps_an_overflowing_exponent_as_infinity() {
+        let doc: serde_json::Value =
+            serde_json::from_str(r#"{"a":1e400,"b":-1e400,"c":123456789012345678901}"#).unwrap();
+        let v = Value::from_json(doc);
+        let Value::Object(obj) = &v else {
+            panic!("expected an object, got {v:?}");
+        };
+        assert_eq!(obj["a"].as_f64(), Some(f64::INFINITY));
+        assert_eq!(obj["b"].as_f64(), Some(f64::NEG_INFINITY));
+        assert_eq!(obj["c"].as_f64(), Some(1.234_567_890_123_456_8e20));
+    }
+
     /// All three constructors share one parser, so they must agree — numbers
     /// included, and on objects that literally use serde_json's private
     /// number token as a key (those stay objects, never collapse to numbers).
+    ///
+    /// Out-of-range literals are the one exception, pinned separately by
+    /// `from_json_bytes_mut_stays_strict_on_oversized_literals`.
     #[test]
     fn json_constructors_agree() {
         let docs = [

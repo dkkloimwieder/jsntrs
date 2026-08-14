@@ -1,0 +1,5 @@
+{
+    "expr": "$ = $",
+    "data": 1e400,
+    "result": true
+}

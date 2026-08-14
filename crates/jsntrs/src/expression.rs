@@ -106,9 +106,7 @@ impl Expression {
 
         // Try tape-based evaluation for pure paths (no Value tree).
         if let Some(result) = fast_path::eval_tape_path(&self.fast_path, json.as_bytes()) {
-            return result.map_err(|e| {
-                crate::error::JsonataError::new("D0000", format!("JSON parse error: {e}"))
-            });
+            return Ok(result);
         }
 
         // Parse to Value, then evaluate.
@@ -147,9 +145,7 @@ impl Expression {
         }
 
         if let Some(result) = fast_path::eval_tape_path(&self.fast_path, json_bytes) {
-            return result.map_err(|e| {
-                crate::error::JsonataError::new("D0000", format!("JSON parse error: {e}"))
-            });
+            return Ok(result);
         }
 
         let json = std::str::from_utf8(json_bytes)
@@ -463,6 +459,44 @@ mod tests {
         // The literal null document means no input, not Null.
         let exists = Expression::compile("$exists($)").unwrap();
         assert_eq!(exists.evaluate_bytes(b"null").unwrap(), Value::Bool(false));
+    }
+
+    /// jsntrs-ztg: both text entry points take the number literals
+    /// `JSON.parse` accepts. The pure-path lane carries the interesting half
+    /// — it parses the bytes itself on simd-json's tape, so a document the
+    /// tape cannot tokenize has to be handed back to the Value route rather
+    /// than failing the evaluation.
+    #[test]
+    fn oversized_number_literals_evaluate_like_json_parse() {
+        let big_doc = r#"{"a":123456789012345678901}"#;
+        let inf_doc = r#"{"a":1e400}"#;
+
+        // Pure path → tape lift.
+        let path = Expression::compile("a").unwrap();
+        assert_eq!(
+            path.evaluate(big_doc).unwrap().as_f64(),
+            Some(1.234_567_890_123_456_8e20)
+        );
+        assert_eq!(
+            path.evaluate_bytes(big_doc.as_bytes()).unwrap().as_f64(),
+            Some(1.234_567_890_123_456_8e20)
+        );
+        assert_eq!(
+            path.evaluate(inf_doc).unwrap().as_f64(),
+            Some(f64::INFINITY)
+        );
+        assert_eq!(
+            path.evaluate_bytes(inf_doc.as_bytes()).unwrap().as_f64(),
+            Some(f64::INFINITY)
+        );
+
+        // General route: Infinity compares like JavaScript's, NaN would not.
+        let cmp = Expression::compile("a > 1e308").unwrap();
+        assert_eq!(cmp.evaluate(inf_doc).unwrap(), Value::Bool(true));
+
+        // Handing the tape's failures on must not swallow real syntax errors.
+        assert_eq!(path.evaluate("{nope").unwrap_err().code, "D0000");
+        assert_eq!(path.evaluate_bytes(b"{nope").unwrap_err().code, "D0000");
     }
 
     #[test]

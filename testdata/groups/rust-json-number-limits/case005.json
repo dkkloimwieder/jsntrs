@@ -1,0 +1,8 @@
+{
+    "expr": "a > 1e308 and b < -1e308",
+    "data": {
+        "a": 1e400,
+        "b": -1e400
+    },
+    "result": true
+}

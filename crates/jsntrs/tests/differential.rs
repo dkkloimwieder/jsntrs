@@ -181,6 +181,18 @@ const COMPARE_LITS: &str = r#"{
 const SIGNED: &str = r#"{
     "items": [{"x": 3, "name": "alice"}, {"x": "s"}, {"y": 1}]}"#;
 
+/// Number literals `JSON.parse` accepts but simd-json refuses — an integer
+/// past `u64` range and an exponent that overflows to `Infinity`. The tape
+/// lift parses the bytes itself, so it declines the whole document and the
+/// `evaluate` lane has to reach the same answer as the pre-parsed lanes
+/// (jsntrs-ztg).
+const NUMBER_LIMITS: &str = r#"{
+    "big": 123456789012345678901,
+    "inf": 1e400,
+    "neginf": -1e400,
+    "ok": 1.5,
+    "items": [{"x": 123456789012345678901}, {"x": 1e400}, {"x": 2}]}"#;
+
 /// (expression, data) pairs where a lift **must** fire: every one of these
 /// compares the fast implementation against the general evaluator.
 const CASES: &[(&str, &str)] = &[
@@ -603,6 +615,15 @@ const CASES: &[(&str, &str)] = &[
     // call inside the block still lifts and both routes must agree on the
     // singleton wrap.
     ("items.($string(x))[]", KEEP_ARRAY),
+    // ── json-number-limits track (jsntrs-ztg): documents carrying number
+    //    literals simd-json rejects. The tape lift hands the document back
+    //    rather than failing the evaluation; the Value lanes still lift, so
+    //    all three must land on the same Infinity / nearest-f64 answer. ──
+    ("big", NUMBER_LIMITS),
+    ("inf", NUMBER_LIMITS),
+    ("items.x", NUMBER_LIMITS),
+    ("big = 123456789012345680000", NUMBER_LIMITS),
+    ("$count(items.x)", NUMBER_LIMITS),
 ];
 
 /// (expression, data) pairs where **no** lift may fire.

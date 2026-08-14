@@ -986,10 +986,13 @@ fn flatten_recursive(arr: &[Value], depth: usize) -> Vec<Value> {
 /// This avoids building the full Value tree — only leaf values at the end of
 /// the path are converted to `Value`. For 100K products with 10 fields each,
 /// this means ~100K leaf conversions instead of ~1.5M Value allocations.
-pub fn eval_tape_path(
-    fast_path: &FastPath,
-    json_bytes: &[u8],
-) -> Option<Result<Value, Box<dyn std::error::Error>>> {
+///
+/// A document the tape parser rejects also yields `None`. That covers real
+/// syntax errors and the number literals simd-json refuses but `JSON.parse`
+/// accepts (oversized integers, exponents that overflow to infinity); the
+/// general route re-parses through [`Value::from_json_bytes`], whose lenient
+/// retry accepts the latter and reports `D0000` for the former.
+pub fn eval_tape_path(fast_path: &FastPath, json_bytes: &[u8]) -> Option<Value> {
     if testing::fast_paths_disabled() {
         return None;
     }
@@ -997,16 +1000,11 @@ pub fn eval_tape_path(
         return None;
     };
 
-    testing::record_hit();
-
     let mut buf = json_bytes.to_vec();
-    let tape = match simd_json::to_tape(&mut buf) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e.into())),
-    };
+    let tape = simd_json::to_tape(&mut buf).ok()?;
 
-    let root = tape.as_value();
-    Some(Ok(tape_walk(root, segments)))
+    testing::record_hit();
+    Some(tape_walk(tape.as_value(), segments))
 }
 
 /// Intermediate result of a per-segment tape walk: the collapsed value at
