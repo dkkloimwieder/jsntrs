@@ -361,6 +361,7 @@ impl Parser {
                     expressions: exprs,
                     focus: None,
                     index: None,
+                    keep_array: false,
                     pos: tok.pos,
                 })?)
             }
@@ -989,6 +990,14 @@ impl Parser {
 
     // ── Node modification helpers ────────────────────────────────────
 
+    /// Record the `[]` (keep-array) suffix on `id`.
+    ///
+    /// The `Block` arm carries `(…)[]`: jsonata-js stores `keepArray` on
+    /// whatever node the suffix follows, so a parenthesised path step keeps
+    /// it too and `process_ast` hoists it to the path's
+    /// `keep_singleton_array` (`foo.($sum(bar))[]` → `[3]`). A *top-level*
+    /// block never produces a sequence, so the flag stays inert there and
+    /// `($sum(prices))[]` remains `60`.
     fn set_keep_array(&mut self, id: NodeId) {
         match self.arena.get_mut(id) {
             Expr::Name { keep_array, .. }
@@ -996,6 +1005,7 @@ impl Parser {
             | Expr::Variable { keep_array, .. }
             | Expr::Function { keep_array, .. }
             | Expr::Sort { keep_array, .. }
+            | Expr::Block { keep_array, .. }
             | Expr::Unary { keep_array, .. } => {
                 *keep_array = true;
             }

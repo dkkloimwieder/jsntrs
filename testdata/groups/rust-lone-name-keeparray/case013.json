@@ -1,0 +1,6 @@
+{
+    "expr": "foo.($sum(bar))[]",
+    "data": {"foo": {"bar": [1, 2]}},
+    "bindings": {},
+    "result": [3]
+}

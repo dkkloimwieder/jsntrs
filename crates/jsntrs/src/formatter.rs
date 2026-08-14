@@ -281,9 +281,13 @@ impl<'a> Formatter<'a> {
                 ref expressions,
                 ref focus,
                 ref index,
+                keep_array,
                 ..
             } => {
                 self.emit_block(expressions, depth);
+                if keep_array {
+                    self.out.push_str("[]");
+                }
                 self.emit_bindings(focus.as_deref(), index.as_deref());
             }
 

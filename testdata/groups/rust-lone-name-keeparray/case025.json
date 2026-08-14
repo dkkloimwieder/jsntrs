@@ -1,0 +1,6 @@
+{
+    "expr": "($x := a[]; $x)",
+    "data": {"a": 1},
+    "bindings": {},
+    "result": [1]
+}

@@ -32,6 +32,9 @@ fn step_has_keep_array(arena: &AstArena, step: NodeId) -> bool {
             | Expr::Sort {
                 keep_array: true, ..
             }
+            | Expr::Block {
+                keep_array: true, ..
+            }
             | Expr::Unary {
                 keep_array: true, ..
             } => {
@@ -117,8 +120,12 @@ fn process_node_inner(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
 
     match arena.get(node).clone() {
         Expr::Binary { ref op, .. } if *op == BinaryOp::Dot => process_dot_binary(arena, node),
-        Expr::Binary { lhs, rhs, .. } => {
-            let new_lhs = process_node(arena, lhs)?;
+        Expr::Binary { op, lhs, rhs, .. } => {
+            let new_lhs = if op == BinaryOp::Subscript {
+                process_subscript_lhs(arena, lhs)?
+            } else {
+                process_node(arena, lhs)?
+            };
             let new_rhs = process_node(arena, rhs)?;
             let expr = arena.get_mut(node);
             if let Expr::Binary { lhs: l, rhs: r, .. } = expr {
@@ -339,12 +346,73 @@ fn process_node_inner(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
             process_group(arena, node)?;
             Ok(node)
         }
+        Expr::Name { .. } => {
+            process_group(arena, node)?;
+            wrap_decorated_name(arena, node)
+        }
         // Leaf nodes — still need to process any attached Group expression.
         _ => {
             process_group(arena, node)?;
             Ok(node)
         }
     }
+}
+
+/// Process the left operand of a subscript without promoting a decorated
+/// `Name` to a `Path`.
+///
+/// jsntrs models a predicate as `Binary(Subscript)` rather than a `stages`
+/// list on the step, so [`step_has_keep_array`] finds `A[]`'s flag by
+/// walking the subscript's left chain (`Phone[][type="mobile"].number`). A
+/// `Path` in that chain would hide the `Name` and drop the flag, so the
+/// operand keeps its raw shape — the enclosing `Binary` is what the path
+/// hoist inspects.
+fn process_subscript_lhs(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
+    if !node.is_empty() && matches!(arena.get(node), Expr::Name { .. }) {
+        // A `Name`'s only child is its group-by; `process_node_inner` does
+        // nothing else for it before the wrap.
+        process_group(arena, node)?;
+        return Ok(node);
+    }
+    process_node(arena, node)
+}
+
+/// Promote a decorated lone `Name` to a single-step `Path`.
+///
+/// jsonata-js `processAST` turns *every* `name` into `{type:'path',
+/// steps:[name]}` and hoists `keepArray` onto the path's
+/// `keepSingletonArray`. jsntrs keeps a bare `Name` as itself — it is the
+/// hottest node kind in the engine and the `Name` evaluator is a single
+/// field lookup — and wraps only when the name carries a decoration that
+/// evaluator cannot honour on its own. Today that is the `[]` suffix:
+/// without a path there is no `keep_singleton_array` to set, so `a[]` on
+/// `{"a": 1}` collapsed to `1` instead of `[1]` (jsntrs-ews).
+///
+/// A name that also carries a group-by is left alone: jsonata-js applies
+/// the group *after* marking the sequence, so the group result replaces it
+/// and the `[]` never shows (`a[]{"k": $}` → `{"k": 1}`) — which is what
+/// the un-wrapped `Name` already does.
+///
+/// Inside a dot chain the wrapper is transparent: `collect_path_steps`
+/// splices a single-step path back into the enclosing path and
+/// [`step_has_keep_array`] re-reads the flag off the `Name` step.
+fn wrap_decorated_name(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
+    let Expr::Name {
+        keep_array: true,
+        group: None,
+        pos,
+        ..
+    } = arena.get(node)
+    else {
+        return Ok(node);
+    };
+    let pos = *pos;
+    arena.alloc(Expr::Path {
+        steps: vec![node],
+        keep_singleton_array: true,
+        group: None,
+        pos,
+    })
 }
 
 /// Process group-by key/value pairs on a node (if it has a group).
@@ -685,6 +753,77 @@ mod tests {
     fn single_name_stays_name() {
         let (arena, root) = parse_and_process("foo");
         assert!(matches!(arena.get(root), Expr::Name { value, .. } if value == "foo"));
+    }
+
+    /// jsntrs-ews: a lone `a[]` had nowhere to record the keep-array flag,
+    /// so the singleton collapsed. It becomes a one-step path instead.
+    #[test]
+    fn lone_keep_array_name_becomes_a_single_step_path() {
+        let (arena, root) = parse_and_process("a[]");
+        match arena.get(root) {
+            Expr::Path {
+                steps,
+                keep_singleton_array: true,
+                group: None,
+                ..
+            } => {
+                assert_eq!(steps.len(), 1);
+                assert!(matches!(arena.get(steps[0]), Expr::Name { value, .. } if value == "a"));
+            }
+            other => panic!("expected single-step Path, got {other:?}"),
+        }
+    }
+
+    /// A group-by is applied after the sequence is marked, so it replaces
+    /// the value the `[]` would have wrapped — leave such a name alone.
+    #[test]
+    fn keep_array_name_with_group_stays_a_name() {
+        let (arena, root) = parse_and_process(r#"a[]{"k": $}"#);
+        assert!(matches!(arena.get(root), Expr::Name { value, .. } if value == "a"));
+    }
+
+    /// `step_has_keep_array` finds `A[]` in `A[][pred]` by walking the
+    /// subscript's left chain, so the operand must stay a `Name`.
+    #[test]
+    fn subscript_operand_name_is_not_wrapped() {
+        let (arena, root) = parse_and_process("a[][b=1].c");
+        match arena.get(root) {
+            Expr::Path {
+                steps,
+                keep_singleton_array: true,
+                ..
+            } => match arena.get(steps[0]) {
+                Expr::Binary { lhs, .. } => {
+                    assert!(matches!(arena.get(*lhs), Expr::Name { value, .. } if value == "a"));
+                }
+                other => panic!("expected subscript step, got {other:?}"),
+            },
+            other => panic!("expected Path with keep_singleton_array, got {other:?}"),
+        }
+    }
+
+    /// jsntrs-ews: `[]` on a parenthesised path step is recorded on the
+    /// block and hoisted to the enclosing path.
+    #[test]
+    fn keep_array_on_a_block_step_hoists_to_the_path() {
+        let (arena, root) = parse_and_process("foo.($sum(bar))[]");
+        match arena.get(root) {
+            Expr::Path {
+                steps,
+                keep_singleton_array: true,
+                ..
+            } => {
+                assert_eq!(steps.len(), 2);
+                assert!(matches!(
+                    arena.get(steps[1]),
+                    Expr::Block {
+                        keep_array: true,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected Path with keep_singleton_array, got {other:?}"),
+        }
     }
 
     #[test]

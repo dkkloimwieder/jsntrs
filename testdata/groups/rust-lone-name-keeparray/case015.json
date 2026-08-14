@@ -1,0 +1,6 @@
+{
+    "expr": "foo.(bar)[].baz",
+    "data": {"foo": {"bar": {"baz": 1}}},
+    "bindings": {},
+    "result": [1]
+}

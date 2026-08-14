@@ -1,0 +1,6 @@
+{
+    "expr": "($f := function(){ a[] }; $f())",
+    "data": {"a": 1},
+    "bindings": {},
+    "result": [1]
+}

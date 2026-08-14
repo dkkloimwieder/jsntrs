@@ -597,6 +597,12 @@ const CASES: &[(&str, &str)] = &[
     ("$count($filter(items, function($v){$v.x > 2}))", CLEAN),
     ("$type($filter(items, function($v){$v.x > 99}))", CLEAN),
     ("$map(items, function($v){$v.x})^($)", CLEAN),
+    // ── Track lone-name-path ──────────────────────────────────────────
+    // `[]` on a parenthesised path step is now hoisted to the path
+    // (jsntrs-ews). The flag lives on the enclosing path, so the mapped
+    // call inside the block still lifts and both routes must agree on the
+    // singleton wrap.
+    ("items.($string(x))[]", KEEP_ARRAY),
 ];
 
 /// (expression, data) pairs where **no** lift may fire.
@@ -973,6 +979,21 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("$filter(items, function($v){$v.x{'k': $} = 3})", SIGNED),
     ("$map(items, function($v){$v.x{'k': $}})", CLEAN),
     ("items.(x{'k': $})", SIGNED),
+    // ── Track lone-name-path ──────────────────────────────────────────
+    // Declined: a decorated lone `Name` is now a single-step path whose
+    // `keep_singleton_array` is set (jsntrs-ews), and `[]` on a
+    // parenthesised path step hoists the same flag. `collect_pure_path`
+    // refuses a path carrying it, so none of these lift — the general
+    // result is the answer a future lift would have to reproduce.
+    ("items[0].x[]", KEEP_ARRAY),
+    ("obj.a.x[]", KEEP_ARRAY),
+    ("$string(items[2].x[])", KEEP_ARRAY),
+    ("$count(items[3].x[])", KEEP_ARRAY),
+    ("items.(x[])", KEEP_ARRAY),
+    ("items.(name)[]", KEEP_ARRAY),
+    ("($f := function(){ name[] }; items.$f())", KEEP_ARRAY),
+    ("($sum(prices))[]", POSTFIX),
+    ("obj.($sum(x))[]", POSTFIX),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

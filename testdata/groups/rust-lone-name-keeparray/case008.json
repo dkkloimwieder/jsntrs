@@ -1,0 +1,6 @@
+{
+    "expr": "items.($string(x[]))",
+    "data": {"items": [{"x": 1}, {"x": 5}, {"y": 2}]},
+    "bindings": {},
+    "result": ["[1]", "[5]"]
+}

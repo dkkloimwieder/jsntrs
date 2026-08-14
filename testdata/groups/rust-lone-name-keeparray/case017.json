@@ -1,0 +1,6 @@
+{
+    "expr": "(bar)[]",
+    "data": {"bar": 1},
+    "bindings": {},
+    "result": 1
+}

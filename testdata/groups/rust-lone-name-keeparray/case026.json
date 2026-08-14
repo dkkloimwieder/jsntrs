@@ -1,0 +1,6 @@
+{
+    "expr": "Phone[][type=\"mobile\"].number",
+    "data": {"Phone": [{"type": "mobile", "number": "077"}, {"type": "home", "number": "01"}]},
+    "bindings": {},
+    "result": ["077"]
+}

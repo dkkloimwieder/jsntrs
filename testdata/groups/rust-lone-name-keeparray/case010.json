@@ -1,0 +1,6 @@
+{
+    "expr": "items.$count(x[])",
+    "data": {"items": [{"x": 1}, {"x": 5}, {"y": 2}]},
+    "bindings": {},
+    "result": [1, 1, 0]
+}
