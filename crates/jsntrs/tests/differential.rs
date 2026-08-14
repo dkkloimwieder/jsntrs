@@ -103,6 +103,16 @@ const POSTFIX: &str = r#"{
     "name": "Alice",
     "obj": {"x": 1, "y": 2}}"#;
 
+/// Fields holding arrays and singletons, for keep-array (`[]`) lambda
+/// bodies: `$v.x[]` must stay wrapped, so the lifted analyzers have to
+/// bail instead of returning the collapsed value (jsntrs-6wr.3).
+const KEEP_ARRAY: &str = r#"{
+    "items": [{"x": [3], "name": "a"},
+              {"x": [1, 2], "name": "b"},
+              {"x": 5, "name": "c"},
+              {"name": "d"}],
+    "obj": {"a": {"x": [3]}, "b": {"x": [1]}}}"#;
+
 /// (expression, data) pairs. Every pair runs fast vs general.
 const CASES: &[(&str, &str)] = &[
     // ── Pure paths over nested arrays (gnata-dx5.4) ──
@@ -446,6 +456,64 @@ const CASES: &[(&str, &str)] = &[
     ("$uppercase(name)[]", POSTFIX),
     ("$contains(name, \"lic\")[]", POSTFIX),
     ("$contains(name, \"lic\"){'c': $}", POSTFIX),
+    // ── Keep-array `[]` inside lifted lambda bodies (jsntrs-6wr.3) ──
+    // `[]` on any step makes the whole path keep singletons as arrays; no
+    // lifted shape can express that, so analysis must decline the lift.
+    // FieldAccess, on array-valued and scalar fields alike.
+    ("$map(items, function($v){$v.x[]})", KEEP_ARRAY),
+    ("$map(items, function($v){$v.x[]})", CLEAN),
+    // `[]` on the parameter step propagates to the enclosing path too.
+    ("$map(items, function($v){$v[].x})", KEEP_ARRAY),
+    ("$map(items, function($v){$v[].name})", CLEAN),
+    // FieldPredicate, both operand orders.
+    ("$filter(items, function($v){$v.x[] > 2})", CLEAN),
+    ("$filter(items, function($v){2 < $v.x[]})", CLEAN),
+    // TwoFieldPredicate: `[]` on one side only still changes the compare.
+    ("$filter(items, function($v){$v.x[] = $v.y})", NUMS),
+    // CompoundPredicate clauses.
+    (
+        "$filter(items, function($v){$v.x[] > 2 and $v.y < 2})",
+        CLEAN,
+    ),
+    (
+        "$filter(items, function($v){$v.x > 2 or $v.y[] < 2})",
+        CLEAN,
+    ),
+    // SortComparator / ReduceAccum / ReduceCompoundAccum.
+    ("$sort(items, function($a,$b){$a.x[] > $b.x[]})", CLEAN),
+    ("$reduce(items, function($p,$c){$p + $c.x[]}, 0)", CLEAN),
+    (
+        "$reduce(items, function($p,$c){$p + $c.x[] * $c.y}, 0)",
+        CLEAN,
+    ),
+    // ConcatTemplate pieces: bare field and stringifying wrappers.
+    ("$map(items, function($v){\"id-\" & $v.name[]})", CLEAN),
+    ("$map(items, function($v){$v.name[] & \"!\"})", CLEAN),
+    (
+        "$map(items, function($v){\"n:\" & $uppercase($v.name[])})",
+        CLEAN,
+    ),
+    (
+        "$map(items, function($v){\"x:\" & $string($v.x[])})",
+        KEEP_ARRAY,
+    ),
+    // Mapped-call lift, as a lambda arg and as a `.()` path step.
+    ("$map(items, function($v){$string($v.x[])})", KEEP_ARRAY),
+    ("$map(items, function($v){$round($v.x[])})", CLEAN),
+    ("items.$string(x[])", KEEP_ARRAY),
+    ("items.$count(x[])", KEEP_ARRAY),
+    ("items.($string(x[]))", KEEP_ARRAY),
+    // $each has no lifted shape; pin it so a future lift keeps the wrap.
+    ("$each(obj, function($v){$v.x[]})", KEEP_ARRAY),
+    // The same shapes without `[]` must still lift — the guard must not
+    // over-bail and quietly disable the fast paths above.
+    ("$map(items, function($v){$v.x})", KEEP_ARRAY),
+    ("$filter(items, function($v){$v.x > 2})", CLEAN),
+    ("$sort(items, function($a,$b){$a.x > $b.x})", CLEAN),
+    ("$reduce(items, function($p,$c){$p + $c.x}, 0)", CLEAN),
+    ("$map(items, function($v){\"id-\" & $v.name})", CLEAN),
+    ("$map(items, function($v){$string($v.x)})", KEEP_ARRAY),
+    ("items.$string(x)", KEEP_ARRAY),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

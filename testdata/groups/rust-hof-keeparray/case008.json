@@ -1,0 +1,6 @@
+{
+    "expr": "$each(obj, function($v){$v.x[]})",
+    "data": {"items": [{"x": [3], "name": "a"}, {"x": [1, 2], "name": "b"}, {"x": 5, "name": "c"}, {"name": "d"}], "nums": [{"x": 3}, {"x": 1}], "obj": {"a": {"x": [3]}, "b": {"x": [1]}}},
+    "bindings": {},
+    "result": [[3], [1]]
+}

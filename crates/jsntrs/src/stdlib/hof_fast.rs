@@ -86,8 +86,9 @@ pub fn analyze_lambda(params: &[String], body: NodeId, arena: &AstArena) -> Opti
     let expr = arena.get(body);
     match expr {
         // Body is a path: $v.field
-        Expr::Path { steps, .. } if steps.len() == 2 => {
-            analyze_field_access(params, steps[0], steps[1], arena)
+        Expr::Path { .. } => {
+            let param = params.first()?;
+            extract_param_field(body, arena, param).map(|field| SimpleLambda::FieldAccess { field })
         }
         // Body is a binary op
         Expr::Binary {
@@ -112,8 +113,22 @@ fn is_param_ref(node: NodeId, arena: &AstArena, param: &str) -> bool {
     matches!(arena.get(node), Expr::Variable { name, .. } if name == param)
 }
 
-/// Check if a path is `$param.field` and return the field name.
-fn extract_param_field(steps: &[NodeId], arena: &AstArena, param: &str) -> Option<String> {
+/// Check if `node` is the path `$param.field` and return the field name.
+///
+/// Mirrors `fast_path::collect_pure_path`: a keep-array step (`$v.x[]`, and
+/// `$v[].x`, whose flag `process_ast` propagates onto the path) forces the
+/// path to preserve singletons as arrays. No lifted shape carries that
+/// flag, so such a path is not liftable — decline instead of collapsing
+/// (jsntrs-6wr.3).
+fn extract_param_field(node: NodeId, arena: &AstArena, param: &str) -> Option<String> {
+    let Expr::Path {
+        steps,
+        keep_singleton_array: false,
+        ..
+    } = arena.get(node)
+    else {
+        return None;
+    };
     if steps.len() != 2 {
         return None;
     }
@@ -127,40 +142,10 @@ fn extract_param_field(steps: &[NodeId], arena: &AstArena, param: &str) -> Optio
             group,
             focus,
             index,
+            keep_array: false,
             ..
         } if stages.is_empty() && group.is_none() && focus.is_none() && index.is_none() => {
             Some(value.clone())
-        }
-        _ => None,
-    }
-}
-
-/// Try to extract a field access pattern: function($v) { $v.field }
-fn analyze_field_access(
-    params: &[String],
-    step0: NodeId,
-    step1: NodeId,
-    arena: &AstArena,
-) -> Option<SimpleLambda> {
-    if params.is_empty() {
-        return None;
-    }
-    let param = &params[0];
-    if !is_param_ref(step0, arena, param) {
-        return None;
-    }
-    match arena.get(step1) {
-        Expr::Name {
-            value,
-            stages,
-            group,
-            focus,
-            index,
-            ..
-        } if stages.is_empty() && group.is_none() && focus.is_none() && index.is_none() => {
-            Some(SimpleLambda::FieldAccess {
-                field: value.clone(),
-            })
         }
         _ => None,
     }
@@ -181,14 +166,6 @@ fn extract_literal(node: NodeId, arena: &AstArena) -> Option<Value> {
     }
 }
 
-/// Try to extract `$param.field` from a node that's either a Path or an inlined Name.
-fn extract_param_dot_field(node: NodeId, arena: &AstArena, param: &str) -> Option<String> {
-    match arena.get(node) {
-        Expr::Path { steps, .. } => extract_param_field(steps, arena, param),
-        _ => None,
-    }
-}
-
 /// Analyze a binary expression in a lambda body.
 fn analyze_binary(
     params: &[String],
@@ -202,8 +179,8 @@ fn analyze_binary(
         let param_a = &params[0];
         let param_b = &params[1];
         if let (Some(field_a), Some(field_b)) = (
-            extract_param_dot_field(lhs, arena, param_a),
-            extract_param_dot_field(rhs, arena, param_b),
+            extract_param_field(lhs, arena, param_a),
+            extract_param_field(rhs, arena, param_b),
         ) {
             // Different fields on each side ($a.x > $b.y) cannot be lifted:
             // the fast comparator reads ONE field from both items, which
@@ -221,7 +198,7 @@ fn analyze_binary(
         let param_curr = &params[1];
         if is_param_ref(lhs, arena, param_prev) {
             // Simple: $prev op $curr.field
-            if let Some(field) = extract_param_dot_field(rhs, arena, param_curr) {
+            if let Some(field) = extract_param_field(rhs, arena, param_curr) {
                 return Some(SimpleLambda::ReduceAccum { field, op });
             }
             // Compound: $prev op ($curr.field1 inner_op $curr.field2)
@@ -234,8 +211,8 @@ fn analyze_binary(
             {
                 if is_arithmetic(*inner_op) {
                     if let (Some(field1), Some(field2)) = (
-                        extract_param_dot_field(*inner_lhs, arena, param_curr),
-                        extract_param_dot_field(*inner_rhs, arena, param_curr),
+                        extract_param_field(*inner_lhs, arena, param_curr),
+                        extract_param_field(*inner_rhs, arena, param_curr),
                     ) {
                         return Some(SimpleLambda::ReduceCompoundAccum {
                             field1,
@@ -271,7 +248,7 @@ fn analyze_binary(
         let param = &params[0];
 
         // $v.field op literal
-        if let Some(field) = extract_param_dot_field(lhs, arena, param) {
+        if let Some(field) = extract_param_field(lhs, arena, param) {
             if let Some(lit) = extract_literal(rhs, arena) {
                 return Some(SimpleLambda::FieldPredicate {
                     field,
@@ -280,7 +257,7 @@ fn analyze_binary(
                 });
             }
             // $v.field1 op $v.field2
-            if let Some(field2) = extract_param_dot_field(rhs, arena, param) {
+            if let Some(field2) = extract_param_field(rhs, arena, param) {
                 return Some(SimpleLambda::TwoFieldPredicate {
                     field1: field,
                     op,
@@ -294,7 +271,7 @@ fn analyze_binary(
         // non-commutative arithmetic (lit - field ≠ field - lit).
         if is_relational(op)
             && let Some(lit) = extract_literal(lhs, arena)
-            && let Some(field) = extract_param_dot_field(rhs, arena, param)
+            && let Some(field) = extract_param_field(rhs, arena, param)
         {
             return Some(SimpleLambda::FieldPredicate {
                 field,
@@ -358,9 +335,7 @@ fn classify_template_operand(node: NodeId, arena: &AstArena, param: &str) -> Opt
         Expr::StringLit { value, .. } => Some(TemplatePiece::Literal(value.clone())),
 
         // $param.field — direct field access (value should be a string)
-        Expr::Path { steps, .. } if steps.len() == 2 => {
-            extract_param_field(steps, arena, param).map(TemplatePiece::Field)
-        }
+        Expr::Path { .. } => extract_param_field(node, arena, param).map(TemplatePiece::Field),
 
         // Function calls on fields: $string, $substring, $lowercase, $uppercase
         Expr::Function {
@@ -374,23 +349,21 @@ fn classify_template_operand(node: NodeId, arena: &AstArena, param: &str) -> Opt
             };
             match func_name {
                 // $string($param.field)
-                "string" if arguments.len() == 1 => {
-                    extract_field_from_arg(arguments[0], arena, param)
-                        .map(TemplatePiece::StringifyField)
-                }
+                "string" if arguments.len() == 1 => extract_param_field(arguments[0], arena, param)
+                    .map(TemplatePiece::StringifyField),
                 // $lowercase($param.field)
                 "lowercase" if arguments.len() == 1 => {
-                    extract_field_from_arg(arguments[0], arena, param)
+                    extract_param_field(arguments[0], arena, param)
                         .map(TemplatePiece::LowercaseField)
                 }
                 // $uppercase($param.field)
                 "uppercase" if arguments.len() == 1 => {
-                    extract_field_from_arg(arguments[0], arena, param)
+                    extract_param_field(arguments[0], arena, param)
                         .map(TemplatePiece::UppercaseField)
                 }
                 // $substring($param.field, start [, length])
                 "substring" if arguments.len() >= 2 && arguments.len() <= 3 => {
-                    let field = extract_field_from_arg(arguments[0], arena, param)?;
+                    let field = extract_param_field(arguments[0], arena, param)?;
                     let start = match arena.get(arguments[1]) {
                         Expr::NumberLit { value, .. } => *value as i64,
                         _ => return None,
@@ -417,14 +390,6 @@ fn classify_template_operand(node: NodeId, arena: &AstArena, param: &str) -> Opt
     }
 }
 
-/// Extract a field name from a function argument that is $param.field.
-fn extract_field_from_arg(arg: NodeId, arena: &AstArena, param: &str) -> Option<String> {
-    match arena.get(arg) {
-        Expr::Path { steps, .. } if steps.len() == 2 => extract_param_field(steps, arena, param),
-        _ => None,
-    }
-}
-
 /// Recursively collect field-op-literal clauses from an and/or tree.
 /// Returns false if any leaf is not a simple field predicate.
 fn collect_predicate_clauses(
@@ -442,7 +407,7 @@ fn collect_predicate_clauses(
         }
         // Leaf: must be $param.field op literal (or literal op $param.field)
         Expr::Binary { op, lhs, rhs, .. } if is_relational(*op) || is_arithmetic(*op) => {
-            if let Some(field) = extract_param_dot_field(*lhs, arena, param) {
+            if let Some(field) = extract_param_field(*lhs, arena, param) {
                 if let Some(lit) = extract_literal(*rhs, arena) {
                     out.push(PredicateClause {
                         field,
@@ -457,7 +422,7 @@ fn collect_predicate_clauses(
             // mirror non-commutative arithmetic.
             if is_relational(*op)
                 && let Some(lit) = extract_literal(*lhs, arena)
-                && let Some(field) = extract_param_dot_field(*rhs, arena, param)
+                && let Some(field) = extract_param_field(*rhs, arena, param)
             {
                 out.push(PredicateClause {
                     field,
@@ -806,22 +771,25 @@ fn classify_call_arg(node: NodeId, arena: &AstArena, param: Option<&str>) -> Cal
         },
 
         // $param.field or just FieldName (implicit scope)
-        Expr::Path { steps, .. } if steps.len() == 2 => {
+        Expr::Path { .. } => {
             if let Some(p) = param
-                && let Some(field) = extract_param_field(steps, arena, p)
+                && let Some(field) = extract_param_field(node, arena, p)
             {
                 return CallArg::Field(field);
             }
             CallArg::Expr(node)
         }
 
-        // Bare field name (in .() mapping context, no explicit param)
+        // Bare field name (in .() mapping context, no explicit param).
+        // `keep_array` (`x[]`) wraps singletons, which CallArg::Field
+        // cannot express — defer to the general path (jsntrs-6wr.3).
         Expr::Name {
             value,
             stages,
             group,
             focus,
             index,
+            keep_array: false,
             ..
         } if stages.is_empty()
             && group.is_none()
@@ -1138,6 +1106,73 @@ mod tests {
         assert!(analyze_src("function(){1}").is_none());
         // Mixed and/or combiners cannot form a compound predicate.
         assert!(analyze_src("function($v){$v.a > 1 and $v.b < 5 or $v.c = 2}").is_none());
+    }
+
+    /// `[]` on any step of a lambda-body path makes the path keep singletons
+    /// as arrays; no lifted shape carries that flag, so every shape that
+    /// reads a field must decline (jsntrs-6wr.3).
+    #[test]
+    fn analyzer_rejects_keep_array_paths() {
+        // Keep-array on the field step, and on the parameter step (which
+        // process_ast propagates onto the enclosing path).
+        assert!(analyze_src("function($v){$v.a[]}").is_none());
+        assert!(analyze_src("function($v){$v[].a}").is_none());
+        // FieldPredicate, both operand orders.
+        assert!(analyze_src("function($v){$v.a[] > 1}").is_none());
+        assert!(analyze_src("function($v){1 < $v.a[]}").is_none());
+        // TwoFieldPredicate — either side is enough to disqualify.
+        assert!(analyze_src("function($v){$v.a[] = $v.b}").is_none());
+        assert!(analyze_src("function($v){$v.a = $v.b[]}").is_none());
+        // SortComparator, ReduceAccum, ReduceCompoundAccum.
+        assert!(analyze_src("function($a,$b){$a.x[] > $b.x[]}").is_none());
+        assert!(analyze_src("function($p,$c){$p + $c.x[]}").is_none());
+        assert!(analyze_src("function($p,$c){$p + $c.x[] * $c.y}").is_none());
+        // CompoundPredicate clauses.
+        assert!(analyze_src("function($v){$v.a[] > 1 and $v.b < 5}").is_none());
+        assert!(analyze_src("function($v){$v.a > 1 or $v.b[] < 5}").is_none());
+        // ConcatTemplate pieces: bare field and stringifying wrappers.
+        assert!(analyze_src("function($v){\"id-\" & $v.a[]}").is_none());
+        assert!(analyze_src("function($v){\"id-\" & $string($v.a[])}").is_none());
+        assert!(analyze_src("function($v){\"id-\" & $uppercase($v.a[])}").is_none());
+        assert!(analyze_src("function($v){\"id-\" & $substring($v.a[], 1)}").is_none());
+    }
+
+    /// The keep-array guard must not over-bail: the same shapes without `[]`
+    /// still lift, so the fast paths stay engaged.
+    #[test]
+    fn analyzer_still_lifts_without_keep_array() {
+        assert!(matches!(
+            analyze_src("function($v){$v.a}"),
+            Some(SimpleLambda::FieldAccess { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){$v.a > 1}"),
+            Some(SimpleLambda::FieldPredicate { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){$v.a = $v.b}"),
+            Some(SimpleLambda::TwoFieldPredicate { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($a,$b){$a.x > $b.x}"),
+            Some(SimpleLambda::SortComparator { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($p,$c){$p + $c.x}"),
+            Some(SimpleLambda::ReduceAccum { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($p,$c){$p + $c.x * $c.y}"),
+            Some(SimpleLambda::ReduceCompoundAccum { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){$v.a > 1 and $v.b < 5}"),
+            Some(SimpleLambda::CompoundPredicate { .. })
+        ));
+        assert!(matches!(
+            analyze_src("function($v){\"id-\" & $string($v.a)}"),
+            Some(SimpleLambda::ConcatTemplate { .. })
+        ));
     }
 
     /// Helper: parse, process, and evaluate against `input`.
