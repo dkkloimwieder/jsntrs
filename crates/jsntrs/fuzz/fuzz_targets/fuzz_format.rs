@@ -16,9 +16,9 @@
 //!
 //! - ~~regex literals print the parser's implicit `g` flag, which the lexer
 //!   rejects: `/a/i` → `/a/ig` → S0302~~ — fixed in jsntrs-ecq.6;
-//! - lambda signatures print doubled angle brackets, because
+//! - ~~lambda signatures print doubled angle brackets, because
 //!   `Signature::raw` already includes them: `function($x)<n:n>{$x}` →
-//!   `function($x)<<n:n>> {…}` → S0402;
+//!   `function($x)<<n:n>> {…}` → S0402~~ — fixed in jsntrs-ecq.7;
 //! - `escape_name` backtick-quotes a name that itself contains a backtick
 //!   without escaping it, leaving the quoting unterminated: the two-byte
 //!   source `0x00 0x60` formats to something that fails with S0105;

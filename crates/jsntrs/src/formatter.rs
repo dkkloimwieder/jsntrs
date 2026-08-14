@@ -621,9 +621,11 @@ impl<'a> Formatter<'a> {
         }
         self.out.push(')');
         if let Some(sig) = signature {
-            self.out.push('<');
+            // `Signature::raw` already carries the outer angle brackets (it
+            // is the source text of `<…>`); adding another pair produced
+            // `<<n:n>>`, which the signature parser rejects on the way back
+            // in with S0402 (jsntrs-ecq.7).
             self.out.push_str(&sig.raw);
-            self.out.push('>');
         }
         self.out.push_str(" {\n");
         self.indent(depth + 1);
@@ -1002,6 +1004,47 @@ mod tests {
             result.contains("<n:n>"),
             "should preserve type signature: {result}"
         );
+    }
+
+    /// `Signature::raw` includes the outer angle brackets, so wrapping it in
+    /// another pair emitted `<<n:n>>` — S0402 on re-parse (jsntrs-ecq.7).
+    /// Plain and nested (higher-order) signatures both round-trip now.
+    #[test]
+    fn lambda_signature_is_not_double_wrapped() {
+        for (src, sig) in [
+            ("function($x)<n:n>{$x}", "<n:n>"),
+            ("function($f)<f<n:n>:n>{$f(1)}", "<f<n:n>:n>"),
+            ("function($a, $b)<nn:n>{$a}", "<nn:n>"),
+            ("function($x)<a<n>:n>{$x}", "<a<n>:n>"),
+            ("function($x)<x-:x>{$x}", "<x-:x>"),
+            ("function($x)<(sao)?:s>{$x}", "<(sao)?:s>"),
+        ] {
+            let once = fmt(src);
+            assert!(
+                once.contains(&format!("){sig} {{")),
+                "signature not emitted verbatim for `{src}`: {once}"
+            );
+            assert!(!once.contains("<<"), "signature double-wrapped: {once}");
+            let twice = format(&once)
+                .unwrap_or_else(|e| panic!("formatted `{src}` -> `{once}` does not parse: {e}"));
+            assert_eq!(once, twice, "not idempotent for: {src}");
+        }
+    }
+
+    /// A formatted signature must still be *enforced*: the round-tripped
+    /// lambda rejects the wrong argument type with T0410, as the source does.
+    #[test]
+    fn formatted_signature_still_type_checks() {
+        use crate::Expression;
+        let src = r#"($f := function($x)<n:n>{$x}; $f("s"))"#;
+        let once = fmt(src);
+        for text in [src, &once] {
+            let err = Expression::compile(text)
+                .unwrap_or_else(|e| panic!("compile `{text}`: {e}"))
+                .evaluate("{}")
+                .expect_err("signature must reject a string argument");
+            assert_eq!(err.code, "T0410", "wrong code for `{text}`: {err}");
+        }
     }
 
     #[test]

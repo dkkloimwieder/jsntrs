@@ -1,0 +1,7 @@
+{
+    "expr": "($f := function($f)<f<n:n>:n>{$f(1)}; $f(function($x)<n:n>{$x * 2}))",
+    "dataset": null,
+    "bindings": {},
+    "result": 2,
+    "comment": "A higher-order lambda signature nests angle brackets. Signature::raw keeps the outer pair, so the formatter must print it verbatim rather than wrapping it again (jsntrs-ecq.7). jsonata-js agrees: 2."
+}
