@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([[{\"a\": [1, 2]}], [{\"a\": [3]}]], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": [1, 2, 3],
+    "comment": "Recursion and element-pushing compose: the inner sequences flatten into the outer one."
+}

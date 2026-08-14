@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup({\"a\": [1]}, \"a\")[]",
+    "data": {},
+    "bindings": {},
+    "result": [1],
+    "comment": "The object branch returns the stored array, not a sequence, so [] has nothing to keep and the array simply survives."
+}

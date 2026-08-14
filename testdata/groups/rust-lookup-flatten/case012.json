@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"b\": 1}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "undefinedResult": true,
+    "comment": "An all-miss array yields an empty sequence, which collapses to undefined."
+}

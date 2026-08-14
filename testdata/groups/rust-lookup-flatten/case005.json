@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": [1, 2]}, {\"b\": 9}, {\"a\": [3]}, {\"a\": 4}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": [1, 2, 3, 4],
+    "comment": "Mixed hits: misses are skipped, array hits spread, scalar hits push as one item."
+}

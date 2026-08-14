@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([1, 2, null, {\"a\": 5}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": 5,
+    "comment": "Non-object elements (null included) look up as undefined and are skipped."
+}

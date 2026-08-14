@@ -169,21 +169,44 @@ pub fn fn_lookup(args: &[Value], _focus: &Value) -> JsonataResult {
         Value::String(s) => s,
         _ => return Err(JsonataError::new("T0410", "$lookup: key must be a string")),
     };
-    match &args[0] {
-        Value::Object(obj) => Ok(obj.get(key).cloned().unwrap_or(Value::Undefined)),
+    Ok(lookup_value(&args[0], key))
+}
+
+/// `$lookup`'s recursive core, mirroring the reference's `lookup()`.
+///
+/// The array branch does two things the object branch does not, and both
+/// are load-bearing (jsntrs-p0v.16):
+///
+/// * it **recurses**, so a hit nested any number of arrays deep is still
+///   found — `$lookup([[{"a": 1}]], "a")` is `1`;
+/// * it pushes each *element* of an array-valued hit rather than the array
+///   itself, so exactly one level of array structure is flattened away:
+///   `$lookup([{"a": [1, 2]}, {"a": [3]}], "a")` is `[1, 2, 3]`, while
+///   `$lookup([{"a": [[1, 2], [3]]}], "a")` keeps its inner arrays.
+///
+/// The object branch hands the stored value back untouched, so a direct
+/// `$lookup({"a": [1, 2]}, "a")` is still `[1, 2]`.
+///
+/// The array branch collects into the reference's `createSequence()`, kept
+/// here as a [`Value::Sequence`] so the caller owns the singleton collapse
+/// (jsntrs-p0v.6). A recursive hit therefore arrives as a `Sequence` where
+/// the reference sees a plain `Array`; both flatten.
+fn lookup_value(input: &Value, key: &str) -> Value {
+    match input {
+        Value::Object(obj) => obj.get(key).cloned().unwrap_or(Value::Undefined),
         Value::Array(arr) => {
-            // Lookup across array of objects.
             let mut result = Vec::new();
             for item in arr.iter() {
-                if let Value::Object(obj) = item
-                    && let Some(v) = obj.get(key)
-                {
-                    result.push(v.clone());
+                match lookup_value(item, key) {
+                    Value::Undefined => {}
+                    Value::Array(hit) => result.extend(hit.iter().cloned()),
+                    Value::Sequence(hit) => result.extend(hit.values),
+                    hit => result.push(hit),
                 }
             }
-            Ok(sequence_of(result))
+            sequence_of(result)
         }
-        _ => Ok(Value::Undefined),
+        _ => Value::Undefined,
     }
 }
 
@@ -308,6 +331,46 @@ mod tests {
                 Value::Number(2.0)
             ])))
         );
+    }
+
+    /// jsntrs-p0v.16: the array branch pushes the ELEMENTS of an
+    /// array-valued hit and recurses into nested arrays; the object branch
+    /// does neither. Expressed through the public API because the singleton
+    /// collapse is part of what the flattening changes.
+    #[test]
+    fn lookup_flattens_array_hits_only_on_the_array_branch() {
+        let cases = [
+            // One level of array structure is flattened away…
+            (r#"$lookup([{"a": [1, 2]}, {"a": [3]}], "a")"#, "[1, 2, 3]"),
+            // …but only one: elements are pushed as they are.
+            (r#"$lookup([{"a": [[1, 2], [3]]}], "a")"#, "[[1, 2], [3]]"),
+            // An empty array value contributes nothing.
+            (r#"$lookup([{"a": []}, {"a": 1}], "a")"#, "1"),
+            // Only arrays spread — objects and nulls push as one item.
+            (r#"$lookup([{"a": null}, {"a": 1}], "a")"#, "[null, 1]"),
+            // The array branch recurses into nested arrays.
+            (r#"$lookup([[{"a": 1}]], "a")"#, "1"),
+            (
+                r#"$lookup([[{"a": [1, 2]}], [{"a": [3]}]], "a")"#,
+                "[1, 2, 3]",
+            ),
+            // The object branch hands the stored value back untouched.
+            (r#"$lookup({"a": [1, 2]}, "a")"#, "[1, 2]"),
+            (r#"$lookup({"a": [[1]]}, "a")"#, "[[1]]"),
+            // The array branch still returns a sequence, so [] applies.
+            (r#"$lookup([{"a": [1]}], "a")[]"#, "[1]"),
+        ];
+        for (expr, expected) in cases {
+            let actual = crate::Expression::compile(expr)
+                .unwrap()
+                .evaluate("{}")
+                .unwrap();
+            let want = crate::Expression::compile(expected)
+                .unwrap()
+                .evaluate("{}")
+                .unwrap();
+            assert_eq!(actual, want, "{expr}");
+        }
     }
 
     /// $spread splits an object into single-pair objects.

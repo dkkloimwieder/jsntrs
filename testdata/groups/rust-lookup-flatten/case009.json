@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": [1]}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": 1,
+    "comment": "Without the postfix that same singleton sequence collapses."
+}

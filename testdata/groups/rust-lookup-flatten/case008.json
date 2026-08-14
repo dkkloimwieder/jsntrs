@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": [1]}], \"a\")[]",
+    "data": {},
+    "bindings": {},
+    "result": [1],
+    "comment": "The array branch still returns a sequence, so the [] postfix keeps a lone flattened element wrapped (jsntrs-p0v.6, rust-keep-array-call)."
+}

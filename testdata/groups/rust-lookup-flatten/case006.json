@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": []}, {\"a\": 1}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": 1,
+    "comment": "An empty array value contributes no elements at all, so the sequence has one item left and collapses. jsntrs used to answer [[], 1]."
+}

@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": [1, 2]}, {\"a\": [3]}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": [1, 2, 3],
+    "comment": "The array branch of the reference's lookup() pushes each ELEMENT of an array-valued hit, so one level of array structure is flattened away. jsntrs used to push the arrays whole and answer [[1,2],[3]] (jsntrs-p0v.16)."
+}

@@ -1,0 +1,7 @@
+{
+    "expr": "$count($lookup([{\"a\": [1, 2]}, {\"a\": [3]}], \"a\"))",
+    "data": {},
+    "bindings": {},
+    "result": 3,
+    "comment": "The flattened sequence collapses to a 3-element array before a consumer sees it."
+}

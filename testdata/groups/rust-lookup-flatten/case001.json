@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup({\"a\": [1, 2]}, \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": [1, 2],
+    "comment": "The object branch hands the stored value back untouched — no flattening, so a lone array value survives."
+}

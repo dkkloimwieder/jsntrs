@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([[{\"a\": 1}]], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": 1,
+    "comment": "The array branch recurses, so a hit nested inside another array is still found. jsntrs used to answer undefined."
+}

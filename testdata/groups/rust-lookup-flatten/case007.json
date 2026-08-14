@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": null}, {\"a\": 1}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": [null, 1],
+    "comment": "null is a hit (only undefined is skipped) and is not an array, so it pushes as one item."
+}

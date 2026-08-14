@@ -1,0 +1,7 @@
+{
+    "expr": "$lookup([{\"a\": {\"b\": 1}}, {\"a\": {\"c\": 2}}], \"a\")",
+    "data": {},
+    "bindings": {},
+    "result": [{"b": 1}, {"c": 2}],
+    "comment": "Object-valued hits are pushed whole — only arrays spread."
+}
