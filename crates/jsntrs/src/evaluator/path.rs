@@ -14,8 +14,8 @@ use crate::value::{Sequence, Value};
 use super::environment::Environment;
 use super::group::eval_tuple_group;
 use super::{
-    FunctionValue, JOIN_FLAG, PARENT_BINDING, call_function, compare_sort_terms, descendant_lookup,
-    eval_name, eval_no_stack_check, eval_variable,
+    FunctionValue, JOIN_FLAG, PARENT_BINDING, PARENT_SHADOW, call_function, compare_sort_terms,
+    descendant_lookup, eval_name, eval_no_stack_check, eval_variable, parent_out_of_context,
 };
 
 // ── Path evaluation (simplified for Phase 5) ────────────────────────
@@ -251,10 +251,12 @@ fn eval_tuple_parent_step(
             Environment::lookup_with_env(ctx_env, PARENT_BINDING)
         {
             if parent_val.is_null() || parent_val.is_undefined() {
-                return Err(JsonataError::new(
-                    "S0217",
-                    "% operator used outside of a valid path context",
-                ));
+                // A group-by pair shadows `%%`: `%` there is undefined, so
+                // the context simply drops out of the tuple stream.
+                if binding_env.lookup_direct(PARENT_SHADOW).is_some() {
+                    continue;
+                }
+                return Err(parent_out_of_context());
             }
             let mut parent_env = binding_env
                 .parent()
@@ -280,10 +282,7 @@ fn eval_tuple_parent_step(
             }
             next_ctxs.push((parent_val, parent_env));
         } else {
-            return Err(JsonataError::new(
-                "S0217",
-                "% operator used outside of a valid path context",
-            ));
+            return Err(parent_out_of_context());
         }
     }
     Ok(next_ctxs)
@@ -489,16 +488,15 @@ fn eval_tuple_parent_pred_step(
     for (_, ctx_env) in ctxs {
         let Some((parent_val, binding_env)) = Environment::lookup_with_env(ctx_env, PARENT_BINDING)
         else {
-            return Err(JsonataError::new(
-                "S0217",
-                "% operator used outside of a valid path context",
-            ));
+            return Err(parent_out_of_context());
         };
         if parent_val.is_null() || parent_val.is_undefined() {
-            return Err(JsonataError::new(
-                "S0217",
-                "% operator used outside of a valid path context",
-            ));
+            // Shadowed by a group-by pair: drop the context (see
+            // `eval_tuple_parent_step`).
+            if binding_env.lookup_direct(PARENT_SHADOW).is_some() {
+                continue;
+            }
+            return Err(parent_out_of_context());
         }
         let parent_env = binding_env
             .parent()

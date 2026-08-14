@@ -1,0 +1,31 @@
+{
+    "expr": "lib.books.review{\"k\" & $string(stars): [1, %]}",
+    "data": {
+        "lib": {
+            "books": [
+                {
+                    "genre": "a",
+                    "title": "t1",
+                    "review": {
+                        "stars": 5
+                    }
+                },
+                {
+                    "title": "t2",
+                    "review": {
+                        "stars": 3
+                    }
+                }
+            ]
+        }
+    },
+    "bindings": {},
+    "result": {
+        "k5": [
+            1
+        ],
+        "k3": [
+            1
+        ]
+    }
+}

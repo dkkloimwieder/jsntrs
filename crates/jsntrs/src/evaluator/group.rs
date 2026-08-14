@@ -12,10 +12,10 @@ use crate::value::Value;
 
 use super::binary::{apply_keep_array, eval_binary};
 use super::environment::Environment;
-use super::path::{eval_path, subtree_any};
+use super::path::{eval_path, node_has_parent_ref, subtree_any};
 use super::{
-    JOIN_FLAG, PARENT_BINDING, eval_function, eval_name, eval_no_stack_check, eval_unary,
-    eval_variable,
+    JOIN_FLAG, PARENT_BINDING, PARENT_SHADOW, eval_function, eval_name, eval_no_stack_check,
+    eval_unary, eval_variable,
 };
 
 /// Group buckets for `eval_tuple_group`: key → (members, member envs).
@@ -24,6 +24,40 @@ type TupleGroups = std::collections::HashMap<
     (Vec<Value>, Vec<Rc<Environment>>),
     foldhash::fast::RandomState,
 >;
+
+/// Does any key or value expression of `group` mention `%`?
+///
+/// Answered from the precomputed static-flag table, so this is O(pairs).
+fn group_refs_parent(arena: &AstArena, group: &crate::parser::GroupExpr) -> bool {
+    group
+        .pairs
+        .iter()
+        .any(|pair| pair.iter().any(|&n| node_has_parent_ref(arena, n)))
+}
+
+/// Environment for evaluating one group-by key/value pair.
+///
+/// jsonata-js builds the pair expressions without resolving their ancestor
+/// slots (`processAST` case `'{'` is the one construct that never calls
+/// `pushAncestry`), so a `%` at the head of a pair is permanently unbound and
+/// evaluates to undefined — `lib.books.review{%.genre: stars}` is `{}`, not an
+/// error. jsntrs resolves `%` through the `%%` environment chain instead, so
+/// the equivalent is a frame that shadows `%%` with undefined and marks itself
+/// with [`PARENT_SHADOW`]. A `%` reached through a step *inside* the pair
+/// (`review.%.genre`) still resolves, because that step rebinds `%%` nearer.
+/// Verified against jsonata-js 2.x (jsntrs-p0v.9).
+///
+/// Returns `None` — meaning "evaluate the pair in `env` itself" — for the
+/// overwhelmingly common group whose pairs never mention `%`, so groups that
+/// do not need the shadow allocate nothing.
+fn shadow_parent_env(needed: bool, env: &Rc<Environment>) -> Option<Rc<Environment>> {
+    needed.then(|| {
+        let shadow = Environment::new_child(Rc::clone(env));
+        shadow.bind(PARENT_BINDING, Value::Undefined);
+        shadow.bind(PARENT_SHADOW, Value::Bool(true));
+        Rc::new(shadow)
+    })
+}
 
 /// Apply a group-by expression to tuple contexts, using per-element environments.
 ///
@@ -38,6 +72,8 @@ pub(super) fn eval_tuple_group(
     ctxs: &[(Value, Rc<Environment>)],
 ) -> JsonataResult {
     let mut result_map = crate::value::ObjectMap::default();
+    // A `%` in a pair expression sees no parent frame (see `shadow_parent_env`).
+    let shadow = group_refs_parent(arena, group);
 
     for pair in &group.pairs {
         let key_node = pair[0];
@@ -48,7 +84,9 @@ pub(super) fn eval_tuple_group(
         let mut key_order: Vec<compact_str::CompactString> = Vec::new();
 
         for (item, item_env) in ctxs {
-            let key_val = eval_no_stack_check(arena, key_node, item, item_env)?;
+            let key_shadow = shadow_parent_env(shadow, item_env);
+            let key_env = key_shadow.as_ref().unwrap_or(item_env);
+            let key_val = eval_no_stack_check(arena, key_node, item, key_env)?;
             // Undefined keys skip the item; null (and any other non-string) is
             // T1003. Same rule as the standard group path in
             // `collect_group_items` — tuple mode is selected by the mere
@@ -89,7 +127,9 @@ pub(super) fn eval_tuple_group(
             let val = if val_node.is_empty() {
                 group_ctx
             } else {
-                eval_no_stack_check(arena, val_node, &group_ctx, &group_env)?
+                let val_shadow = shadow_parent_env(shadow, &group_env);
+                let val_env = val_shadow.as_ref().unwrap_or(&group_env);
+                eval_no_stack_check(arena, val_node, &group_ctx, val_env)?
             };
             if !val.is_undefined() {
                 result_map.insert(key.clone(), val);
@@ -278,6 +318,10 @@ pub(super) fn eval_group_by(
         other => vec![other],
     };
 
+    // A `%` in a pair expression sees no parent frame (see `shadow_parent_env`).
+    let pairs_shadow = shadow_parent_env(group_refs_parent(arena, &group), env);
+    let pairs_env = pairs_shadow.as_ref().unwrap_or(env);
+
     let mut out_obj = crate::value::ObjectMap::default();
     let mut key_set: std::collections::HashSet<
         compact_str::CompactString,
@@ -290,7 +334,7 @@ pub(super) fn eval_group_by(
         let (key_strategy, val_strategy, val_keep_array) =
             analyze_group_pair(arena, key_node, val_node);
 
-        let groups = collect_group_items(arena, &items, &key_strategy, env)?;
+        let groups = collect_group_items(arena, &items, &key_strategy, pairs_env)?;
 
         // Iterate groups in insertion order (IndexMap guarantees this).
         for (key, (group_items, first_idx)) in &groups {
@@ -306,8 +350,14 @@ pub(super) fn eval_group_by(
                 Value::Array(Rc::from(group_items.clone()))
             };
 
-            let mut val_result =
-                eval_group_value(arena, &val_strategy, group_input, key, *first_idx, env)?;
+            let mut val_result = eval_group_value(
+                arena,
+                &val_strategy,
+                group_input,
+                key,
+                *first_idx,
+                pairs_env,
+            )?;
 
             if val_keep_array {
                 val_result = apply_keep_array(val_result, Value::Array(Rc::from(vec![])));

@@ -1004,6 +1004,12 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("items@$v.$v.name", KEEP_ARRAY),
     ("items#$i.($i & name)", KEEP_ARRAY),
     ("items@$v[]", KEEP_ARRAY),
+    // ── [group-key-parent] Declined: a `{…}` group-by postfix keeps the whole
+    //    expression off every lift, so the `%`-in-a-pair rule (undefined, not
+    //    S0217 — jsntrs-p0v.9) is general-evaluator-only. ──
+    ("items{%.name: $string(x)}", CLEAN),
+    ("items{$string(x): %.name}", CLEAN),
+    ("items.name{%: $}", CLEAN),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

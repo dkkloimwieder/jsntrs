@@ -35,6 +35,32 @@ use crate::value::{Sequence, Value};
 const PARENT_BINDING: &str = "%%";
 /// Environment variable name for the join-mode flag.
 const JOIN_FLAG: &str = "%%j";
+/// Environment variable name for the group-by parent shadow.
+///
+/// Bound alongside an undefined [`PARENT_BINDING`] in the frame that
+/// evaluates group-by key/value pairs: inside such a pair a `%` that finds
+/// no nearer parent frame yields undefined instead of **S0217**.
+const PARENT_SHADOW: &str = "%%g";
+
+/// Does the nearest [`PARENT_BINDING`] frame visible from `env` carry the
+/// group-by shadow marker?
+///
+/// jsonata-js processes group-by pairs without resolving their ancestor slots
+/// (`processAST` case `'{'` never calls `pushAncestry`), so a `%` at the head
+/// of a pair expression stays unbound and evaluates to undefined; the
+/// undefined-key rule then skips the item and the group yields `{}`. A `%`
+/// that resolves *within* the pair (`review.%.genre`) is unaffected, because
+/// the inner step rebinds `%%` in a nearer frame than the shadow.
+fn parent_shadowed(env: &Rc<Environment>) -> bool {
+    Environment::lookup_with_env(env, PARENT_BINDING).is_some_and(|(val, frame)| {
+        val.is_undefined() && frame.lookup_direct(PARENT_SHADOW).is_some()
+    })
+}
+
+/// Build the error a `%` raises when it cannot reach a parent frame.
+fn parent_out_of_context() -> JsonataError {
+    JsonataError::new("S0217", "% operator used outside of a valid path context")
+}
 
 /// Evaluate an AST node against input data in the given environment.
 ///
@@ -199,10 +225,8 @@ fn eval_inner(
             Expr::Parent { .. } => {
                 return match cur_env.lookup(PARENT_BINDING) {
                     Some(val) if !val.is_null() && !val.is_undefined() => Ok(val),
-                    _ => Err(JsonataError::new(
-                        "S0217",
-                        "% operator used outside of a valid path context",
-                    )),
+                    _ if parent_shadowed(cur_env) => Ok(Value::Undefined),
+                    _ => Err(parent_out_of_context()),
                 };
             }
             Expr::Placeholder { .. } => return Ok(Value::Undefined),

@@ -1,0 +1,24 @@
+{
+    "expr": "lib.books.review{$string(stars): %.genre}",
+    "data": {
+        "lib": {
+            "books": [
+                {
+                    "genre": "a",
+                    "title": "t1",
+                    "review": {
+                        "stars": 5
+                    }
+                },
+                {
+                    "title": "t2",
+                    "review": {
+                        "stars": 3
+                    }
+                }
+            ]
+        }
+    },
+    "bindings": {},
+    "result": {}
+}
