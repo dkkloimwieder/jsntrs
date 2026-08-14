@@ -1,0 +1,6 @@
+{
+    "expr": "[1, 2, 3] ~> $filter(function($x) { $x = 2 })[]",
+    "data": {},
+    "bindings": {},
+    "result": [2]
+}

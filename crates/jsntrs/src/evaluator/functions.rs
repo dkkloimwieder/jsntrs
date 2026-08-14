@@ -169,10 +169,37 @@ pub fn eval_function(
     }
 
     let result = call_function(&func, &args, input, env, arena)?;
-    if keep_array {
+    if keep_array && call_result_is_sequence(&func, &result) {
         Ok(super::apply_keep_array(result, Value::Undefined))
     } else {
         Ok(result)
+    }
+}
+
+/// Does a call's result stand in for a JSONata *sequence*?
+///
+/// The `[]` (keep-array) postfix only ever applies to sequences: the
+/// reference implementation guards `expr.keepArray` with `isSequence(result)`
+/// in `evaluate()`, so `$sum(x)[]` stays the scalar `60` while
+/// `$map(x, fn)[]` keeps its singleton wrapped as `[y]` (jsntrs-e8l).
+///
+/// Two kinds of builtin qualify:
+///
+/// * one that returns an internal [`Value::Sequence`] (`$map`, `$each`,
+///   `$spread`);
+/// * one that *collapses* its sequence before returning — jsntrs has no
+///   value-level sequence flag once collapsed, so those are recognised by
+///   canonical `Rc` identity (see [`crate::stdlib::returns_sequence`]).
+///
+/// A lambda never qualifies. The reference collapses a lambda body's
+/// sequence before the call returns, so a singleton is already unwrapped by
+/// then and `keepArray` cannot re-wrap it. That is also what keeps the
+/// tail-call path consistent with the direct one: a thunked call returns
+/// through the trampoline, which never sees the postfix (jsntrs-5lw.2).
+pub(super) fn call_result_is_sequence(func: &FunctionValue, result: &Value) -> bool {
+    match func {
+        FunctionValue::Lambda(_) => false,
+        _ => matches!(result, Value::Sequence(_)) || crate::stdlib::returns_sequence(func),
     }
 }
 

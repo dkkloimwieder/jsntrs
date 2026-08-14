@@ -1,0 +1,6 @@
+{
+    "expr": "$reduce([1], function($a, $b) { $a + $b })[]",
+    "data": {},
+    "bindings": {},
+    "result": 1
+}

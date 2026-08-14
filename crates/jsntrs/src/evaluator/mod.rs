@@ -521,8 +521,11 @@ fn eval_chain_step(
             args.push(eval_no_stack_check(arena, arg_node, input, env)?);
         }
         let result = call_function(&func, &args, input, env, arena)?;
-        // Apply keep_array wrapping if [] suffix present.
-        if keep_array {
+        // Apply keep_array wrapping if the [] suffix is present *and* the
+        // result stands in for a sequence — same rule as a direct call
+        // (`call_result_is_sequence`), so `x ~> $sum()[]` stays a scalar
+        // while `x ~> $map($f)[]` keeps its singleton wrapped.
+        if keep_array && functions::call_result_is_sequence(&func, &result) {
             return Ok(apply_keep_array(result, Value::Undefined));
         }
         // Collapse sequences from function results.

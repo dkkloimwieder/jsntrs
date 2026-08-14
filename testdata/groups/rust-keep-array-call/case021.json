@@ -1,0 +1,6 @@
+{
+    "expr": "$sift({'a': 1}, function($v) { $v = 1 })[]",
+    "data": {},
+    "bindings": {},
+    "result": {"a": 1}
+}

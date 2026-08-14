@@ -1,0 +1,6 @@
+{
+    "expr": "($sum(prices)[])",
+    "data": {"prices": [10, 20, 30]},
+    "bindings": {},
+    "result": 60
+}

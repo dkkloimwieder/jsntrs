@@ -1,0 +1,6 @@
+{
+    "expr": "$count([1, 2])[]",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}

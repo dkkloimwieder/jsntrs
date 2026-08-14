@@ -652,6 +652,29 @@ const CASES: &[(&str, &str)] = &[
     ("items.$sum(x)", SIGNED),
     ("items.$uppercase(name)", SIGNED),
     ("items.$string(x)", SIGNED),
+    // ── NEW: bare-call-keeparray (jsntrs-e8l) ───────────────────────
+    // The `[]` postfix on a *call* is honoured only when the result
+    // stands in for a sequence. The fast paths must not lift a call
+    // that carries it, and must agree with the general evaluator on
+    // every shape below.
+    ("$count(items)[]", KEEP_ARRAY),
+    ("$string(items[0].x)[]", KEEP_ARRAY),
+    ("$sum(items[0].x)[]", KEEP_ARRAY),
+    ("items.$string(x)[]", KEEP_ARRAY),
+    ("items.$count(x)[]", KEEP_ARRAY),
+    ("items.($string(x)[])", KEEP_ARRAY),
+    ("$map(items, function($v){$v.x})[]", KEEP_ARRAY),
+    ("$filter(items, function($v){$v.x > 2})[]", CLEAN),
+    ("$map(items, function($v){$string($v.x)[]})", KEEP_ARRAY),
+    ("$map(items, function($v){$round($v.x)[]})", CLEAN),
+    ("$each(obj, function($v){$string($v.x)[]})", KEEP_ARRAY),
+    ("items ~> $count()[]", KEEP_ARRAY),
+    ("items ~> $filter(function($v){$v.x > 2})[]", CLEAN),
+    (
+        "($f := function($v){$v}; $map(items, function($v){$f($v.x)[]}))",
+        KEEP_ARRAY,
+    ),
+    ("($f := function($v){$v}; $f(items)[])", KEEP_ARRAY),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

@@ -1,0 +1,6 @@
+{
+    "expr": "$lookup([{'a': 1}], 'a')[]",
+    "data": {},
+    "bindings": {},
+    "result": [1]
+}

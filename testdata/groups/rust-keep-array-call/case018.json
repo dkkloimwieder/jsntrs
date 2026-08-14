@@ -1,0 +1,6 @@
+{
+    "expr": "x.($sum(y)[])",
+    "data": {"x": {"y": [1, 2]}},
+    "bindings": {},
+    "result": 3
+}

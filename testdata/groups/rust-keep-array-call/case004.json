@@ -1,0 +1,6 @@
+{
+    "expr": "$boolean(1)[]",
+    "data": {},
+    "bindings": {},
+    "result": true
+}

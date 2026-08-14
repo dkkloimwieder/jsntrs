@@ -1,0 +1,6 @@
+{
+    "expr": "($f := $filter; $f([1, 2, 3], function($x) { $x = 2 })[])",
+    "data": {},
+    "bindings": {},
+    "result": [2]
+}

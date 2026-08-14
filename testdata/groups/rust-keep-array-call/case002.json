@@ -1,0 +1,6 @@
+{
+    "expr": "$round(1.5)[]",
+    "data": {},
+    "bindings": {},
+    "result": 2
+}
