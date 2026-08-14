@@ -1,0 +1,6 @@
+{
+    "expr": "items.($sum(x, 1))",
+    "data": {"items": [{"x": 3, "name": "alice"}, {"x": 4, "name": "bob"}]},
+    "bindings": {},
+    "code": "T0410"
+}

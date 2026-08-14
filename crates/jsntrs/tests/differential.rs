@@ -128,6 +128,10 @@ const COMPARE_LITS: &str = r#"{
     "miss": [{"y": 1}, {"y": 2}],
     "items": [{"x": 3}, {"y": 1}, {"x": "s"}, {"x": null}, {"x": true}]}"#;
 
+/// Fields feeding signed builtins in a lifted `.( … )` step (jsntrs-6wr.7).
+const SIGNED: &str = r#"{
+    "items": [{"x": 3, "name": "alice"}, {"x": "s"}, {"y": 1}]}"#;
+
 /// (expression, data) pairs. Every pair runs fast vs general.
 const CASES: &[(&str, &str)] = &[
     // ── Pure paths over nested arrays (gnata-dx5.4) ──
@@ -616,6 +620,38 @@ const CASES: &[(&str, &str)] = &[
         "$filter(items, function($v){2 > $v.x or $v.y = 1})",
         COMPARE_LITS,
     ),
+    // ── Signed builtins reached through a lifted call (jsntrs-6wr.7) ──
+    // A block-wrapped step and a lambda body both evaluate through
+    // eval_function on the general path, which validates and coerces
+    // SignedBuiltin arguments; the lift dispatched to the raw fn and
+    // silently accepted arity/type errors.
+    ("items.($uppercase(name, 1))", SIGNED),
+    ("items.($lowercase(name, 1))", SIGNED),
+    ("items.($sum(x, 1))", SIGNED),
+    ("items.($max(x, 2))", SIGNED),
+    ("items.($string(x, 1))", SIGNED),
+    ("items.($boolean(x, 1))", SIGNED),
+    ("items.($uppercase(x))", SIGNED),
+    ("items.($sum(name))", SIGNED),
+    ("items.($sum(x))", SIGNED),
+    ("items.($string(x))", SIGNED),
+    ("items.($average(x))", SIGNED),
+    ("items.($min(x))", SIGNED),
+    ("items.($boolean(x))", SIGNED),
+    ("items.($uppercase(name))", SIGNED),
+    ("$map(items, function($v){$uppercase($v.name, 1)})", SIGNED),
+    ("$map(items, function($v){$sum($v.x, 1)})", SIGNED),
+    ("$map(items, function($v){$uppercase($v.x)})", SIGNED),
+    // A bare function path step is the other route: there the general path
+    // is eval_path_function_step, which calls the builtin unvalidated, so
+    // the lift must NOT validate either.
+    ("items.$uppercase(name, 1)", SIGNED),
+    ("items.$sum(x, 1)", SIGNED),
+    ("items.$string(x, 1)", SIGNED),
+    ("items.$boolean(x, 1)", SIGNED),
+    ("items.$sum(x)", SIGNED),
+    ("items.$uppercase(name)", SIGNED),
+    ("items.$string(x)", SIGNED),
 ];
 
 type EvalResult = Result<Value, JsonataError>;
