@@ -1,0 +1,12 @@
+{
+    "expr": "a`b + c.d`",
+    "data": {
+        "a`b": 1,
+        "c": {
+            "d`": 2
+        }
+    },
+    "bindings": {},
+    "result": 3,
+    "comment": "A backtick is an ordinary character inside an identifier run, so `a` backtick `b` is one field name (jsonata-js agrees: 3). The formatter must therefore write such a name bare — backtick quoting has no escape (jsntrs-ecq.8)."
+}

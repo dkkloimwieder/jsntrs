@@ -1,0 +1,9 @@
+{
+    "expr": "`a`b`",
+    "data": {
+        "a`b": 1
+    },
+    "bindings": {},
+    "code": "S0201",
+    "comment": "There is no escape syntax inside a backtick-quoted name: the quote ends at the first backtick and the rest is a syntax error (jsonata-js reports S0201 here too). This is why a name containing a backtick has no quoted spelling (jsntrs-ecq.8)."
+}

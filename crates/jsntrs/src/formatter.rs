@@ -85,7 +85,9 @@ fn extract_comments(src: &str) -> Vec<Comment> {
 /// Format a JSONata expression string.
 ///
 /// # Errors
-/// Returns `JsonataError` if the expression fails to parse.
+/// Returns `JsonataError` if the expression fails to parse, or if it holds a
+/// field name that has no JSONata spelling (see [`name_spelling`]) — emitting
+/// text that does not parse back would be worse than reporting it.
 pub fn format(expr: &str) -> Result<String, JsonataError> {
     let comments = extract_comments(expr);
     let (mut arena, root) = Parser::parse(expr)?;
@@ -93,7 +95,10 @@ pub fn format(expr: &str) -> Result<String, JsonataError> {
     let mut f = Formatter::new(&arena, &comments);
     f.emit(root, 0);
     f.emit_trailing_comments();
-    Ok(f.out.trim_end().to_string())
+    match f.error {
+        Some(e) => Err(e),
+        None => Ok(f.out.trim_end().to_string()),
+    }
 }
 
 struct Formatter<'a> {
@@ -101,6 +106,10 @@ struct Formatter<'a> {
     comments: &'a [Comment],
     comment_idx: usize, // next comment to emit
     out: String,
+    /// First unwritable construct met while walking, if any: `emit` cannot
+    /// fail mid-walk, so the failure travels here and `format` returns it
+    /// instead of the (unusable) text.
+    error: Option<JsonataError>,
 }
 
 impl<'a> Formatter<'a> {
@@ -110,6 +119,7 @@ impl<'a> Formatter<'a> {
             comments,
             comment_idx: 0,
             out: String::new(),
+            error: None,
         }
     }
 
@@ -166,11 +176,9 @@ impl<'a> Formatter<'a> {
                 ref index,
                 ..
             } => {
+                self.emit_name(value);
                 if keep_array {
-                    self.out.push_str(&escape_name(value));
                     self.out.push_str("[]");
-                } else {
-                    self.out.push_str(&escape_name(value));
                 }
                 self.emit_stages(stages, depth);
                 self.emit_bindings(focus.as_deref(), index.as_deref());
@@ -399,7 +407,28 @@ impl<'a> Formatter<'a> {
         f.comment_idx = self.comment_idx;
         f.emit(id, depth);
         self.comment_idx = f.comment_idx;
+        if self.error.is_none() {
+            self.error = f.error;
+        }
         f.out
+    }
+
+    /// Emit a field name in a spelling that lexes back to the same name.
+    ///
+    /// A name with no such spelling is recorded as an error rather than
+    /// written out broken (jsntrs-ecq.8); the first one wins, and `format`
+    /// returns it in place of the text.
+    fn emit_name(&mut self, name: &str) {
+        if let Some(text) = name_spelling(name) {
+            self.out.push_str(&text);
+        } else if self.error.is_none() {
+            self.error = Some(JsonataError::new(
+                "S0105",
+                format!(
+                    "field name has no JSONata spelling (backtick quoting has no escape): {name:?}"
+                ),
+            ));
+        }
     }
 
     fn emit_path(&mut self, steps: &[NodeId], group: Option<&GroupExpr>, depth: usize) {
@@ -708,12 +737,46 @@ fn source_regex_flags(flags: &str) -> &str {
     flags.strip_suffix('g').unwrap_or(flags)
 }
 
-/// Escape a name that contains special characters or is a keyword.
-fn escape_name(name: &str) -> String {
-    if name.is_empty() || needs_backtick(name) {
+/// How to write `name` so the lexer reads back exactly this name, or `None`
+/// when no spelling does that.
+///
+/// JSONata gives a field name two spellings: bare (a run of characters the
+/// lexer does not treat as a token boundary) and backtick-quoted. Quoting has
+/// **no escape syntax** — the lexer takes everything up to the next backtick
+/// and errors with S0105 if there is none, and jsonata-js rejects an escaped
+/// backtick inside a quoted name too — so a name that itself contains a
+/// backtick can only be written bare. That is also the only way such a name
+/// reaches the formatter: the lexer treats a backtick inside an identifier
+/// run as an ordinary character, so `a` backtick `b` is a single name (as in
+/// jsonata-js). Quoting it produced an unterminated quote — S0105 on
+/// re-parse — or, worse, a different expression (jsntrs-ecq.8).
+///
+/// The bare spelling is verified rather than assumed: [`lexes_back_as_name`]
+/// runs the real lexer over it.
+fn name_spelling(name: &str) -> Option<String> {
+    if name.contains('`') {
+        // No quoting is possible; bare is the only candidate.
+        return lexes_back_as_name(name).then(|| name.to_string());
+    }
+    Some(if name.is_empty() || needs_backtick(name) {
         format!("`{name}`")
     } else {
         name.to_string()
+    })
+}
+
+/// True when lexing `text` on its own yields exactly one `Name` token whose
+/// value is `text` — i.e. writing it bare is faithful.
+fn lexes_back_as_name(text: &str) -> bool {
+    let mut lexer = crate::lexer::Lexer::new(text);
+    // Prefix position: the same state a field name is emitted in.
+    match lexer.next(false) {
+        Ok(tok)
+            if tok.typ == crate::lexer::TokenType::Name && tok.pos == 0 && tok.value == text =>
+        {
+            matches!(lexer.next(true), Ok(t) if t.typ == crate::lexer::TokenType::EOF)
+        }
+        _ => false,
     }
 }
 
@@ -1286,6 +1349,76 @@ mod tests {
         assert_eq!(fmt("foo"), "foo");
         assert_eq!(fmt("_private"), "_private");
         assert_eq!(fmt("camelCase"), "camelCase");
+    }
+
+    /// The lexer reads a backtick inside an identifier run as an ordinary
+    /// character, so `` a`b `` is one name (jsonata-js agrees). Quoting such a
+    /// name left the quote unterminated — S0105 on re-parse — and for the
+    /// second repro below the output even re-parsed as a *different*
+    /// expression. Both must now round-trip (jsntrs-ecq.8).
+    #[test]
+    fn name_containing_backtick_round_trips() {
+        for src in [
+            "a`b",
+            "a`b.c",
+            "a``b",
+            "a`",
+            "\u{0}`",
+            "x + a`b",
+            "a`b[0]",
+            "a`b@$v.$v",
+            "`plain name`.a`b",
+            "{\"k\": a`b}",
+            // The fuzzer's idempotence repro.
+            "($t;2\u{0}c222222222`% $222`% $y)",
+        ] {
+            let once = fmt(src);
+            let twice = format(&once)
+                .unwrap_or_else(|e| panic!("formatted `{src}` -> `{once:?}` does not parse: {e}"));
+            assert_eq!(
+                once, twice,
+                "not idempotent for: {src}\nfirst:  {once:?}\nsecond: {twice:?}"
+            );
+        }
+    }
+
+    /// Round-tripping must preserve the *name*, not just parse: the
+    /// formatted text still selects the same field.
+    #[test]
+    fn backtick_name_keeps_its_meaning() {
+        use crate::Expression;
+        let data = r#"{"a`b": 1, "c": {"d`": 2}}"#;
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate(data)
+                .unwrap_or_else(|e| panic!("eval `{src}`: {e}"))
+                .to_string()
+        };
+        for (src, expected) in [("a`b", "1"), ("c.d`", "2"), ("a`b + c.d`", "3")] {
+            assert_eq!(eval(src), expected, "unexpected source result: {src}");
+            let once = fmt(src);
+            assert_eq!(
+                eval(&once),
+                expected,
+                "formatted output changed semantics: {src} -> {once:?}"
+            );
+        }
+    }
+
+    /// Names the parser cannot produce today — a leading backtick, or a
+    /// backtick next to a token boundary — have no spelling at all, and are
+    /// reported instead of being written out broken. The bare spelling is
+    /// never guessed: it is checked against the real lexer.
+    #[test]
+    fn unwritable_names_have_no_spelling() {
+        assert_eq!(name_spelling("`x"), None, "leading backtick");
+        assert_eq!(name_spelling("a b`"), None, "space is a token boundary");
+        assert_eq!(name_spelling("a.b`"), None, "dot is a token boundary");
+        assert_eq!(name_spelling("a`b").as_deref(), Some("a`b"));
+        assert_eq!(name_spelling("plain").as_deref(), Some("plain"));
+        assert_eq!(name_spelling("a b").as_deref(), Some("`a b`"));
+        assert_eq!(name_spelling("").as_deref(), Some("``"));
     }
 
     // ── Filter stages ────────────────────────────────────────
