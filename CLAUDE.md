@@ -10,7 +10,7 @@ Guidance for Claude Code sessions in this repo.
 repo — it lives in the original combined repository
 (github.com/dkkloimwieder/gnata), which also retains the full development
 history. `docs/spec.md` is the behavioral contract distilled from it. The
-port is feature-complete: all 1,916 conformance cases pass, and
+port is feature-complete: all 2,120 conformance cases pass, and
 `tests/conformance.rs` asserts zero failures.
 
 ## Commands (run at the workspace root)
