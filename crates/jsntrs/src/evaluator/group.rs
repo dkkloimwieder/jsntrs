@@ -100,7 +100,10 @@ pub(super) fn eval_tuple_group(
     // A group over a non-empty tuple stream whose keys (or values) all resolve
     // to undefined yields `{}`, exactly as the standard group path does — an
     // empty tuple stream never reaches here (`eval_path_tuple` returns
-    // undefined first).
+    // undefined first). That is deliberately *not* aligned with the standard
+    // path's "empty base stands in for one undefined item" rule: jsonata-js
+    // reaches the same point with a tuple stream, then dereferences `item['@']`
+    // on the pushed `undefined` and throws a raw TypeError (jsntrs-6wr.9).
     Ok(Value::Object(Rc::new(result_map)))
 }
 
@@ -249,20 +252,29 @@ pub(super) fn eval_group_by(
         Expr::Grouped { expr, .. } => eval_no_stack_check(arena, *expr, input, env)?,
         _ => eval_no_stack_check(arena, node, input, env)?,
     };
-    if base.is_undefined() {
-        return Ok(Value::Undefined);
-    }
-
+    // Normalize the base to the item list the pairs are grouped over.
+    //
+    // An undefined or empty base stands in for ONE undefined item rather
+    // than for no items at all — `evaluateGroupExpression` does exactly this
+    // (`createSequence(input)` on a non-array, then `input.push(undefined)`
+    // when the sequence came out empty), and it is what lets a group with
+    // literal pairs still produce an object: `Missing{'k': 'v'}` is
+    // `{"k": "v"}`, `Missing{'k': $}` is `{}` (the key is defined, the value
+    // is not, so only the pair drops). Returning undefined here instead
+    // swallowed the object, which is how `items.($string(x){'k': $})` lost
+    // the trailing `{}` for an item with no `x` (jsntrs-6wr.9). Note this
+    // departs from the Go reference, which propagated the nil base; see
+    // docs/spec.md §4.12.1.
     let items: Vec<Value> = match base {
+        Value::Undefined => vec![Value::Undefined],
+        Value::Array(a) if a.is_empty() => vec![Value::Undefined],
         Value::Array(a) => a.to_vec(),
-        Value::Sequence(seq) => {
-            let collapsed = seq.into_value();
-            match collapsed {
-                Value::Undefined => return Ok(Value::Undefined),
-                Value::Array(a) => a.to_vec(),
-                other => vec![other],
-            }
-        }
+        Value::Sequence(seq) => match seq.into_value() {
+            Value::Undefined => vec![Value::Undefined],
+            Value::Array(a) if a.is_empty() => vec![Value::Undefined],
+            Value::Array(a) => a.to_vec(),
+            other => vec![other],
+        },
         other => vec![other],
     };
 

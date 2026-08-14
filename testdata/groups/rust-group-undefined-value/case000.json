@@ -1,0 +1,37 @@
+[
+    {
+        "expr": "items.($string(x){'k': $})",
+        "data": {"items": [{"x": 3}, {"x": "s"}, {"y": 1}]},
+        "result": [{"k": "3"}, {"k": "s"}, {}]
+    },
+    {
+        "expr": "items.($round(x){'k': $})",
+        "data": {"items": [{"x": 3.2}, {"x": 4.7}, {"y": 1}]},
+        "result": [{"k": 3}, {"k": 5}, {}]
+    },
+    {
+        "expr": "items.(x{'k': $})",
+        "data": {"items": [{"x": 3}, {"x": "s"}, {"y": 1}]},
+        "result": [{"k": 3}, {"k": "s"}, {}]
+    },
+    {
+        "expr": "items.(x{'k': $})",
+        "data": {"items": [{"x": 3}, {"y": 1}]},
+        "result": [{"k": 3}, {}]
+    },
+    {
+        "expr": "$map(items, function($v){$v.x{'k': $}})",
+        "data": {"items": [{"x": 3}, {"x": "s"}, {"y": 1}]},
+        "result": [{"k": 3}, {"k": "s"}, {}]
+    },
+    {
+        "expr": "items.($string(x){'k': $}).k",
+        "data": {"items": [{"x": 3}, {"x": "s"}, {"y": 1}]},
+        "result": ["3", "s"]
+    },
+    {
+        "expr": "items.$string(x){'k': $}",
+        "data": {"items": [{"x": 3}, {"x": "s"}, {"y": 1}]},
+        "result": {"k": ["3", "s"]}
+    }
+]

@@ -1,0 +1,22 @@
+[
+    {
+        "expr": "items{'a': x, 'b': missing}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"a": 3}
+    },
+    {
+        "expr": "items{'k': missing}",
+        "data": {"items": [{"x": 3}]},
+        "result": {}
+    },
+    {
+        "expr": "items{missing: 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {}
+    },
+    {
+        "expr": "items#$i.x{'k': $}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": 3}
+    }
+]

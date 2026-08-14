@@ -44,26 +44,14 @@
 //! `expression.rs::binding_free_fast_paths_survive_a_custom_env` and
 //! `stream.rs::stream_custom_func_overrides_builtin_fast_path`.
 //!
-//! # Known divergence (jsntrs-6wr.9) — deliberately not in either list
+//! # Group-by postfixes (jsntrs-6wr.9)
 //!
-//! The `{…}` group-by postfix is dropped when it sits on a lifted mapped
-//! call or on a lifted field access *inside* the lifted shape. All of these
-//! return the ungrouped value from the fast path and the grouped object from
-//! the general evaluator, so they cannot be added until the bug is fixed:
-//!
-//! ```text
-//! $map(items, function($v){$string($v.x){'k': $}})   fast ["3",…]  general [{"k":"3"},…]
-//! $map(items, function($v){$round($v.x){'k': $}})    fast [3,…]    general [{"k":3},…]
-//! $map(items, function($v){$v.x{'k': $}})            fast [3,…]    general [{"k":3},…]
-//! $map(items, function($v){$string($v.x){'k': $v.name}})
-//! ($f := function($v){$v}; $map(items, function($v){$f($v.x){'k': $}}))
-//! items.($string(x){'k': $})                         fast ["3",…]  general [{"k":"3"},…]
-//! items.($round(x){'k': $})                          fast [3,…]    general [{"k":3},…]
-//! ```
-//!
-//! The shapes either side of the hole *are* covered: the same postfix on the
-//! whole path (`items.$string(x){'k': $}`) and on a block that is not lifted
-//! (`function($v){($string($v.x)){'k': $}}`) both agree and are listed below.
+//! The `{…}` postfix used to be silently dropped when it sat on a lifted
+//! mapped call or on a lifted field access, so seven shapes were excluded
+//! from both lists. `analyze_mapped_call` and `extract_param_field` now
+//! decline any node carrying one; all seven live in [`GENERAL_ONLY_CASES`]
+//! alongside the neighbours that already agreed, and nothing in this file
+//! is excluded from both lists any more.
 
 use std::rc::Rc;
 
@@ -922,8 +910,7 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("items ~> $count()[]", KEEP_ARRAY),
     ("($f := function($v){$v}; $f(items)[])", KEEP_ARRAY),
     // ── Declined: `{…}` on a block or on a predicate body — the neighbours
-    //    of the jsntrs-6wr.9 hole documented in the module header. These
-    //    agree today; the shapes that do not are excluded there. ──
+    //    of the former jsntrs-6wr.9 hole. These always agreed. ──
     ("$map(items, function($v){($string($v.x)){'k': $}})", CLEAN),
     ("$filter(items, function($v){$string($v.x){'k': $}})", CLEAN),
     (
@@ -959,6 +946,33 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
         "$each(obj, function($v,$k){$each({'z': $v}, function($w,$j){$k & $j})})",
         POSTFIX,
     ),
+    // ── Declined: `{…}` on a lifted mapped call or a lifted field access
+    //    (jsntrs-6wr.9) — track: step-validate-group-lift. These are the
+    //    seven shapes the module header used to exclude from both lists:
+    //    the lift dropped the postfix and answered the ungrouped value.
+    //    `analyze_mapped_call` and `extract_param_field` now decline, so
+    //    each one runs the general evaluator on both sides. The SIGNED
+    //    fixture's third item has no `x`, which is what makes the general
+    //    path emit the empty object. ──
+    ("$map(items, function($v){$string($v.x){'k': $}})", SIGNED),
+    ("$map(items, function($v){$round($v.x){'k': $}})", CLEAN),
+    ("$map(items, function($v){$v.x{'k': $}})", SIGNED),
+    (
+        "$map(items, function($v){$string($v.x){'k': $v.name}})",
+        SIGNED,
+    ),
+    (
+        "($f := function($v){$v}; $map(items, function($v){$f($v.x){'k': $}}))",
+        SIGNED,
+    ),
+    ("items.($string(x){'k': $})", SIGNED),
+    ("items.($round(x){'k': $})", CLEAN),
+    // The same postfix reached through the other lifted shapes: a predicate
+    // operand, a homogeneous fixture with no missing field, and a `.()`
+    // field step.
+    ("$filter(items, function($v){$v.x{'k': $} = 3})", SIGNED),
+    ("$map(items, function($v){$v.x{'k': $}})", CLEAN),
+    ("items.(x{'k': $})", SIGNED),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

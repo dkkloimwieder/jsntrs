@@ -1,0 +1,47 @@
+[
+    {
+        "expr": "a.b{'k': 'v'}",
+        "data": {"a": {"b": []}},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "a.b{'k': $}",
+        "data": {"a": {"b": []}},
+        "result": {}
+    },
+    {
+        "expr": "a.b{'k': 'v', 'j': $}",
+        "data": {"a": {"b": []}},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "a.b{'k': $}",
+        "data": {"a": {"b": [1, 2]}},
+        "result": {"k": [1, 2]}
+    },
+    {
+        "expr": "$keys(a){'k': $}",
+        "data": {"a": {}},
+        "result": {}
+    },
+    {
+        "expr": "$filter(items, function($v){$v.x > 100}){'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "items.x{'k': $}",
+        "data": {"items": []},
+        "result": {}
+    },
+    {
+        "expr": "null{'k': 'v'}",
+        "data": {},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "null{'k': $}",
+        "data": {},
+        "result": {"k": null}
+    }
+]

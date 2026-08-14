@@ -1,0 +1,32 @@
+[
+    {
+        "expr": "[]{'k': 'v'}",
+        "data": {},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "items[x > 100]{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "items.x[$ > 100]{'k': $}",
+        "data": {"items": [{"x": 3}]},
+        "result": {}
+    },
+    {
+        "expr": "items.($string(missing){'k': $})",
+        "data": {"items": [{"x": 3}]},
+        "result": {}
+    },
+    {
+        "expr": "items.($string(missing){'k': 'v'})",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "items.($string(x){'k': $})[0]",
+        "data": {"items": [{"y": 1}]},
+        "result": {}
+    }
+]

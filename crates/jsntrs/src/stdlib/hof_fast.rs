@@ -119,11 +119,14 @@ fn is_param_ref(node: NodeId, arena: &AstArena, param: &str) -> bool {
 /// `$v[].x`, whose flag `process_ast` propagates onto the path) forces the
 /// path to preserve singletons as arrays. No lifted shape carries that
 /// flag, so such a path is not liftable — decline instead of collapsing
-/// (jsntrs-6wr.3).
+/// (jsntrs-6wr.3). A `{…}` group-by postfix on the path (`$v.x{'k': $}`)
+/// is declined for the same reason: the lift returns the field value, the
+/// general path returns the grouped object (jsntrs-6wr.9).
 fn extract_param_field(node: NodeId, arena: &AstArena, param: &str) -> Option<String> {
     let Expr::Path {
         steps,
         keep_singleton_array: false,
+        group: None,
         ..
     } = arena.get(node)
     else {
@@ -697,10 +700,18 @@ pub(crate) fn analyze_mapped_call(
     // The node should be a Function call, possibly wrapped in a Block.
     let func_node = unwrap_block(node, arena);
 
+    // `group: None` — a `{…}` group-by postfix binds to the call node and the
+    // general path applies it *after* the call (`eval_group_by`). The lifted
+    // template has nowhere to put it, so a call wearing one must not be
+    // lifted; the same rule `try_function` applies in `fast_path.rs`
+    // (jsntrs-6wr.2, jsntrs-6wr.9). A `Block` wrapper needs no check of its
+    // own: it has no `group` field, so `items.($f(x)){…}` hangs the postfix
+    // on the enclosing path, which never reaches this analyzer.
     let (procedure, arguments) = match arena.get(func_node) {
         Expr::Function {
             procedure,
             arguments,
+            group: None,
             ..
         } => (*procedure, arguments.clone()),
         _ => return None,
@@ -1244,6 +1255,32 @@ mod tests {
         assert!(analyze_src("function($v){\"id-\" & $substring($v.a[], 1)}").is_none());
     }
 
+    /// A `{…}` group-by postfix on a lambda-body path is applied by
+    /// `eval_group_by` *after* the path resolves. `SimpleLambda::FieldAccess`
+    /// and friends carry only the field name, so a path wearing one must be
+    /// declined instead of silently answering the ungrouped value
+    /// (jsntrs-6wr.9).
+    #[test]
+    fn analyzer_rejects_group_postfix_paths() {
+        assert!(analyze_src("function($v){$v.a{'k': $}}").is_none());
+        // FieldPredicate, both operand orders.
+        assert!(analyze_src("function($v){$v.a{'k': $} > 1}").is_none());
+        assert!(analyze_src("function($v){1 < $v.a{'k': $}}").is_none());
+        // TwoFieldPredicate — either side is enough to disqualify.
+        assert!(analyze_src("function($v){$v.a{'k': $} = $v.b}").is_none());
+        assert!(analyze_src("function($v){$v.a = $v.b{'k': $}}").is_none());
+        // SortComparator, ReduceAccum, ReduceCompoundAccum.
+        assert!(analyze_src("function($a,$b){$a.x{'k': $} > $b.x{'k': $}}").is_none());
+        assert!(analyze_src("function($p,$c){$p + $c.x{'k': $}}").is_none());
+        assert!(analyze_src("function($p,$c){$p + $c.x{'k': $} * $c.y}").is_none());
+        // CompoundPredicate clauses.
+        assert!(analyze_src("function($v){$v.a{'k': $} > 1 and $v.b < 5}").is_none());
+        assert!(analyze_src("function($v){$v.a > 1 or $v.b{'k': $} < 5}").is_none());
+        // ConcatTemplate pieces: bare field and stringifying wrappers.
+        assert!(analyze_src("function($v){\"id-\" & $v.a{'k': $}}").is_none());
+        assert!(analyze_src("function($v){\"id-\" & $string($v.a{'k': $})}").is_none());
+    }
+
     /// The keep-array guard must not over-bail: the same shapes without `[]`
     /// still lift, so the fast paths stay engaged.
     #[test]
@@ -1349,6 +1386,29 @@ mod tests {
             fast.deep_equal(&general),
             "fast path {fast:?} != general path {general:?}"
         );
+    }
+
+    /// Regression test for jsntrs-6wr.9: a `{…}` group-by postfix on a
+    /// lifted mapped call (or on the field access inside one) is applied by
+    /// `eval_group_by` after the call returns. The lifted template had
+    /// nowhere to put it and answered the ungrouped value, so the lift must
+    /// decline. Expectations are reference-verified against jsonata-js 2.x;
+    /// the third item has no `x`, which is what makes the group emit `{}`.
+    #[test]
+    fn group_postfix_is_not_dropped_by_the_mapped_call_lift() {
+        let input = Value::from_json_str(r#"{"items": [{"x": 3}, {"x": "s"}, {"y": 1}]}"#)
+            .expect("valid test JSON");
+        for (src, expected) in [
+            (
+                "items.($string(x){'k': $})",
+                r#"[{"k": "3"}, {"k": "s"}, {}]"#,
+            ),
+            ("items.(x{'k': $})", r#"[{"k": 3}, {"k": "s"}, {}]"#),
+        ] {
+            let got = eval_expr(src, &input);
+            let want = Value::from_json_str(expected).expect("valid test JSON");
+            assert!(got.deep_equal(&want), "{src}: got {got:?}, want {want:?}");
+        }
     }
 
     /// Regression test for jsntrs-6wr.5: a lambda path step that declares

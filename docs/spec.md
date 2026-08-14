@@ -1016,6 +1016,25 @@ Entry point for `expr{key:val}` expressions.
 **Standard flow:**
 1. Copies node with Group cleared, evaluates base expression.
 2. Normalizes to `[]any` items.
+
+   **Rust port deviation (jsntrs-6wr.9).** The Go reference propagated a nil
+   base: `Missing{'k': 'v'}` returned nil. The Rust port instead normalizes
+   an undefined *or empty* base to a single undefined item, matching
+   jsonata-js `evaluateGroupExpression`, which wraps a non-array input with
+   `createSequence` and then pushes `undefined` when the sequence is empty.
+   A group therefore always yields an object: `Missing{'k': 'v'}` is
+   `{"k": "v"}` (both pair halves are literals), `Missing{'k': $}` is `{}`
+   (the key is defined, the value is undefined, so only the pair drops), and
+   `Missing{Other: 'v'}` is `{}` (the key is undefined, so the item is
+   skipped). This is what makes a per-item group over a mapped step emit the
+   trailing empty object — `items.($string(x){'k': $})` over
+   `{"items":[{"x":3},{"x":"s"},{"y":1}]}` is `[{"k":"3"},{"k":"s"},{}]`.
+   Pinned by `testdata/groups/rust-group-undefined-value/`.
+
+   The tuple route (`evalTupleGroup`) is *not* aligned: `eval_path_tuple`
+   still returns undefined when the tuple stream empties, because jsonata-js
+   dereferences `item['@']` on the pushed `undefined` and throws a raw
+   `TypeError` there.
 3. For each group pair `(keyNode, valNode)`:
    a. Evaluates key for each item. Nil keys are skipped. Non-string keys: **T1003**.
    b. Groups items by key value (maintains insertion order via `groupOrder`).

@@ -1,0 +1,57 @@
+[
+    {
+        "expr": "Missing{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "Missing{'k': $}",
+        "data": {"items": [{"x": 3}]},
+        "result": {}
+    },
+    {
+        "expr": "Missing{Other: 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {}
+    },
+    {
+        "expr": "items.missing{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "missing.deeper{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "items[0].missing{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "*.missing{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "**.missing{'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "(missing){'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "$string(missing){'k': 'v'}",
+        "data": {"items": [{"x": 3}]},
+        "result": {"k": "v"}
+    },
+    {
+        "expr": "(1; 2; missing){'k': 'v'}",
+        "data": {},
+        "result": {"k": "v"}
+    }
+]
