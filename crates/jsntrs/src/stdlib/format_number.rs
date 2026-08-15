@@ -248,7 +248,16 @@ fn scan_sub_picture_region<'a>(
     let active = &runes[start..=end];
 
     for &c in active {
-        if !fc.is_active_char(c) && c != fc.percent && c != fc.per_mille {
+        // Percent and per-mille are passive characters: legal only in the
+        // prefix or suffix, never between active characters (jsonata-js
+        // raises D3086). Exempting them here let "0,%." reach the grouping
+        // scan with a separator that has no digits to its right, whose
+        // zero position looped forever in `compute_int_group_positions`
+        // (jsntrs-spm). jsntrs reports the first violated rule; the
+        // reference's validate() lets the last-checked rule win, so a
+        // picture that also breaks a later rule (digit order, exponent
+        // shape) gets a different code there — tracked in jsntrs-p0v.23.
+        if !fc.is_active_char(c) {
             return Err(JsonataError::new(
                 "D3086",
                 "$formatNumber: invalid character in active picture region",
@@ -480,10 +489,17 @@ fn compute_int_group_positions(grp_pos: &[usize], int_len: usize) -> Vec<usize> 
     if grp_pos.is_empty() {
         return Vec::new();
     }
+    // `grp_pos` is non-decreasing (parse_int_part scans right to left and
+    // pushes a running count), which the window subtraction relies on.
     let primary = grp_pos[0];
     let all_equal = grp_pos.windows(2).all(|w| w[1] - w[0] == primary);
     let mut result = Vec::new();
-    if grp_pos.len() == 1 || all_equal {
+    // `primary == 0` (a separator with no digits to its right) must not
+    // enter the repeating branch: advancing by zero never terminates.
+    // Picture validation no longer produces it (jsntrs-spm), but the
+    // expansion has to stay total regardless; the literal positions are
+    // harmless, a zero simply never matches a real digit position.
+    if primary > 0 && (grp_pos.len() == 1 || all_equal) {
         let mut pos = primary;
         while pos < int_len {
             result.push(pos);
@@ -936,5 +952,42 @@ mod tests {
         let both = r#"{"exponent-separator": "."}"#;
         assert_eq!(fmt_opts(1234.5678, "0.0", both), Err("D3085"));
         assert_eq!(fmt_opts(1234.5678, "0.00", both), Err("D3085"));
+    }
+
+    /// Expected codes verified against jsonata-js 2.1.0 (jsntrs-spm): a
+    /// percent or per-mille buried between active characters is a D3086
+    /// picture error. jsntrs used to accept it, and "0,%." then recorded a
+    /// grouping separator with no digits to its right — a zero grouping
+    /// position that `compute_int_group_positions` expanded forever,
+    /// allocating without bound.
+    #[test]
+    fn interior_percent_and_per_mille_are_picture_errors() {
+        for pic in ["0,%.", "0,‰.", "#,%.", "0,%.0", "0%0", "0‰0"] {
+            assert_eq!(
+                fmt_args(&[Value::Number(7.0), Value::String(pic.into())]),
+                Err("D3086"),
+                "{pic}"
+            );
+        }
+        // The loop was input-independent; zero is not special.
+        assert_eq!(
+            fmt_args(&[Value::Number(0.0), Value::String("0,%.".into())]),
+            Err("D3086")
+        );
+        // A custom percent character is just as passive (jsonata-js agrees);
+        // the old exemption accepted "0@0" here and formatted "700".
+        assert_eq!(fmt_opts(7.0, "0@0", r#"{"percent": "@"}"#), Err("D3086"));
+        // In the prefix or suffix the scaling characters stay legal.
+        assert_eq!(fmt(1234.0, "#,##0%"), "123,400%");
+        assert_eq!(fmt(7.0, "0%"), "700%");
+        assert_eq!(fmt(7.0, "%0"), "%700");
+    }
+
+    /// The grouping expansion must stay total even if a zero position ever
+    /// reaches it again: advance-by-zero looped forever (jsntrs-spm).
+    #[test]
+    fn zero_grouping_position_inserts_no_separator() {
+        assert_eq!(apply_int_grouping("700", &[0], ','), "700");
+        assert_eq!(apply_int_grouping("1234567", &[3], ','), "1,234,567");
     }
 }
