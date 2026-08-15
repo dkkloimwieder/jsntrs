@@ -398,22 +398,13 @@ pub fn fn_sift(
         return Ok(Value::Undefined);
     }
     let func = func_arg.require_function("$sift")?;
-    // If the argument is an array, map $sift over each element.
-    if let Value::Array(arr) = obj_arg {
-        let mut results = Vec::new();
-        for item in arr.iter() {
-            if let Value::Object(obj) = item {
-                let sifted = sift_object(obj, &func, item, env, arena)?;
-                if !sifted.is_undefined() {
-                    results.push(sifted);
-                }
-            }
-        }
-        if results.is_empty() {
-            return Ok(Value::Undefined);
-        }
-        return Ok(Value::Array(Rc::from(results)));
-    }
+    // An array is *not* siftable: the reference signature is `<o-f?:o>`, so
+    // arrays fail argument validation like any other non-object. The Go
+    // reference mapped `$sift` over an array's object elements instead; that
+    // extension was dropped (jsntrs-p0v.11 decision, jsntrs-xoe) because the
+    // mapping is already reachable — and idiomatic — as `a.$sift(fn)`, where
+    // ordinary path mapping invokes `$sift` once per object, while the
+    // extension additionally dropped non-object elements silently.
     let Value::Object(obj) = obj_arg else {
         return Err(JsonataError::new(
             context_arg_code(from_focus),

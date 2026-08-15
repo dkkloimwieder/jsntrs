@@ -1,0 +1,7 @@
+{
+    "expr": "$sift({\"a\": 1, \"b\": 10}, function($v) { $v > 5 })",
+    "data": {},
+    "result": {
+        "b": 10
+    }
+}

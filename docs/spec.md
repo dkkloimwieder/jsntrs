@@ -1707,7 +1707,7 @@ jsntrs-p0v.18 for the audit.
 - **Parameters**: `(object, function)` or `(function)` with focus.
 - **0 args**: **T0410** (Go reference: D3006).
 - **nil object**: undefined propagation.
-- **Non-map**: **T0410** for an explicit argument, **T0411** when the object came from the focus (5.1.4). An *array* focus keeps the jsntrs array-mapping behaviour below rather than raising; the reference rejects arrays outright.
+- **Non-map**: **T0410** for an explicit argument, **T0411** when the object came from the focus (5.1.4). Arrays are non-maps like any other: the Go reference mapped `$sift` over an array's object elements, but jsntrs dropped that extension (jsntrs-p0v.11, jsntrs-xoe) to match the reference signature `<o-f?:o>`. Per-element sifting is written `a.$sift(fn)`, where ordinary path mapping invokes `$sift` once per object.
 - **Callback arity** (`siftArgs`, line 161): Lambda param count determines args:
   - 0 params: `[]`
   - 1 param: `[value]`

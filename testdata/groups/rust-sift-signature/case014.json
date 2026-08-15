@@ -1,0 +1,5 @@
+{
+    "expr": "$sift(nope, function($v) { true })",
+    "data": {},
+    "undefinedResult": true
+}
