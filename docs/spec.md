@@ -1102,10 +1102,18 @@ That is the only role the documentation gives `?`. jsntrs parsed one wherever
 a value could stand and evaluated it to undefined, so `?`, `a.?`, `a[?]` and
 `[?]` all answered silently and `? & 'z'` answered `"z"`.
 `check_placeholder_position` in `parser/process.rs` now rejects, at compile
-time, any `?` that is not a whole argument of a function invocation — a
+time, a `?` that is not a whole argument of a function invocation — a
 fragment of an argument (`$f(1 + ?)`) is not one either. The code is S0211,
 which is what jsntrs already gives every other token that cannot open an
 expression, and what the reference gives here.
+
+One carrier is missed, and the pass is not yet the exhaustive check this
+paragraph would otherwise claim: the `Function`/`Partial` arm walks the
+node's `procedure` and `arguments` but not its group-by pairs, so
+`$string(1){'k': ?}` still answers `{}` where the reference raises S0211.
+Every other group-by carrier is caught — `a{'k': ?}`, `[1]{'k': ?}`,
+`(1){'k': ?}`, `$x{'k': ?}`, `a#$i{'g': ?}`, `a@$e{'g': ?}` and
+`n^($){'g': ?}` all report S0211 (jsntrs-ck4).
 
 It runs *before* the parent check, so `(%).?` — invalid twice over — reports
 the `?`, matching the reference. `1.?` likewise reports S0211 rather than the
