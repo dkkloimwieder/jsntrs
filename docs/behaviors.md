@@ -286,7 +286,7 @@ S0206 is "Unknown expression type" and jsntrs has no site for it.
 | D1009 | Two key definitions evaluate to the same key | |
 | D2014 | `..` would allocate more than 1e7 elements | |
 | D3001 | String function applied to Infinity/NaN; **also** modulo by zero; **also** evaluation cancelled | only the first matches the inherited definition — see §2.4 |
-| D3006 | Required argument missing (`$not()`, `$eval()`, `$formatNumber()`, `$formatInteger()`, `$parseInteger()`, `$match()`) | **not in any catalog and not in the documentation** — jsntrs-local. Reference answers T0410 |
+| ~~D3006~~ | *Retired 2026-08-15 (jsntrs-89k).* Was raised for a missing required argument by `$not`, `$eval`, `$formatNumber`, `$formatInteger`, `$parseInteger` and `$match`. It appeared in no catalog and in no documentation, and nothing pinned it, so those six sites now raise **T0410** like the other twenty. |
 | D3010 | `$replace` empty pattern; invalid regex to `$contains`/`$split`; malformed `$base64decode`; **also** `$append`/`$pad` size caps | the size caps are jsntrs-local guardrails |
 | D3011 | `$replace` fourth argument is not a positive number | |
 | D3012 | `$replace` replacement value is not a string | |

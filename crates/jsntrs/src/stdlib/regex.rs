@@ -184,7 +184,7 @@ pub fn fn_match(
 ) -> JsonataResult {
     if args.len() < 2 {
         return Err(JsonataError::new(
-            "D3006",
+            "T0410",
             "$match: requires at least 2 arguments",
         ));
     }

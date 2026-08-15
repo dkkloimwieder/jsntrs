@@ -1255,7 +1255,7 @@ Walks specs and args in parallel:
 
 # Section 5: Standard Library Specification
 
-**Missing-argument errors (Rust port).** The Rust port raises **T0410** for a call with too few arguments, *except* `$not`, `$eval`, `$match`, `$formatNumber`, `$formatInteger` and `$parseInteger`, which raise **D3006**. `$boolean()` with no arguments does not error at all -- it falls back to the focus (arity is deliberately unenforced so HOF callbacks such as `$filter($boolean)`, which pass `value, index, array`, keep working). No conformance case exercises D3006, so nothing pins the Go codes; the per-function bullets below give the shipped Rust code.
+**Missing-argument errors (Rust port).** The Rust port raises **T0410** for a call with too few arguments, uniformly. `$not`, `$eval`, `$match`, `$formatNumber`, `$formatInteger` and `$parseInteger` used to raise **D3006** instead; that code appears in no error catalog and in no JSONata documentation, so it was a jsntrs invention that gave users an error they could not look up (jsntrs-89k, decided 2026-08-15). Nothing pinned it -- no conformance case exercised it -- so the six sites now agree with the other twenty. `$boolean()` with no arguments does not error at all: it falls back to the focus, arity deliberately unenforced so HOF callbacks such as `$filter($boolean)`, which pass `value, index, array`, keep working.
 
 ## 5.1 Registration (`functions/register.go`)
 
@@ -1420,7 +1420,7 @@ jsntrs-p0v.18 for the audit.
 ### 5.2.12 `$match` (`string_match_replace.go:14`) -- EnvAwareBuiltin
 
 - **Parameters**: `(string, pattern [, limit])`.
-- **<2 args**: **D3006**.
+- **<2 args**: **T0410** (Go reference: D3006).
 - **nil first arg**: undefined propagation.
 - **Non-string first arg**: **T0410**.
 - **Pattern**: regex map or function (custom matcher).
@@ -1428,7 +1428,7 @@ jsntrs-p0v.18 for the audit.
 - **Match object**: `{"match": text, "start": runeIndex, "end": runeIndex, "groups": [strings]}`.
 - **Custom matcher**: Called with `(string, 0)`. Returns map with `match`, `start`, `groups`, `next` (function). Iterates by calling `next` until nil.
 - **Returns**: `*Sequence` of match objects, or nil.
-- **Error codes**: D3006, T0410, D3137.
+- **Error codes**: T0410, D3137.
 
 ### 5.2.13 `$replace` (`string_match_replace.go:131`) -- EnvAwareBuiltin
 
@@ -1445,7 +1445,7 @@ jsntrs-p0v.18 for the audit.
 ### 5.2.14 `$eval` (`string_encoding.go:16`) -- EnvAwareBuiltin
 
 - **Parameters**: `(expression [, context])`.
-- **0 args**: **D3006**.
+- **0 args**: **T0410** (Go reference: D3006).
 - **nil first arg**: undefined propagation.
 - **Non-string**: **T0410**.
 - **Max eval depth**: 5 (nested `$eval` calls).
@@ -1489,7 +1489,7 @@ jsntrs-p0v.18 for the audit.
 ### 5.2.20 `$formatNumber` (`string_format_number.go:15`)
 
 - **Parameters**: `(number, picture [, options])`.
-- **<2 args**: **D3006**.
+- **<2 args**: **T0410** (Go reference: D3006).
 - **nil first arg**: undefined propagation.
 - **options**: Object with keys: `decimal-separator`, `grouping-separator`,
   `percent`, `per-mille`, `zero-digit`, `digit`, `pattern-separator`,
@@ -1548,7 +1548,7 @@ jsntrs-p0v.18 for the audit.
     options, and never matched against the picture — it cannot appear there.
 - **Picture syntax**: XPath 3.1 `format-number` compatible.
 - **Sub-pictures**: Separated by pattern-separator (default `;`). Max 2 sub-pictures (**D3080**).
-- **Error codes**: D3006, T0410, D3080-D3093 (picture validation errors).
+- **Error codes**: T0410, D3080-D3093 (picture validation errors).
 - **Output stage (jsntrs-0kg, re-derived from XPath 3.1 F&O 2026-08-15)**: the
   analyse/format stage follows the **F&O 4.7.4/4.7.5 prose**, not jsonata-js's
   `formatNumber`. It was a bullet-for-bullet port of the reference
@@ -1645,7 +1645,7 @@ jsntrs-p0v.18 for the audit.
 ### 5.2.22 `$formatInteger` (`string_format_integer.go:47`)
 
 - **Parameters**: `(number, picture)`.
-- **<2 args**: **D3006**.
+- **<2 args**: **T0410** (Go reference: D3006).
 - **nil first arg**: undefined propagation.
 - **Picture formats**:
   - `"w"` / `"W"` / `"Ww"`: Words (lowercase/uppercase/title case). Modifier `;o` for ordinals.
@@ -1655,16 +1655,16 @@ jsntrs-p0v.18 for the audit.
   - Grouping via separators in pattern.
   - Modifier `;o`: Ordinal suffix (st, nd, rd, th).
 - **Unicode digit families**: Supports Arabic-Indic, Devanagari, and 35+ other numeral systems.
-- **Error codes**: D3006, T0410, D3130 (unsupported picture), D3131 (mixed digit families), D3137 (too large).
+- **Error codes**: T0410, D3130 (unsupported picture), D3131 (mixed digit families), D3137 (too large).
 
 ### 5.2.23 `$parseInteger` (`string_format_integer.go:578`)
 
 - **Parameters**: `(string, picture)`.
-- **<2 args**: **D3006**.
+- **<2 args**: **T0410** (Go reference: D3006).
 - **nil first arg**: undefined propagation.
 - **Picture formats**: `"w"`/`"W"`/`"Ww"` (word parsing), `"i"`/`"I"` (Roman), `"a"`/`"A"` (alphabetic), decimal with digit patterns.
 - Supports ordinal words ("first", "twenty-third", etc.).
-- **Error codes**: D3006, T0410, D3130, D3137.
+- **Error codes**: T0410, D3130, D3137.
 
 ---
 
@@ -1971,7 +1971,7 @@ jsntrs-p0v.18 for the audit.
 ### 5.7.2 `$not` (`boolean_funcs.go:22`)
 
 - **Parameters**: `(value)`.
-- **0 args**: **D3006**.
+- **0 args**: **T0410** (Go reference: D3006).
 - **nil**: undefined propagation.
 - **Returns**: `!ToBoolean(args[0])`.
 

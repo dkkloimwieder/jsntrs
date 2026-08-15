@@ -17,7 +17,7 @@ pub fn fn_eval(
 ) -> JsonataResult {
     if args.is_empty() {
         return Err(JsonataError::new(
-            "D3006",
+            "T0410",
             "$eval: requires at least 1 argument",
         ));
     }

@@ -9,7 +9,7 @@ use crate::value::Value;
 pub fn fn_parse_integer(args: &[Value], _focus: &Value) -> JsonataResult {
     if args.len() < 2 {
         return Err(JsonataError::new(
-            "D3006",
+            "T0410",
             "$parseInteger: requires 2 arguments",
         ));
     }

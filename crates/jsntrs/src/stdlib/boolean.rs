@@ -15,7 +15,7 @@ pub fn fn_boolean(args: &[Value], focus: &Value) -> JsonataResult {
 
 pub fn fn_not(args: &[Value], _focus: &Value) -> JsonataResult {
     if args.is_empty() {
-        return Err(JsonataError::new("D3006", "$not: argument is required"));
+        return Err(JsonataError::new("T0410", "$not: argument is required"));
     }
     if args[0].is_undefined() {
         return Ok(Value::Undefined);

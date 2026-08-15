@@ -18,7 +18,7 @@ pub fn fn_format_integer(args: &[Value], _focus: &Value) -> JsonataResult {
 
     if args.len() < 2 {
         return Err(JsonataError::new(
-            "D3006",
+            "T0410",
             "$formatInteger: requires 2 arguments",
         ));
     }
