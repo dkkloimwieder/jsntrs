@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(99.5, \"0.e\", {\"exponent-separator\": \"E\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "100e"
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(0.000012345, \"#1.# e\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "0 e"
+}

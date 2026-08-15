@@ -911,18 +911,8 @@ fn try_prepare(func_name: &str, args: &[CallArg]) -> Option<PreparedState> {
                 _ => return None,
             };
             let fc = super::format_number::FmtChars::default();
-            let pics = super::format_number::split_on_pattern_sep(&picture, &fc.pattern_sep);
-            if pics.len() > 2 {
-                return None;
-            }
-            let pos_pic = super::format_number::parse_sub_picture(&pics[0], &fc).ok()?;
-            let neg_pic = if pics.len() == 2 {
-                super::format_number::parse_sub_picture(&pics[1], &fc).ok()?
-            } else {
-                let mut np = pos_pic.clone();
-                np.prefix = format!("-{}", pos_pic.prefix);
-                np
-            };
+            let (pos_pic, neg_pic) =
+                super::format_number::prepare_sub_pictures(&picture, &fc).ok()?;
             Some(PreparedState::FormatNumber {
                 pos_pic,
                 neg_pic,
@@ -992,25 +982,12 @@ fn exec_prepared(prepared: &PreparedState, field_val: &Value) -> Option<JsonataR
                 Value::Number(f) if f.is_finite() => *f,
                 _ => return None,
             };
-            let negative = n < 0.0;
-            let sp = if negative { neg_pic } else { pos_pic };
-            // Negative zero is positive here, and must lose its sign before
-            // the formatters see it — exactly as in `format_number_picture`
-            // (jsntrs-p0v.26).
-            let mut value = if negative { -n } else { n + 0.0 };
-            match sp.scale {
-                1 => value *= 100.0,
-                2 => value *= 1000.0,
-                _ => {}
-            }
-            let inner = if sp.exp_mandatory > 0 {
-                super::format_number::format_with_exponent(value, sp, fc)
-            } else {
-                super::format_number::format_fixed(value, sp, fc)
-            };
-            let inner = super::format_number::apply_digit_family(&inner, fc.zero_digit);
+            // Sign, scaling factor and the picture bullets all live in
+            // `format_number_value`, so the fast path formats through exactly
+            // the code the builtin runs — only the picture analysis is
+            // hoisted out of the loop.
             Some(Ok(Value::String(
-                format!("{}{}{}", sp.prefix, inner, sp.suffix).into(),
+                super::format_number::format_number_value(n, pos_pic, neg_pic, fc).into(),
             )))
         }
         PreparedState::Round { precision } => {

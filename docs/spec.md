@@ -1441,6 +1441,33 @@ jsntrs-p0v.18 for the audit.
 - **Picture syntax**: XPath 3.1 `format-number` compatible.
 - **Sub-pictures**: Separated by pattern-separator (default `;`). Max 2 sub-pictures (**D3080**).
 - **Error codes**: D3006, T0410, D3080-D3093 (picture validation errors).
+- **Output stage (jsntrs-tx4, jsonata 2.2.2-verified 2026-08-15)**: the
+  analyse/format stage is a bullet-for-bullet port of jsonata-js
+  `formatNumber` (F&O 4.7.4 `analyse` and the numbered bullets that follow),
+  not of the XPath prose. Four consequences are easy to mistake for bugs:
+  - The decimal separator is always written and then removed again when the
+    picture has none, or when nothing follows it (bullet 12): `$formatNumber(99.5,
+    "#.")` is `"100"`, and `$formatNumber(1234.5678, "#e0")` is `"0.e4"` —
+    that picture has no separator at all, so the bullet drops the *padded
+    fraction digit* rather than the separator.
+  - Minimum sizes come from the 4.7.4 adjustments, not from "at least one
+    integer digit": `".0"` keeps its empty integer part (`$formatNumber(0.000012345,
+    ".0")` is `".0"`), and `minimumFactionalPartSize` becomes 1 when both
+    minima are 0 (`$formatNumber(7, ".###")` is `"7.0"`).
+  - Grouping positions are applied literally when they are irregular, through
+    `String.prototype.slice`, so a position past the number wraps round:
+    `$formatNumber(7, "#,###,#")` is `",,7"`. A separator with no digit places
+    to its right lands immediately before the decimal separator rather than
+    being dropped.
+  - `getGroupingPositions` advances through the *integer* part whichever part
+    it was handed, so a fractional part gets at most its own first grouping
+    position: `$formatNumber(1234.5678, "0.0,0,0")` is `"1234.5,68"`, one
+    separator rather than two. Replicated deliberately.
+- **Rust port deviation (jsntrs-p0v.23)**: jsonata-js indexes the *active
+  part* with the exponent separator's position in the whole sub-picture, so
+  any picture carrying both a prefix and an exponent splits at the wrong
+  offset there. jsntrs is XPath-correct: `"$0.0e0"` is `"$1.2e3"` (a spurious
+  **D3093** in the reference) and `"e1e.0"` is **D3093** (`"e7e0"` there).
 
 ### 5.2.21 `$formatBase` (`string_format_integer.go:16`)
 

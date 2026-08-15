@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(7, \"#,###,#\")",
+    "dataset": null,
+    "bindings": {},
+    "result": ",,7"
+}

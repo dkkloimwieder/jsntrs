@@ -75,6 +75,11 @@ pub fn fn_format_number(args: &[Value], _focus: &Value) -> JsonataResult {
 /// Default `exponent-separator`, used when the option is absent.
 const DEFAULT_EXPONENT_SEP: char = 'e';
 
+/// The `minus-sign` property. jsonata-js exposes it as an option and jsntrs
+/// does not yet, so it is the default everywhere it is written: in front of
+/// the negative sub-picture's prefix, and in front of a negative exponent.
+const MINUS_SIGN: char = '-';
+
 #[derive(Clone)]
 pub(crate) struct FmtChars {
     pub(crate) decimal_sep: char,
@@ -182,22 +187,36 @@ impl FmtChars {
 
 // ── Sub-picture ───────────────────────────────────────────────────────────────
 
+/// One analysed sub-picture: the variables F&O 4.7.4 `analyse` produces, in
+/// the shape jsonata-js computes them. The formatting bullets in
+/// `format_sub_picture` read nothing else.
 #[derive(Default, Clone)]
 pub(crate) struct SubPicture {
-    pub(crate) prefix: String,
-    pub(crate) suffix: String,
-    pub(crate) int_mandatory: usize,
-    pub(crate) int_optional: usize,
-    pub(crate) frac_mandatory: usize,
-    pub(crate) frac_optional: usize,
-    pub(crate) exp_mandatory: usize,
-    pub(crate) exp_min_width: usize,
+    prefix: String,
+    suffix: String,
+    /// Grouping positions in the integer part, in picture order (left to
+    /// right, so *descending* digit counts). The order is load-bearing:
+    /// bullet 10 walks the list in order and moves the decimal position along
+    /// after each insertion.
+    int_grp_pos: Vec<usize>,
+    /// The regular grouping interval, or 0 when the positions are irregular.
+    regular_grouping: usize,
+    frac_grp_pos: Vec<usize>,
+    min_int: usize,
+    /// `minimumIntegerPartSize` as it stood *before* the 4.7.4 adjustments —
+    /// the window bullet 5 normalises the mantissa into. jsonata-js snapshots
+    /// it into `scalingFactor` and then keeps adjusting the original.
+    scaling_factor: usize,
+    min_frac: usize,
+    max_frac: usize,
+    min_exp: usize,
     /// 0=none, 1=percent, 2=per-mille
-    pub(crate) scale: u8,
-    pub(crate) int_grp_pos: Vec<usize>,
-    pub(crate) frac_grp_pos: Vec<usize>,
-    pub(crate) has_decimal: bool,
-    pub(crate) has_any_int_digit: bool,
+    scale: u8,
+    /// Whether the *sub-picture* carries a decimal separator anywhere.
+    /// Bullet 12 tests the picture, not the mantissa, which is why `"#e0"`
+    /// (no separator at all) drops the one bullet 7 appended and formats
+    /// `1234.5678` as "0.e4".
+    has_decimal: bool,
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -448,43 +467,119 @@ fn validate_sub_picture(p: &SubPictureParts<'_>, fc: &FmtChars) -> Option<Jsonat
     worst.0.map(picture_error)
 }
 
-fn analyse_int_part(int_part: &[char], fc: &FmtChars, sp: &mut SubPicture) {
-    for &c in int_part {
-        if fc.is_digit_char(c) {
-            sp.int_mandatory += 1;
-            sp.has_any_int_digit = true;
-        } else if c == fc.digit {
-            sp.int_optional += 1;
-            sp.has_any_int_digit = true;
-        }
-    }
+// ── Analysis (F&O 4.7.4) ──────────────────────────────────────────────────────
 
-    // Grouping positions, counted in digits from the right.
-    let mut digits_to_the_right: usize = 0;
-    for i in (0..int_part.len()).rev() {
-        let c = int_part[i];
-        if fc.is_digit_char(c) || c == fc.digit {
-            digits_to_the_right += 1;
-        } else if c == fc.grouping_sep {
-            sp.int_grp_pos.push(digits_to_the_right);
-        }
-    }
+/// Mandatory digits: characters of the picture's digit family.
+fn count_mandatory(part: &[char], fc: &FmtChars) -> usize {
+    part.iter().filter(|&&c| fc.is_digit_char(c)).count()
 }
 
-fn analyse_frac_part(frac_part: &[char], fc: &FmtChars, sp: &mut SubPicture) {
-    let mut digits_to_the_left: usize = 0;
+/// Digit places: digit-family characters plus the optional-digit character.
+fn count_places(part: &[char], fc: &FmtChars) -> usize {
+    part.iter()
+        .filter(|&&c| fc.is_digit_char(c) || c == fc.digit)
+        .count()
+}
 
-    for &c in frac_part {
-        if fc.is_digit_char(c) {
-            digits_to_the_left += 1;
-            sp.frac_mandatory += 1;
-        } else if c == fc.digit {
-            digits_to_the_left += 1;
-            sp.frac_optional += 1;
-        } else if c == fc.grouping_sep {
-            sp.frac_grp_pos.push(digits_to_the_left);
+/// Grouping positions for one part, counted in digit places.
+///
+/// `to_left` counts the places to the left of each separator (the fractional
+/// part rule); otherwise the places from the separator rightwards.
+///
+/// The scan advances through `int_part` whichever part it was handed, because
+/// jsonata-js `getGroupingPositions` closes over `parts.integerPart` for the
+/// "next separator" search. So the fractional scan finds only its own *first*
+/// separator and then walks the integer part's separator indices, counting
+/// each against the fractional part (clamped, `String.prototype.substring`
+/// style). Replicated deliberately: it is the whole of the reference's
+/// fractional grouping behaviour, and `"0.0,0,0"` formats 1234.5678 as
+/// "1234.5,68" there — one separator, not two (jsonata 2.2.2, jsntrs-tx4).
+fn grouping_positions(
+    part: &[char],
+    int_part: &[char],
+    to_left: bool,
+    fc: &FmtChars,
+) -> Vec<usize> {
+    let mut positions = Vec::new();
+    let mut at = part.iter().position(|&c| c == fc.grouping_sep);
+    while let Some(i) = at {
+        let cut = i.min(part.len());
+        let counted = if to_left { &part[..cut] } else { &part[cut..] };
+        positions.push(count_places(counted, fc));
+        at = int_part
+            .iter()
+            .enumerate()
+            .skip(i + 1)
+            .find(|&(_, &c)| c == fc.grouping_sep)
+            .map(|(j, _)| j);
+    }
+    positions
+}
+
+fn gcd(mut a: usize, mut b: usize) -> usize {
+    while b != 0 {
+        let r = a % b;
+        a = b;
+        b = r;
+    }
+    a
+}
+
+/// The regular grouping interval, or 0 when the positions are irregular.
+///
+/// jsonata-js takes the GCD of the positions and demands that every multiple
+/// of it up to `positions.len()` is present. The two conditions together
+/// force the set to be exactly `{f, 2f, …, nf}` — see the equivalence proof
+/// on `regular_grouping_matches_equal_gap_rule` (jsntrs-4fr).
+fn regular_grouping(positions: &[usize]) -> usize {
+    let Some(factor) = positions.iter().copied().reduce(gcd) else {
+        return 0;
+    };
+    for index in 1..=positions.len() {
+        if !positions.contains(&index.saturating_mul(factor)) {
+            return 0;
         }
     }
+    factor
+}
+
+/// Fill in the 4.7.4 variables. `integer`, `fraction` and `exponent` are the
+/// regions `parse_sub_picture` cut, `picture` the whole sub-picture.
+fn analyse(
+    picture: &[char],
+    integer: &[char],
+    fraction: &[char],
+    exponent: Option<&[char]>,
+    fc: &FmtChars,
+    sp: &mut SubPicture,
+) {
+    sp.scale = scaling_factor(picture, fc);
+    sp.has_decimal = picture.contains(&fc.decimal_sep);
+    sp.int_grp_pos = grouping_positions(integer, integer, false, fc);
+    sp.regular_grouping = regular_grouping(&sp.int_grp_pos);
+    sp.frac_grp_pos = grouping_positions(fraction, integer, true, fc);
+
+    sp.min_int = count_mandatory(integer, fc);
+    sp.scaling_factor = sp.min_int;
+    sp.min_frac = count_mandatory(fraction, fc);
+    sp.max_frac = count_places(fraction, fc);
+
+    let has_exponent = exponent.is_some();
+    if sp.min_int == 0 && sp.max_frac == 0 {
+        if has_exponent {
+            sp.min_frac = 1;
+            sp.max_frac = 1;
+        } else {
+            sp.min_int = 1;
+        }
+    }
+    if has_exponent && sp.min_int == 0 && integer.contains(&fc.digit) {
+        sp.min_int = 1;
+    }
+    if sp.min_int == 0 && sp.min_frac == 0 {
+        sp.min_frac = 1;
+    }
+    sp.min_exp = exponent.map_or(0, |e| count_mandatory(e, fc));
 }
 
 pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, JsonataError> {
@@ -504,9 +599,16 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
     // jsonata-js — "0.0" with `exponent-separator` "." is mantissa "0",
     // exponent "0", and jsntrs used to panic on the backwards slice range.
     let decimal = mantissa.iter().position(|&c| c == fc.decimal_sep);
+    // With no decimal separator in the mantissa the fraction part is the
+    // *suffix*, not nothing: jsonata-js `splitParts` writes
+    // `fractionalPart = suffix` there. Every rule the fraction feeds counts
+    // only active characters, which the suffix scan has already excluded, so
+    // the two agree unless an option makes a digit-family character passive
+    // (`{"exponent-separator": "5"}`) — carry the reference's definition
+    // rather than the coincidence.
     let (integer, fraction) = match decimal {
         Some(d) => (&mantissa[..d], &mantissa[d + 1..]),
-        None => (mantissa, &mantissa[..0]),
+        None => (mantissa, &runes[start + active.len()..]),
     };
 
     if let Some(err) = validate_sub_picture(
@@ -523,56 +625,46 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
         return Err(err);
     }
 
-    sp.scale = scaling_factor(&runes, fc);
-    sp.has_decimal = decimal.is_some();
-    analyse_int_part(integer, fc, &mut sp);
-    analyse_frac_part(fraction, fc, &mut sp);
-
-    // Validation has already rejected anything but digit-family characters in
-    // the exponent part.
-    sp.exp_mandatory = exponent.map_or(0, <[char]>::len);
-    sp.exp_min_width = sp.exp_mandatory;
-
+    analyse(&runes, integer, fraction, exponent, fc, &mut sp);
     Ok(sp)
 }
 
-// ── Formatting helpers ────────────────────────────────────────────────────────
+// ── Formatting (F&O 4.7.5, jsonata-js bullets 5–14) ───────────────────────────
 
-fn compute_int_group_positions(grp_pos: &[usize], int_len: usize) -> Vec<usize> {
-    if grp_pos.is_empty() {
-        return Vec::new();
-    }
-    // `grp_pos` is non-decreasing (parse_int_part scans right to left and
-    // pushes a running count), which the window subtraction relies on.
-    let primary = grp_pos[0];
-    let all_equal = grp_pos.windows(2).all(|w| w[1] - w[0] == primary);
-    let mut result = Vec::new();
-    // `primary == 0` (a separator with no digits to its right) must not
-    // enter the repeating branch: advancing by zero never terminates.
-    // Picture validation no longer produces it (jsntrs-spm), but the
-    // expansion has to stay total regardless; the literal positions are
-    // harmless, a zero simply never matches a real digit position.
-    if primary > 0 && (grp_pos.len() == 1 || all_equal) {
-        let mut pos = primary;
-        while pos < int_len {
-            result.push(pos);
-            pos += primary;
-        }
-    } else {
-        result.extend_from_slice(grp_pos);
-    }
-    result.sort_unstable();
-    result
+/// `usize` as `isize`, saturating. Only picture- and digit-string-sized
+/// values reach it, so the saturation is unreachable in practice.
+fn as_isize(v: usize) -> isize {
+    isize::try_from(v).unwrap_or(isize::MAX)
 }
 
-pub(crate) fn apply_digit_family(s: &str, zero_digit: char) -> String {
-    if zero_digit == '0' {
-        return s.to_string();
-    }
-    s.chars()
+/// Index of `needle`, or -1 — `String.prototype.indexOf`, which the bullets
+/// compare against and do arithmetic on.
+fn index_of(hay: &[char], needle: char) -> isize {
+    hay.iter().position(|&c| c == needle).map_or(-1, as_isize)
+}
+
+/// The insertion point `String.prototype.slice` splits at: a negative index
+/// counts back from the end, and both directions clamp into range. Bullets 10
+/// and 11 compute offsets that can fall outside the string — a grouping
+/// separator further left than the number is long gives a negative one, and
+/// jsonata-js then wraps it around rather than skipping the separator, so
+/// `$formatNumber(7, "#,###,#")` is ",,7".
+fn js_split_point(at: isize, len: usize) -> usize {
+    let len_i = as_isize(len);
+    let resolved = if at < 0 { len_i + at } else { at };
+    usize::try_from(resolved.clamp(0, len_i)).unwrap_or(0)
+}
+
+/// jsonata-js `makeString`: the magnitude at `dp` decimal places, mapped into
+/// the picture's digit family. Only the digits produced here are mapped — a
+/// separator that happens to be an ASCII digit is picture text and stays as
+/// written.
+fn make_string(value: f64, dp: usize, fc: &FmtChars) -> Vec<char> {
+    format!("{:.dp$}", value.abs())
+        .chars()
         .map(|c| {
             if c.is_ascii_digit() {
-                char::from_u32(zero_digit as u32 + (c as u32 - '0' as u32)).unwrap_or(c)
+                char::from_u32(fc.zero_digit as u32 + (c as u32 - '0' as u32)).unwrap_or(c)
             } else {
                 c
             }
@@ -580,159 +672,122 @@ pub(crate) fn apply_digit_family(s: &str, zero_digit: char) -> String {
         .collect()
 }
 
-fn apply_int_grouping(int_str: &str, grp_pos: &[usize], sep: char) -> String {
-    let runes: Vec<char> = int_str.chars().collect();
-    let group_positions = compute_int_group_positions(grp_pos, runes.len());
-    if group_positions.is_empty() {
-        return int_str.to_string();
+/// Bullet 5: split the value into a mantissa and, when the picture has an
+/// exponent part, the exponent that normalises it into the picture's window.
+fn mantissa_and_exponent(adjusted: f64, sp: &SubPicture) -> (f64, Option<i32>) {
+    if sp.min_exp == 0 {
+        return (adjusted, None);
     }
-    let mut result = String::with_capacity(int_str.len() + group_positions.len());
-    for (i, &c) in runes.iter().enumerate() {
-        let pos_from_right = runes.len() - i;
-        if group_positions.binary_search(&pos_from_right).is_ok() {
-            result.push(sep);
+    let scaling = i32::try_from(sp.scaling_factor).unwrap_or(i32::MAX);
+    let max_mantissa = 10f64.powi(scaling);
+    let min_mantissa = 10f64.powi(scaling.saturating_sub(1));
+    let mut mantissa = adjusted;
+    let mut exponent: i32 = 0;
+    // "If N is zero, set M to zero and E to zero" — and the comparisons are on
+    // magnitudes, so a negative mantissa terminates too (jsonata-js #785).
+    if mantissa != 0.0 {
+        while mantissa.abs() < min_mantissa {
+            mantissa *= 10.0;
+            exponent -= 1;
         }
-        result.push(c);
+        while mantissa.abs() > max_mantissa {
+            mantissa /= 10.0;
+            exponent += 1;
+        }
     }
-    result
+    (mantissa, Some(exponent))
 }
 
-fn apply_frac_grouping(frac_str: &str, grp_pos: &[usize], sep: char) -> String {
-    let runes: Vec<char> = frac_str.chars().collect();
-    let mut result = String::with_capacity(frac_str.len() + grp_pos.len());
-    for (i, &c) in runes.iter().enumerate() {
-        result.push(c);
-        if grp_pos.contains(&(i + 1)) && i + 1 < runes.len() {
-            result.push(sep);
+/// Bullet 10: the integer-part grouping separators.
+fn group_integer_part(sv: &mut Vec<char>, sp: &SubPicture, fc: &FmtChars, decimal_pos: isize) {
+    if sp.regular_grouping > 0 {
+        let interval = as_isize(sp.regular_grouping);
+        // `Math.floor((decimalPos - 1) / regularGrouping)`; a missing decimal
+        // separator leaves this negative and the loop simply does not run.
+        let groups = (decimal_pos - 1).div_euclid(interval);
+        for group in 1..=groups {
+            let at = js_split_point(decimal_pos - group * interval, sv.len());
+            sv.insert(at, fc.grouping_sep);
         }
+        return;
     }
-    result
-}
-
-pub(crate) fn format_fixed(n: f64, sp: &SubPicture, fc: &FmtChars) -> String {
-    let total_frac_digits = sp.frac_mandatory + sp.frac_optional;
-    let formatted = format!("{n:.total_frac_digits$}");
-    let mut parts = formatted.splitn(2, '.');
-    let mut int_str = parts.next().unwrap_or("").to_string();
-    let mut frac_str = parts.next().unwrap_or("").to_string();
-
-    // Minimum integer digits: force at least 1 when there's no decimal and no
-    // digit placeholder, or when only optional-digit placeholders appear.
-    let min_int = if sp.int_mandatory < 1 {
-        usize::from((!sp.has_decimal && !sp.has_any_int_digit) || sp.int_optional > 0)
-    } else {
-        sp.int_mandatory
-    };
-    while int_str.len() < min_int {
-        int_str.insert(0, '0');
-    }
-
-    if !sp.int_grp_pos.is_empty() {
-        int_str = apply_int_grouping(&int_str, &sp.int_grp_pos, fc.grouping_sep);
-    }
-
-    // Trim optional trailing zeros.
-    if sp.frac_optional > 0 && frac_str.len() > sp.frac_mandatory {
-        let trimmed = frac_str.trim_end_matches('0');
-        if trimmed.len() < sp.frac_mandatory {
-            frac_str = frac_str[..sp.frac_mandatory].to_string();
-        } else {
-            frac_str = trimmed.to_string();
-        }
-    }
-    while frac_str.len() < sp.frac_mandatory {
-        frac_str.push('0');
-    }
-
-    if !sp.frac_grp_pos.is_empty() && !frac_str.is_empty() {
-        frac_str = apply_frac_grouping(&frac_str, &sp.frac_grp_pos, fc.grouping_sep);
-    }
-
-    if !frac_str.is_empty() || sp.has_decimal {
-        format!("{}{}{}", int_str, fc.decimal_sep, frac_str)
-    } else {
-        int_str
+    // Irregular positions are applied literally, left to right, each one
+    // shifting the decimal separator along by the separator just inserted.
+    for (inserted, &pos) in (decimal_pos..).zip(sp.int_grp_pos.iter()) {
+        let at = js_split_point(inserted - as_isize(pos), sv.len());
+        sv.insert(at, fc.grouping_sep);
     }
 }
 
-pub(crate) fn format_with_exponent(n: f64, sp: &SubPicture, fc: &FmtChars) -> String {
-    let cap_n = sp.int_mandatory;
-    let mut frac_sig = sp.frac_mandatory + sp.frac_optional;
-    if cap_n == 0 && sp.frac_mandatory == 0 && sp.frac_optional == 0 {
-        frac_sig += sp.int_optional;
+/// Bullets 5–13: the digits, the separators and the exponent, without the
+/// prefix and suffix.
+fn format_sub_picture(adjusted: f64, sp: &SubPicture, fc: &FmtChars) -> String {
+    let (mantissa, exponent) = mantissa_and_exponent(adjusted, sp);
+
+    // Bullets 6 and 7: round to the picture's precision half-to-even — over
+    // the decimal digits, not the binary value, which is what makes
+    // $formatNumber(1.115, "0.00") "1.12" — then render the magnitude.
+    let rounded = super::numeric::bankers_round(mantissa, i32::try_from(sp.max_frac).unwrap_or(0));
+    let mut sv = make_string(rounded, sp.max_frac, fc);
+    match sv.iter().position(|&c| c == '.') {
+        Some(i) => sv[i] = fc.decimal_sep,
+        None => sv.push(fc.decimal_sep),
+    }
+    // Strip every leading and trailing zero-digit. The decimal separator
+    // stops both runs, so this trims the integer part on the left and the
+    // fraction on the right; bullets 8 and 9 pad back to the minima.
+    let leading = sv.iter().take_while(|&&c| c == fc.zero_digit).count();
+    sv.drain(..leading);
+    while sv.last() == Some(&fc.zero_digit) {
+        sv.pop();
     }
 
-    let mut exp: i32 = 0;
-    if n != 0.0 {
-        let log_val = n.abs().log10().floor() as i32;
-        if cap_n > 0 {
-            exp = log_val - (cap_n as i32 - 1);
-        } else {
-            exp = log_val + 1;
+    // Bullets 8 and 9.
+    let decimal_pos = index_of(&sv, fc.decimal_sep);
+    let pad_left = as_isize(sp.min_int) - decimal_pos;
+    let pad_right = as_isize(sp.min_frac) - (as_isize(sv.len()) - decimal_pos - 1);
+    for _ in 0..pad_left.max(0) {
+        sv.insert(0, fc.zero_digit);
+    }
+    for _ in 0..pad_right.max(0) {
+        sv.push(fc.zero_digit);
+    }
+
+    // Bullet 10.
+    let decimal_pos = index_of(&sv, fc.decimal_sep);
+    group_integer_part(&mut sv, sp, fc, decimal_pos);
+
+    // Bullet 11. The decimal position is *not* re-read between separators, so
+    // each offset is measured against the string as it was — which is exactly
+    // the shift the previous insertion introduced.
+    let decimal_pos = index_of(&sv, fc.decimal_sep);
+    for &pos in &sp.frac_grp_pos {
+        let at = js_split_point(as_isize(pos) + decimal_pos + 1, sv.len());
+        sv.insert(at, fc.grouping_sep);
+    }
+
+    // Bullet 12: drop the decimal separator again when the picture never
+    // asked for one, or when nothing followed it.
+    if !sp.has_decimal || index_of(&sv, fc.decimal_sep) == as_isize(sv.len()) - 1 {
+        sv.pop();
+    }
+
+    // Bullet 13.
+    if let Some(exponent) = exponent {
+        let mut digits = make_string(f64::from(exponent), 0, fc);
+        for _ in digits.len()..sp.min_exp {
+            digits.insert(0, fc.zero_digit);
         }
-    }
-    let mut mantissa = n / 10f64.powi(exp);
-
-    let factor = 10f64.powi(frac_sig as i32);
-    mantissa = (mantissa * factor).round() / factor;
-
-    let threshold = if cap_n > 0 {
-        10f64.powi(cap_n as i32)
-    } else {
-        1.0
-    };
-    if mantissa.abs() >= threshold {
-        mantissa /= 10.0;
-        exp += 1;
-    }
-
-    let mantissa_formatted = format!("{:.prec$}", mantissa.abs(), prec = frac_sig);
-    let mut parts = mantissa_formatted.splitn(2, '.');
-    let mut int_str = parts.next().unwrap_or("").to_string();
-    let mut frac_str = parts.next().unwrap_or("").to_string();
-
-    while int_str.len() < sp.int_mandatory {
-        int_str.insert(0, '0');
-    }
-    if sp.int_mandatory == 0 && sp.int_optional > 0 && (int_str.is_empty() || int_str == "0") {
-        int_str = "0".to_string();
-    }
-
-    if sp.frac_optional > 0 && frac_str.len() > sp.frac_mandatory {
-        let trimmed = frac_str.trim_end_matches('0');
-        if trimmed.len() < sp.frac_mandatory {
-            frac_str = frac_str[..sp.frac_mandatory].to_string();
-        } else {
-            frac_str = trimmed.to_string();
+        // Only reached when the picture had an exponent part, which implies a
+        // separator character was configured; the fallback keeps this total.
+        sv.push(fc.exponent_sep.unwrap_or(DEFAULT_EXPONENT_SEP));
+        if exponent < 0 {
+            sv.push(MINUS_SIGN);
         }
+        sv.extend(digits);
     }
 
-    let mantissa_part = if sp.has_any_int_digit || sp.int_mandatory > 0 {
-        if !frac_str.is_empty() || sp.has_decimal {
-            format!("{}{}{}", int_str, fc.decimal_sep, frac_str)
-        } else {
-            int_str
-        }
-    } else if !frac_str.is_empty() {
-        format!("{}{}", fc.decimal_sep, frac_str)
-    } else {
-        String::new()
-    };
-
-    let (exp_sign, exp_abs) = if exp < 0 {
-        ("-", -exp as usize)
-    } else {
-        ("", exp as usize)
-    };
-    let mut exp_str = exp_abs.to_string();
-    while exp_str.len() < sp.exp_min_width {
-        exp_str.insert(0, '0');
-    }
-
-    // Only reached when the picture had an exponent part, which implies a
-    // separator character was configured; the fallback keeps this total.
-    let exp_sep = fc.exponent_sep.unwrap_or(DEFAULT_EXPONENT_SEP);
-    format!("{mantissa_part}{exp_sep}{exp_sign}{exp_str}")
+    sv.into_iter().collect()
 }
 
 /// Cut the picture into sub-pictures, with `String.prototype.split`
@@ -754,13 +809,14 @@ pub(crate) fn split_on_pattern_sep(picture: &str, sep: &str) -> Vec<String> {
     picture.split(sep).map(str::to_string).collect()
 }
 
-fn format_number_picture(
-    n: f64,
+/// Split a picture and analyse both sub-pictures: the positive one and the
+/// one negative values take, which is the second sub-picture when the picture
+/// carries a pattern separator and otherwise a copy with a minus sign glued
+/// to the prefix.
+pub(crate) fn prepare_sub_pictures(
     picture: &str,
-    opts: &[(&str, &str)],
-) -> Result<String, JsonataError> {
-    let fc = FmtChars::from_opts(opts);
-
+    fc: &FmtChars,
+) -> Result<(SubPicture, SubPicture), JsonataError> {
     let pics = split_on_pattern_sep(picture, &fc.pattern_sep);
     if pics.len() > 2 {
         return Err(JsonataError::new(
@@ -769,40 +825,47 @@ fn format_number_picture(
         ));
     }
 
-    let pos_pic = parse_sub_picture(&pics[0], &fc)?;
-
+    let pos_pic = parse_sub_picture(&pics[0], fc)?;
     let neg_pic = if pics.len() == 2 {
-        parse_sub_picture(&pics[1], &fc)?
+        parse_sub_picture(&pics[1], fc)?
     } else {
         let mut np = pos_pic.clone();
-        np.prefix = format!("-{}", pos_pic.prefix);
+        np.prefix = format!("{MINUS_SIGN}{}", pos_pic.prefix);
         np
     };
+    Ok((pos_pic, neg_pic))
+}
 
-    let negative = n < 0.0;
-    let sp = if negative { &neg_pic } else { &pos_pic };
-    // `-0.0 < 0.0` is false, so negative zero already formats through the
-    // positive sub-picture (jsonata-js branches on `value >= 0`, which agrees).
-    // Its sign still has to go: `format!("{:.2}", -0.0)` writes "-0.00", and the
-    // minus then travels through the picture machinery as if it were a digit —
-    // with grouping, "9,9,99.99" produced "0,0,-0.00" (jsntrs-p0v.26). Adding
-    // zero normalises -0.0 to 0.0 and leaves every other value alone.
-    let mut value = if negative { -n } else { n + 0.0 };
-
-    match sp.scale {
-        1 => value *= 100.0,
-        2 => value *= 1000.0,
-        _ => {}
-    }
-
-    let inner = if sp.exp_mandatory > 0 {
-        format_with_exponent(value, sp, &fc)
-    } else {
-        format_fixed(value, sp, &fc)
+/// Bullets 2, 3 and 14: pick the sub-picture, apply the scaling factor, and
+/// wrap the formatted digits in the prefix and suffix.
+///
+/// `-0.0 < 0.0` is false, so negative zero formats through the positive
+/// sub-picture, exactly as jsonata-js branching on `value >= 0` does; its
+/// sign disappears in `make_string`, which formats the magnitude.
+pub(crate) fn format_number_value(
+    n: f64,
+    pos_pic: &SubPicture,
+    neg_pic: &SubPicture,
+    fc: &FmtChars,
+) -> String {
+    let sp = if n < 0.0 { neg_pic } else { pos_pic };
+    let adjusted = match sp.scale {
+        1 => n * 100.0,
+        2 => n * 1000.0,
+        _ => n,
     };
+    let inner = format_sub_picture(adjusted, sp, fc);
+    format!("{}{inner}{}", sp.prefix, sp.suffix)
+}
 
-    let inner = apply_digit_family(&inner, fc.zero_digit);
-    Ok(format!("{}{}{}", sp.prefix, inner, sp.suffix))
+fn format_number_picture(
+    n: f64,
+    picture: &str,
+    opts: &[(&str, &str)],
+) -> Result<String, JsonataError> {
+    let fc = FmtChars::from_opts(opts);
+    let (pos_pic, neg_pic) = prepare_sub_pictures(picture, &fc)?;
+    Ok(format_number_value(n, &pos_pic, &neg_pic, &fc))
 }
 
 #[cfg(test)]
@@ -1221,11 +1284,29 @@ mod tests {
         assert_eq!(fmt(7.0, "%0"), "%700");
     }
 
-    /// The grouping expansion must stay total even if a zero position ever
-    /// reaches it again: advance-by-zero looped forever (jsntrs-spm).
+    /// A grouping separator with no digit places to its right records
+    /// position 0, which the reference emits immediately before the decimal
+    /// separator; jsntrs used to drop it. Reaching that position at all needs
+    /// a picture whose decimal separator is also the exponent separator, so
+    /// that the D3087/D3088 rules look at a character that is not there.
+    /// Expected value verified against jsonata 2.2.2 (jsntrs-tx4); the
+    /// expansion is a bounded walk over the recorded positions now, so the
+    /// advance-by-zero loop of jsntrs-spm cannot come back.
     #[test]
-    fn zero_grouping_position_inserts_no_separator() {
-        assert_eq!(apply_int_grouping("700", &[0], ','), "700");
-        assert_eq!(apply_int_grouping("1234567", &[3], ','), "1,234,567");
+    fn zero_grouping_position_is_emitted() {
+        let dot = r#"{"exponent-separator": "."}"#;
+        assert_eq!(fmt_opts(1.3, "#9,%. ", dot), Ok("130,%. ".to_string()));
+    }
+
+    /// Irregular grouping positions are applied literally and wrap around the
+    /// ends of the string, `String.prototype.slice` style: "#,###,#" asks for
+    /// separators 4 and 1 digit places from the right, and a number with
+    /// fewer digits than that gets them anyway. Expected values verified
+    /// against jsonata 2.2.2 (jsntrs-tx4).
+    #[test]
+    fn grouping_positions_past_the_number_wrap_around() {
+        assert_eq!(fmt(7.0, "#,###,#"), ",,7");
+        assert_eq!(fmt(1234.5678, "#,###,#"), ",123,5");
+        assert_eq!(fmt(1234.5678, "9,9,99.99"), "1,2,34.57");
     }
 }
