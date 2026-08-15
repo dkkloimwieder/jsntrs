@@ -58,6 +58,15 @@ fn parent_shadowed(env: &Rc<Environment>) -> bool {
 }
 
 /// Build the error a `%` raises when it cannot reach a parent frame.
+///
+/// The documentation makes S0217 a *static* error, and
+/// [`crate::parser::process`] rejects at compile time every `%` that sits in
+/// no navigating position at all. What reaches here is the residue: a `%`
+/// that is syntactically inside a path, predicate, sort term or group-by
+/// pair, but whose chain of ancestor frames runs out under this input
+/// (`x.y.%.%.%`, `a[%.%.k = 1]`). Deciding those statically needs a model of
+/// how many frames each step supplies, which the documentation does not give
+/// — see the deviation note in `docs/spec.md` (jsntrs-03p, jsntrs-vjs).
 fn parent_out_of_context() -> JsonataError {
     JsonataError::new("S0217", "% operator used outside of a valid path context")
 }

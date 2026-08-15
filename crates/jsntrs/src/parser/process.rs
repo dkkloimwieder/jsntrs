@@ -93,6 +93,12 @@ thread_local! {
 pub fn process_ast(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
     let root = process_node(arena, node)?;
     compute_static_flags(arena, root);
+    if arena
+        .node_static_flags(root)
+        .is_some_and(|f| f & super::ast::static_flags::PARENT_REF != 0)
+    {
+        check_parent_context(arena, root)?;
+    }
     Ok(root)
 }
 
@@ -789,6 +795,224 @@ fn compute_static_flags(arena: &mut AstArena, root: NodeId) {
     }
 }
 
+/// Static rejection of a parent operator (`%`) that navigates through nothing.
+///
+/// The language documentation makes this a rule of the language rather than
+/// an implementation choice (<https://docs.jsonata.org/path-operators>,
+/// "% (Parent)"):
+///
+/// > This is the only operation which searches 'backwards' in the input data
+/// > structure. It is implemented by static analysis of the expression at
+/// > compile time and can only be used within expressions that navigate
+/// > through that target parent value in the first place. If, for any reason,
+/// > the parent location cannot be determined, then a static error (S0217) is
+/// > thrown.
+///
+/// jsntrs resolves `%` at evaluation time, through the `%%` binding a path
+/// step leaves in the environment chain, so its S0217 surfaced only when the
+/// branch holding the `%` happened to be evaluated: `false ? % : 1` answered
+/// `1` (jsntrs-8kn). This pass closes the half of that gap that needs no
+/// second model of the runtime — a `%` that sits in no navigating context at
+/// *all* has nothing to search backwards through under any input, so the
+/// error it is owed is a compile-time one.
+///
+/// The analysis is deliberately one-sided. `navigating` starts false at the
+/// root and is set only for the child positions that the documentation
+/// describes as evaluated against a context value reached by navigation:
+/// every path step after the first (the `.` operator "for each value in the
+/// LHS array … the value is known as the context and is used as the basis for
+/// any relative path expression on the RHS"), filter predicates, sort terms,
+/// and group-by pairs. Every other position inherits its parent's flag, and
+/// any position whose status is unclear is treated as navigating: an
+/// under-refusal only leaves today's evaluation-time S0217 in place, while an
+/// over-refusal would reject an expression that evaluates perfectly well.
+/// Two positions are treated as navigating for exactly that reason — the
+/// callee slot of a function application, where the evaluator already reports
+/// the more specific T1006 for `%()`, and the operands of a transform.
+///
+/// What this pass deliberately does *not* decide is whether a particular
+/// preceding step can supply a parent (`$v.%`, `x.(…).%`, `{'a':1}.%`); the
+/// documentation says nothing about those, and jsonata-js's `seekParent` is
+/// evidence, not authority. Those remain evaluation-time behavior; see
+/// `docs/spec.md`.
+fn check_parent_context(arena: &AstArena, root: NodeId) -> Result<(), JsonataError> {
+    // (node, does an enclosing construct navigate to this node's context?)
+    let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
+    while let Some((id, navigating)) = stack.pop() {
+        if id.is_empty() {
+            continue;
+        }
+        let Some(expr) = arena.try_get(id) else {
+            continue;
+        };
+        // Whole subtrees without a `%` cannot fail the check.
+        if arena
+            .node_static_flags(id)
+            .is_some_and(|f| f & super::ast::static_flags::PARENT_REF == 0)
+        {
+            continue;
+        }
+        push_parent_context_children(expr, navigating, &mut stack);
+        if let Expr::Parent { pos, .. } = expr
+            && !navigating
+        {
+            return Err(JsonataError::new(
+                "S0217",
+                "% operator used outside of a valid path context",
+            )
+            .with_position(*pos));
+        }
+    }
+    Ok(())
+}
+
+/// A group-by pair is evaluated against the value the step produced, so it
+/// navigates whatever the step navigates.
+fn push_group_pair_children(group: Option<&GroupExpr>, stack: &mut Vec<(NodeId, bool)>) {
+    if let Some(g) = group {
+        for pair in &g.pairs {
+            stack.push((pair[0], true));
+            stack.push((pair[1], true));
+        }
+    }
+}
+
+/// Push each child of `expr` with the navigation flag that position carries.
+///
+/// Splitting this out of [`check_parent_context`] keeps the walk itself — and
+/// the one-sided default — readable; see that function for why an unclear
+/// position must be pushed as `true`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per Expr variant: the position table is the point"
+)]
+fn push_parent_context_children(expr: &Expr, navigating: bool, stack: &mut Vec<(NodeId, bool)>) {
+    match expr {
+        Expr::Path { steps, group, .. } => {
+            if let Some((first, rest)) = steps.split_first() {
+                stack.push((*first, navigating));
+                for &s in rest {
+                    stack.push((s, true));
+                }
+            }
+            push_group_pair_children(group.as_ref(), stack);
+        }
+        // A predicate and the RHS of a `.` are evaluated against the value the
+        // step produced; the LHS is not.
+        Expr::Binary {
+            op: BinaryOp::Subscript | BinaryOp::Dot,
+            lhs,
+            rhs,
+            group,
+            ..
+        } => {
+            stack.push((*lhs, navigating));
+            stack.push((*rhs, true));
+            push_group_pair_children(group.as_ref(), stack);
+        }
+        Expr::Binary {
+            lhs, rhs, group, ..
+        } => {
+            stack.push((*lhs, navigating));
+            stack.push((*rhs, navigating));
+            push_group_pair_children(group.as_ref(), stack);
+        }
+        Expr::Name { stages, group, .. } => {
+            for s in stages {
+                if let super::ast::StageKind::Filter { expression } = &s.kind {
+                    stack.push((*expression, true));
+                }
+            }
+            push_group_pair_children(group.as_ref(), stack);
+        }
+        Expr::Variable { group, .. } => push_group_pair_children(group.as_ref(), stack),
+        Expr::Grouped { expr, group, .. } => {
+            stack.push((*expr, navigating));
+            push_group_pair_children(Some(group), stack);
+        }
+        Expr::Unary {
+            operand,
+            expressions,
+            lhs,
+            group,
+            ..
+        } => {
+            stack.push((*operand, navigating));
+            stack.extend(expressions.iter().map(|&e| (e, navigating)));
+            stack.extend(lhs.iter().map(|&e| (e, navigating)));
+            push_group_pair_children(group.as_ref(), stack);
+        }
+        Expr::Block { expressions, .. } => {
+            stack.extend(expressions.iter().map(|&e| (e, navigating)));
+        }
+        Expr::Condition {
+            condition,
+            then,
+            else_,
+            ..
+        } => {
+            stack.push((*condition, navigating));
+            stack.push((*then, navigating));
+            if let Some(e) = else_ {
+                stack.push((*e, navigating));
+            }
+        }
+        Expr::Bind { lhs, rhs, .. } => {
+            stack.push((*lhs, navigating));
+            stack.push((*rhs, navigating));
+        }
+        // The callee slot is left to the evaluator: `%()` is T1006 ("attempted
+        // to invoke a non-function"), which says more than S0217 would.
+        Expr::Function {
+            procedure,
+            arguments,
+            group,
+            ..
+        } => {
+            stack.push((*procedure, true));
+            stack.extend(arguments.iter().map(|&a| (a, navigating)));
+            push_group_pair_children(group.as_ref(), stack);
+        }
+        Expr::Partial {
+            procedure,
+            arguments,
+            ..
+        } => {
+            stack.push((*procedure, true));
+            stack.extend(arguments.iter().map(|&a| (a, navigating)));
+        }
+        // A lambda body closes over the environment of its definition, so it
+        // navigates exactly as much as the position the lambda was written in.
+        Expr::Lambda { body, .. } => stack.push((*body, navigating)),
+        // Whether a transform's update/delete expressions count as navigating
+        // is not something the documentation settles; leave them alone.
+        Expr::Transform {
+            pattern,
+            update,
+            delete,
+            ..
+        } => {
+            stack.push((*pattern, true));
+            stack.push((*update, true));
+            if let Some(d) = delete {
+                stack.push((*d, true));
+            }
+        }
+        Expr::Sort { expr, terms, .. } => {
+            stack.push((*expr, navigating));
+            stack.extend(terms.iter().map(|t| (t.expression, true)));
+        }
+        Expr::StringLit { .. }
+        | Expr::NumberLit { .. }
+        | Expr::ValueLit { .. }
+        | Expr::Wildcard { .. }
+        | Expr::Descendant { .. }
+        | Expr::Parent { .. }
+        | Expr::Regex { .. }
+        | Expr::Placeholder { .. } => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -799,6 +1023,64 @@ mod tests {
         let (mut arena, root) = Parser::parse(src).expect("parse failed");
         let root = process_node(&mut arena, root).expect("process failed");
         (arena, root)
+    }
+
+    /// `process_ast` — the whole of compilation after the parse — must reject
+    /// a `%` that navigates through nothing, whether or not evaluation would
+    /// ever reach it. Documentation: "It is implemented by static analysis of
+    /// the expression at compile time … If, for any reason, the parent
+    /// location cannot be determined, then a static error (S0217) is thrown."
+    /// (jsntrs-8kn)
+    #[test]
+    fn unresolvable_parent_is_a_compile_error() {
+        for src in [
+            "%",
+            "(%)",
+            "%.a",
+            "%[0]",
+            "[%]",
+            "{'k': %}",
+            "-%",
+            "$string(%)",
+            "% = 1",
+            "$x := %",
+            "false ? % : 1",
+            "true ? 1 : %",
+            "false and %",
+            "($f := function(){ % }; 1)",
+            "%#$i",
+            "% ~> $string",
+            "%^(a)",
+        ] {
+            let (mut arena, root) = Parser::parse(src).expect("parse failed");
+            let err = process_ast(&mut arena, root)
+                .expect_err(&format!("{src:?} should not compile"))
+                .code;
+            assert_eq!(err, "S0217", "{src:?}");
+        }
+    }
+
+    /// The one-sided default: a `%` reached through navigation is left to the
+    /// evaluator, and so is the callee slot, where `%()` reports T1006.
+    #[test]
+    fn parent_in_a_navigating_position_still_compiles() {
+        for src in [
+            "a.%",
+            "a.%.k",
+            "a[%]",
+            "a[%.k = 1]",
+            "a^(%)",
+            "a{'k': %}",
+            "a.(%)",
+            "a.(false ? % : 1)",
+            "*[%]",
+            "a.($f := function(){ % }; $f())",
+            "%()",
+            "a.b.%.%.%",
+        ] {
+            let (mut arena, root) = Parser::parse(src).expect("parse failed");
+            process_ast(&mut arena, root).unwrap_or_else(|e| panic!("{src:?}: {}", e.code));
+        }
     }
 
     /// Left-associative chains build tree depth in a single parser frame, so

@@ -984,6 +984,54 @@ Recursively collects all values at all depths:
 
 **In tuple mode** (line 235): Same logic but applied per-context.
 
+#### Deviation: S0217 is a static error (jsntrs-8kn)
+
+The Go reference this section describes resolves `%` entirely at evaluation
+time, and jsntrs did the same. The language documentation makes that wrong:
+
+> % (Parent) … This is the only operation which searches 'backwards' in the
+> input data structure. **It is implemented by static analysis of the
+> expression at compile time** and can only be used within expressions that
+> navigate through that target parent value in the first place. If, for any
+> reason, the parent location cannot be determined, then **a static error
+> (S0217)** is thrown.
+>
+> — <https://docs.jsonata.org/path-operators>, "% (Parent)"
+
+`process_ast` therefore runs `check_parent_context`, which rejects at compile
+time any `%` that sits in no navigating position at all: `false ? % : 1` is
+S0217, where jsntrs used to answer `1` because the branch was never
+evaluated. The check is one-sided by design — see the doc comment on
+`check_parent_context` for the position table and for why an unclear position
+counts as navigating.
+
+**What is still evaluation-time.** A `%` that *is* inside a navigating
+position but resolves to no parent under the input still raises S0217 from
+the evaluator: `x.y.%.%.%`, `a[%.%.k = 1]`, `$.%`, `{'hello':'world'}.%` on
+`null`. Deciding those statically means modelling how many ancestor frames
+each step supplies, which the documentation does not describe; two attempts
+to port jsonata-js's `seekParent` answer set instead (wave 5, jsntrs-03p)
+each regressed shapes the reference accepts. Tracked as jsntrs-03p /
+jsntrs-vjs / jsntrs-nd9.
+
+**Where jsonata-js differs, and why it is not followed.** jsonata 2.2.2
+yields `undefined` rather than S0217 for an unresolvable `%` in several
+positions (`%#$i`, `% ~> $string`, `%^(a)`, a `%` in a lambda body, `a[%.%.x
+= 1]`). Its static analysis only reaches a `%` whose `seekingParent` flag
+propagates up to the top-level check, and that flag is not propagated out of
+a lambda body or past a `#`-decorated node; where it does not reach, the
+ancestor slot is simply never bound and the lookup returns undefined. The
+documentation says such a `%` is a static error, so jsntrs raises S0217 —
+statically where the position is unambiguous, at evaluation time otherwise.
+
+**Interaction with S0213.** For an expression that is invalid twice over
+(`a.1 ? 2 : %` — a literal path step *and* an unresolvable parent), jsonata-js
+reports S0213 and jsntrs now reports S0217, because jsntrs's literal-step
+check is still an evaluation-time one and a compile-time error necessarily
+wins. Making S0213 static is jsntrs-9un; the language documentation neither
+lists these codes nor forbids a literal as a step, so the ordering is not
+settled by anything above jsonata-js.
+
 ---
 
 ## 4.8 Sort (`eval_sort.go`)

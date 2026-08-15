@@ -1,0 +1,204 @@
+[
+    {
+        "expr": "false ? % : 1",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217",
+        "divergence": "jsntrs answered 1 here before jsntrs-8kn, because it resolved % through the runtime environment chain and the branch holding the % was never evaluated. docs.jsonata.org/path-operators (% (Parent)): 'It is implemented by static analysis of the expression at compile time ... If, for any reason, the parent location cannot be determined, then a static error (S0217) is thrown.' A static error cannot depend on which branch runs."
+    },
+    {
+        "expr": "true ? 1 : %",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217"
+    },
+    {
+        "expr": "false and %",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217"
+    },
+    {
+        "expr": "true or %",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217"
+    },
+    {
+        "expr": "($f := function(){ % }; 1)",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217",
+        "divergence": "jsonata 2.2.2 answers 1: its seekingParent flag is not propagated out of a lambda body, so the % is never resolved at all. The parent location for that % still cannot be determined, and the documentation makes that a static error. Calling the lambda is S0217 in jsonata 2.2.2's own runtime too, from any call site."
+    },
+    {
+        "expr": "1 ? 2 : %#$i",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217",
+        "divergence": "jsonata 2.2.2 answers 2: a positional-variable binding on the % blocks its seekingParent propagation. # is documented as a stage of a path ('can be used following any map, filter or order-by stage in the path'); there is no path here, so the parent location is undeterminable either way."
+    },
+    {
+        "expr": "1 ? 2 : [%]#$i",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217"
+    },
+    {
+        "expr": "%#$i",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217",
+        "divergence": "jsonata 2.2.2 answers undefined. The documentation says an undeterminable parent is a static error, not a silent undefined."
+    },
+    {
+        "expr": "% ~> $string",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217",
+        "divergence": "jsonata 2.2.2 answers undefined; see the note on %#$i."
+    },
+    {
+        "expr": "%^(a)",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217",
+        "divergence": "jsonata 2.2.2 answers undefined; see the note on %#$i."
+    },
+    {
+        "expr": "$string(%)",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "S0217"
+    },
+    {
+        "expr": "$eval('%')",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "code": "D3120",
+        "divergence": "The static S0217 now reaches $eval's compile step, which reports D3120 (invalid expression) as it does for any other syntax error. jsntrs reported D3121 before, from the T1006-shaped fallback for an unresolvable callee."
+    },
+    {
+        "expr": "%()",
+        "dataset": "library",
+        "bindings": {},
+        "code": "T1006",
+        "divergence": "Control: the callee slot is deliberately left out of the static parent check, so an unresolvable % that is being invoked still reports the more specific 'attempted to invoke a non-function'. jsonata 2.2.2 agrees."
+    },
+    {
+        "expr": "a.%",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "result": {
+            "a": {
+                "b": 1
+            }
+        }
+    },
+    {
+        "expr": "a.(false ? % : 1)",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "result": 1,
+        "divergence": "Control: inside a path step the parent IS determinable, so the unevaluated branch is not an error."
+    },
+    {
+        "expr": "a.%#$i",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "result": {
+            "a": {
+                "b": 1
+            }
+        }
+    },
+    {
+        "expr": "a[%.k = 2]",
+        "data": {
+            "a": {
+                "b": 1
+            },
+            "k": 2
+        },
+        "bindings": {},
+        "result": {
+            "b": 1
+        },
+        "divergence": "Control: a filter predicate is a navigating position."
+    },
+    {
+        "expr": "a.($f := function(){ % }; $f())",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "result": {
+            "a": {
+                "b": 1
+            }
+        },
+        "divergence": "Control: a lambda body navigates exactly as much as the position the lambda was written in, so a lambda defined inside a path step is fine."
+    }
+]
