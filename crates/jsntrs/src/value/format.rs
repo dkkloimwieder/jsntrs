@@ -109,6 +109,27 @@ fn round_to_15_significant(n: f64) -> f64 {
     format!("{sign}{lead}.{rest}e{exp}").parse().unwrap_or(n)
 }
 
+/// The `$string` replacer applied to one number, as a number.
+///
+/// jsonata-js serializes a container with
+/// `JSON.stringify(arg, replacer, space)` where the replacer is
+/// `val.toPrecision && !Number.isInteger(val) ? Number(val.toPrecision(15))
+/// : val` (jsonata 2.2.2, `string()` in `src/functions.js`). So an integer
+/// keeps its exact digits and everything else is snapped to the nearest
+/// double with 15 significant digits *before* serialization — the numbers
+/// themselves change, and the JSON writer that follows is still the exact
+/// round-tripping one.
+///
+/// Non-finite input is returned unchanged; `$string` rejects it with `D1001`
+/// before reaching here.
+pub(crate) fn string_cast_number(n: f64) -> f64 {
+    if !n.is_finite() || n.fract() == 0.0 {
+        n
+    } else {
+        round_to_15_significant(n)
+    }
+}
+
 /// Powers of five up to the largest one that can still leave a 16-digit
 /// product (5^23 = 1.19e16 already has 17 digits on its own).
 const POW5: [u128; 23] = {

@@ -1,0 +1,6 @@
+{
+    "expr": "$string([1.5], true)",
+    "dataset": null,
+    "bindings": {},
+    "result": "[\n  1.5\n]"
+}

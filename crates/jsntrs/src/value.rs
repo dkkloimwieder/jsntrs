@@ -404,11 +404,57 @@ impl Value {
         }
     }
 
+    /// Whether [`Value::string_cast`] would rewrite anything in this tree —
+    /// i.e. whether it holds a non-integral number anywhere.
+    ///
+    /// A cheap no-allocation pre-pass, so the common all-integer container
+    /// serializes straight out of the shared tree.
+    fn needs_string_cast(&self) -> bool {
+        match self {
+            Value::Number(n) => n.is_finite() && n.fract() != 0.0,
+            Value::Array(arr) => arr.iter().any(Value::needs_string_cast),
+            Value::Object(obj) => obj.values().any(Value::needs_string_cast),
+            Value::Sequence(seq) => seq.values.iter().any(Value::needs_string_cast),
+            _ => false,
+        }
+    }
+
+    /// jsonata-js's `$string` replacer as a value transform: every
+    /// non-integral number becomes `Number(val.toPrecision(15))`, integers
+    /// keep their exact digits (jsonata 2.2.2, `string()` in
+    /// `src/functions.js`).
+    ///
+    /// Running the replacer over the *values* and then handing the result to
+    /// the ordinary exact JSON writer is exactly what `JSON.stringify(arg,
+    /// replacer, space)` does, and it keeps the two number-output layers
+    /// apart: `write_json` still emits round-tripping `ryu-js` digits, and
+    /// only the `$string` cast path calls this first (jsntrs-wvq).
+    ///
+    /// Cheap to call on an unchanged subtree only if guarded by
+    /// [`Value::needs_string_cast`]; on its own it rebuilds containers.
+    fn string_cast(&self) -> Value {
+        match self {
+            Value::Number(n) => Value::Number(format::string_cast_number(*n)),
+            Value::Array(arr) => Value::Array(arr.iter().map(Value::string_cast).collect()),
+            Value::Object(obj) => Value::Object(Rc::new(
+                obj.iter()
+                    .map(|(k, v)| (k.clone(), v.string_cast()))
+                    .collect(),
+            )),
+            // Matches the writers, which serialize a sequence as its
+            // collapsed form; a Sequence must never reach user-visible
+            // output uncollapsed.
+            Value::Sequence(seq) => seq.collapse().string_cast(),
+            other => other.clone(),
+        }
+    }
+
     /// Append the stringified form of this value to `buf`.
     ///
     /// Strings append verbatim (unquoted), booleans as `true`/`false`,
     /// numbers via `format_float`; undefined and functions append nothing;
-    /// objects and arrays append their compact JSON.
+    /// objects and arrays append their compact JSON with every non-integral
+    /// member g15-cast (see [`Value::string_cast`]).
     ///
     /// # Errors
     /// Returns `D1001` if the value contains non-finite numbers.
@@ -435,12 +481,20 @@ impl Value {
                 if other.contains_non_finite() {
                     return Err(JsonataError::new("D1001", "Number out of range"));
                 }
-                buf.push_str(&other.to_json_string());
+                let cast = other.needs_string_cast().then(|| other.string_cast());
+                buf.push_str(&cast.as_ref().unwrap_or(other).to_json_string());
                 Ok(())
             }
         }
     }
 
+    /// The `$string` cast of this value.
+    ///
+    /// Containers go through [`Value::string_cast`] first — both branches,
+    /// compact and prettified — so a non-integral member serializes with the
+    /// 15 significant digits jsonata-js's replacer leaves it, while the
+    /// writers themselves stay the exact round-tripping JSON layer.
+    ///
     /// # Errors
     /// Returns `D1001` if the value contains non-finite numbers.
     pub fn stringify(&self, prettify: bool) -> JsonataResult<String> {
@@ -456,13 +510,15 @@ impl Value {
                 if other.contains_non_finite() {
                     return Err(JsonataError::new("D1001", "Number out of range"));
                 }
+                let cast = other.needs_string_cast().then(|| other.string_cast());
+                let target = cast.as_ref().unwrap_or(other);
                 if prettify {
                     // Pretty-print still uses serde_json for indentation
-                    let json_val = other.to_json();
+                    let json_val = target.to_json();
                     serde_json::to_string_pretty(&json_val)
                         .map_err(|e| JsonataError::new("", format!("cannot stringify value: {e}")))
                 } else {
-                    Ok(other.to_json_string())
+                    Ok(target.to_json_string())
                 }
             }
         }
@@ -1477,5 +1533,82 @@ mod tests {
         assert_eq!(Value::Number(42.0).stringify(false).unwrap(), "42");
         assert_eq!(Value::Bool(true).stringify(false).unwrap(), "true");
         assert_eq!(Value::String("hi".into()).stringify(false).unwrap(), "hi");
+    }
+
+    /// jsonata-js 2.2.2-verified (2026-08-15, jsntrs-wvq): `$string` on a
+    /// container runs `JSON.stringify` with a replacer that pushes every
+    /// *non-integral* number through `Number(val.toPrecision(15))` — so a
+    /// container member is cast exactly like a bare number would be, at any
+    /// nesting depth, while integers keep their exact digits.
+    #[test]
+    fn stringify_container_casts_non_integral_members() {
+        let arr = Value::Array(Rc::from(vec![Value::Number(1_234_567_890_123_456.7)]));
+        assert_eq!(arr.stringify(false).unwrap(), "[1234567890123460]");
+
+        let nested = Value::Array(Rc::from(vec![Value::Array(Rc::from(vec![Value::Number(
+            0.430_801_391_601_562_5,
+        )]))]));
+        assert_eq!(nested.stringify(false).unwrap(), "[[0.430801391601563]]");
+
+        let mut obj = ObjectMap::default();
+        obj.insert("b".into(), Value::Number(0.430_801_391_601_562_5));
+        obj.insert("c".into(), Value::Number(5_890_840_712_243_076.0));
+        let obj = Value::Object(Rc::new(obj));
+        assert_eq!(
+            obj.stringify(false).unwrap(),
+            "{\"b\":0.430801391601563,\"c\":5890840712243076}"
+        );
+        // Key order survives the rebuild (invariant #4).
+        let mut outer = ObjectMap::default();
+        outer.insert("z".into(), Value::Number(22.0 / 7.0));
+        outer.insert("a".into(), obj.clone());
+        assert_eq!(
+            Value::Object(Rc::new(outer)).stringify(false).unwrap(),
+            "{\"z\":3.14285714285714,\"a\":{\"b\":0.430801391601563,\"c\":5890840712243076}}"
+        );
+
+        // The prettify branch takes the same cast.
+        assert_eq!(arr.stringify(true).unwrap(), "[\n  1234567890123460\n]");
+        assert_eq!(
+            obj.stringify(true).unwrap(),
+            "{\n  \"b\": 0.430801391601563,\n  \"c\": 5890840712243076\n}"
+        );
+
+        // Integers, at every size, are left exact by the replacer's
+        // `!Number.isInteger(val)` guard.
+        let ints = Value::Array(Rc::from(vec![
+            Value::Number(9_007_199_254_740_994.0),
+            Value::Number(1.234_567_890_123_456_8e20),
+            Value::Number(1e21),
+        ]));
+        assert_eq!(
+            ints.stringify(false).unwrap(),
+            "[9007199254740994,123456789012345680000,1e+21]"
+        );
+        assert!(!ints.needs_string_cast());
+    }
+
+    /// The cast belongs to the `$string` path only: the JSON layer keeps
+    /// emitting exact round-tripping `ryu-js` digits for the same value.
+    #[test]
+    fn stringify_cast_leaves_the_json_layer_alone() {
+        let arr = Value::Array(Rc::from(vec![
+            Value::Number(1_234_567_890_123_456.7),
+            Value::Number(0.430_801_391_601_562_5),
+            Value::Number(0.1 + 0.2),
+        ]));
+        assert_eq!(
+            arr.to_json_string(),
+            "[1234567890123456.8,0.4308013916015625,0.30000000000000004]"
+        );
+        assert_eq!(
+            arr.stringify(false).unwrap(),
+            "[1234567890123460,0.430801391601563,0.3]"
+        );
+        // The value itself is untouched — the cast builds a new tree.
+        assert_eq!(
+            arr.to_json_string(),
+            "[1234567890123456.8,0.4308013916015625,0.30000000000000004]"
+        );
     }
 }

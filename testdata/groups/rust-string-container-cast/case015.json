@@ -1,0 +1,6 @@
+{
+    "expr": "$string([true, false, null, \"a\\\"b\"])",
+    "dataset": null,
+    "bindings": {},
+    "result": "[true,false,null,\"a\\\"b\"]"
+}

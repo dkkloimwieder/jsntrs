@@ -1,0 +1,6 @@
+{
+    "expr": "$string([1e-7, 5e-7, 1e21, 1e22])",
+    "dataset": null,
+    "bindings": {},
+    "result": "[1e-7,5e-7,1e+21,1e+22]"
+}

@@ -1,0 +1,6 @@
+{
+    "expr": "$string([1,[2,{\"c\":22/7}]], true)",
+    "dataset": null,
+    "bindings": {},
+    "result": "[\n  1,\n  [\n    2,\n    {\n      \"c\": 3.14285714285714\n    }\n  ]\n]"
+}
