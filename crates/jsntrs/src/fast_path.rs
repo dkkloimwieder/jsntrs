@@ -15,6 +15,7 @@ use compact_str::CompactString;
 use simd_json::tape;
 
 use crate::parser::{AstArena, BinaryOp, Expr, NodeId};
+use crate::stdlib::array::flatten_recursive;
 use crate::value::Value;
 
 /// Test-only escape hatch to force every fast path off so differential
@@ -373,7 +374,11 @@ const fn unwraps_array_constructor(kind: FuncFastKind) -> bool {
 }
 
 /// Extract a literal value from an AST node.
-fn extract_literal(arena: &AstArena, node: NodeId) -> Option<Literal> {
+/// The four literal node kinds, as a [`Literal`]. The single home for the
+/// AST-literal table: `stdlib::hof_fast` had a byte-equivalent copy that
+/// built a `Value` directly, and took its arguments the other way round
+/// (jsntrs-6d5.2).
+pub(crate) fn extract_literal(arena: &AstArena, node: NodeId) -> Option<Literal> {
     match arena.get(node) {
         Expr::StringLit { value, .. } => Some(Literal::String(value.clone())),
         Expr::NumberLit { value, .. } => Some(Literal::Number(*value)),
@@ -384,6 +389,16 @@ fn extract_literal(arena: &AstArena, node: NodeId) -> Option<Literal> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// A parsed [`Literal`] as the `Value` it denotes.
+pub(crate) fn literal_to_value(lit: &Literal) -> Value {
+    match lit {
+        Literal::Null => Value::Null,
+        Literal::Bool(b) => Value::Bool(*b),
+        Literal::Number(n) => Value::Number(*n),
+        Literal::String(s) => Value::String(s.as_str().into()),
     }
 }
 
@@ -646,12 +661,7 @@ fn eval_comparison(cmp: &ComparisonFastPath, input: &Value) -> Option<Value> {
         return None;
     }
 
-    let rhs_val = match &cmp.rhs {
-        Literal::Null => Value::Null,
-        Literal::Bool(b) => Value::Bool(*b),
-        Literal::Number(n) => Value::Number(*n),
-        Literal::String(s) => Value::String(s.as_str().into()),
-    };
+    let rhs_val = literal_to_value(&cmp.rhs);
     let matches = lhs.deep_equal(&rhs_val);
     let result = match cmp.op {
         ComparisonOp::Equal => matches,
@@ -973,21 +983,6 @@ fn apply_func(func: &FuncFastPath, val: &Value) -> Option<Value> {
             _ => None,
         },
     }
-}
-
-/// Recursively flatten nested arrays up to the given depth.
-fn flatten_recursive(arr: &[Value], depth: usize) -> Vec<Value> {
-    let mut result = Vec::new();
-    for item in arr {
-        if depth > 0
-            && let Value::Array(inner) = item
-        {
-            result.extend(flatten_recursive(inner.as_ref(), depth - 1));
-            continue;
-        }
-        result.push(item.clone());
-    }
-    result
 }
 
 // ── Tape-based evaluation (raw bytes, no Value tree) ───────────────

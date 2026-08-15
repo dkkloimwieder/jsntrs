@@ -37,7 +37,48 @@ pub(crate) const TENS: [&str; 10] = [
     "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
 ];
 
-const SCALES: &[(&str, i64)] = &[
+/// [`ONES`] as ordinals, index for index. Index 0 is empty for the same
+/// reason `ONES[0]` is: no caller reaches it, and "zeroth" is handled with
+/// zero itself.
+pub(crate) const ONES_ORDINAL: [&str; 20] = [
+    "",
+    "first",
+    "second",
+    "third",
+    "fourth",
+    "fifth",
+    "sixth",
+    "seventh",
+    "eighth",
+    "ninth",
+    "tenth",
+    "eleventh",
+    "twelfth",
+    "thirteenth",
+    "fourteenth",
+    "fifteenth",
+    "sixteenth",
+    "seventeenth",
+    "eighteenth",
+    "nineteenth",
+];
+
+/// [`TENS`] as ordinals, index for index.
+pub(crate) const TENS_ORDINAL: [&str; 10] = [
+    "",
+    "",
+    "twentieth",
+    "thirtieth",
+    "fortieth",
+    "fiftieth",
+    "sixtieth",
+    "seventieth",
+    "eightieth",
+    "ninetieth",
+];
+
+/// The scale words, largest first — the order [`to_words`] consumes them in.
+pub(crate) const SCALES: &[(&str, i64)] = &[
     ("trillion", 1_000_000_000_000),
     ("billion", 1_000_000_000),
     ("million", 1_000_000),
@@ -232,49 +273,40 @@ pub(crate) fn ordinal_suffix(n: i64) -> &'static str {
     }
 }
 
+/// Every cardinal word that has an irregular ordinal, paired with it —
+/// `ONES`/`TENS`/`SCALES` zipped with their ordinal tables, plus the two
+/// words with no index (`zero`, `hundred`).
+///
+/// The single home for the pairing. `$parseInteger`'s `de_ordinalise`
+/// carried its own copy in the other direction and the datetime word parser
+/// carried three inline slices of it (jsntrs-6d5.2).
+pub(crate) fn ordinal_pairs() -> impl Iterator<Item = (&'static str, &'static str)> {
+    ONES.iter()
+        .zip(ONES_ORDINAL.iter())
+        .chain(TENS.iter().zip(TENS_ORDINAL.iter()))
+        .filter(|(cardinal, _)| !cardinal.is_empty())
+        .map(|(&cardinal, &ordinal)| (cardinal, ordinal))
+        .chain(
+            SCALES
+                .iter()
+                .zip(SCALES_ORDINAL.iter())
+                .map(|(&(cardinal, _), &ordinal)| (cardinal, ordinal)),
+        )
+        .chain([("zero", "zeroth"), ("hundred", "hundredth")])
+}
+
+/// [`SCALES`] as ordinals, index for index.
+const SCALES_ORDINAL: [&str; 4] = ["trillionth", "billionth", "millionth", "thousandth"];
+
 /// Turn a cardinal word phrase into its ordinal ("forty-two" → "forty-second").
 pub(crate) fn apply_ordinal_word(word: &str) -> String {
-    const ORDINALS: &[(&str, &str)] = &[
-        ("one", "first"),
-        ("two", "second"),
-        ("three", "third"),
-        ("four", "fourth"),
-        ("five", "fifth"),
-        ("six", "sixth"),
-        ("seven", "seventh"),
-        ("eight", "eighth"),
-        ("nine", "ninth"),
-        ("ten", "tenth"),
-        ("eleven", "eleventh"),
-        ("twelve", "twelfth"),
-        ("thirteen", "thirteenth"),
-        ("fourteen", "fourteenth"),
-        ("fifteen", "fifteenth"),
-        ("sixteen", "sixteenth"),
-        ("seventeen", "seventeenth"),
-        ("eighteen", "eighteenth"),
-        ("nineteen", "nineteenth"),
-        ("twenty", "twentieth"),
-        ("thirty", "thirtieth"),
-        ("forty", "fortieth"),
-        ("fifty", "fiftieth"),
-        ("sixty", "sixtieth"),
-        ("seventy", "seventieth"),
-        ("eighty", "eightieth"),
-        ("ninety", "ninetieth"),
-        ("hundred", "hundredth"),
-        ("thousand", "thousandth"),
-        ("million", "millionth"),
-        ("billion", "billionth"),
-        ("trillion", "trillionth"),
-    ];
     // Replace only the last word; separators are single-byte (' ' or '-').
     let (prefix, sep, last) = if let Some(pos) = word.rfind([' ', '-']) {
         (&word[..pos], &word[pos..=pos], &word[pos + 1..])
     } else {
         ("", "", word)
     };
-    for &(cardinal, ordinal) in ORDINALS {
+    for (cardinal, ordinal) in ordinal_pairs() {
         if last == cardinal {
             return format!("{prefix}{sep}{ordinal}");
         }
@@ -283,6 +315,28 @@ pub(crate) fn apply_ordinal_word(word: &str) -> String {
         return format!("{prefix}{sep}{stem}ieth");
     }
     format!("{prefix}{sep}{last}th")
+}
+
+/// The numeric value of a single cardinal number word, or `None` if the word
+/// is not one. `$parseInteger`'s word parser carried a 33-entry table of
+/// these that restated `ONES`, `TENS` and `SCALES` (jsntrs-6d5.2).
+pub(crate) fn word_value(word: &str) -> Option<f64> {
+    if word == "zero" {
+        return Some(0.0);
+    }
+    if word == "hundred" {
+        return Some(100.0);
+    }
+    if let Some(i) = ONES.iter().position(|&w| !w.is_empty() && w == word) {
+        return Some(i as f64);
+    }
+    if let Some(i) = TENS.iter().position(|&w| !w.is_empty() && w == word) {
+        return Some(i as f64 * 10.0);
+    }
+    SCALES
+        .iter()
+        .find(|(w, _)| *w == word)
+        .map(|&(_, v)| v as f64)
 }
 
 #[cfg(test)]
@@ -331,6 +385,50 @@ mod tests {
         assert_eq!(ordinal_suffix(12), "th");
         assert_eq!(ordinal_suffix(13), "th");
         assert_eq!(ordinal_suffix(21), "st");
+    }
+
+    /// The tables that used to be copied into `$parseInteger` and the
+    /// datetime word parser have to stay mutually consistent, or the
+    /// consolidation traded three drifting copies for one wrong one. Every
+    /// cardinal here must convert to the ordinal it is paired with, and back
+    /// to a number.
+    #[test]
+    fn ordinal_pairs_agree_with_the_conversions() {
+        let pairs: Vec<_> = ordinal_pairs().collect();
+        assert_eq!(pairs.len(), 33, "one per irregular ordinal");
+        for (cardinal, ordinal) in pairs {
+            assert_eq!(
+                apply_ordinal_word(cardinal),
+                ordinal,
+                "cardinal {cardinal:?} does not produce its paired ordinal"
+            );
+            assert!(
+                word_value(cardinal).is_some(),
+                "cardinal {cardinal:?} has no numeric value"
+            );
+        }
+    }
+
+    /// `word_value` replaced a 33-entry literal table; these are the values
+    /// that table held, including the two words with no index (`zero`,
+    /// `hundred`) and the four scales.
+    #[test]
+    fn word_values_cover_the_whole_vocabulary() {
+        assert_eq!(word_value("zero"), Some(0.0));
+        assert_eq!(word_value("one"), Some(1.0));
+        assert_eq!(word_value("nineteen"), Some(19.0));
+        assert_eq!(word_value("twenty"), Some(20.0));
+        assert_eq!(word_value("ninety"), Some(90.0));
+        assert_eq!(word_value("hundred"), Some(100.0));
+        assert_eq!(word_value("thousand"), Some(1e3));
+        assert_eq!(word_value("million"), Some(1e6));
+        assert_eq!(word_value("billion"), Some(1e9));
+        assert_eq!(word_value("trillion"), Some(1e12));
+        // `ONES[0]` and `TENS[0..2]` are empty strings; an empty word must
+        // not match them by accident.
+        assert_eq!(word_value(""), None);
+        assert_eq!(word_value("and"), None);
+        assert_eq!(word_value("eleventy"), None);
     }
 
     #[test]

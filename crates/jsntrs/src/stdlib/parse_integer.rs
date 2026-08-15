@@ -2,7 +2,9 @@
 //!
 //! Port of Go `functions/string_format_integer.go` `fnParseInteger`.
 
-use super::number_words::{roman_value, split_picture_modifier, unicode_digit_zero};
+use super::number_words::{
+    ordinal_pairs, roman_value, split_picture_modifier, unicode_digit_zero, word_value,
+};
 use crate::error::{JsonataError, JsonataResult};
 use crate::value::Value;
 
@@ -117,43 +119,13 @@ fn parse_integer_with_picture(s: &str, picture: &str) -> Result<f64, JsonataErro
 
 // ── De-ordinalise ────────────────────────────────────────────────────────────
 
+/// Strip an ordinal ending off the last word: "twenty-first" -> "twenty-one".
+///
+/// Only the *irregular* ordinals are listed, in
+/// [`number_words::ordinal_pairs`]; a word not in it is left alone, which is
+/// what makes "twenty-fifth" work (the "twenty" prefix is untouched and only
+/// "fifth" is rewritten).
 fn de_ordinalise(s: &str) -> String {
-    let irregulars: &[(&str, &str)] = &[
-        ("first", "one"),
-        ("second", "two"),
-        ("third", "three"),
-        ("fourth", "four"),
-        ("fifth", "five"),
-        ("sixth", "six"),
-        ("seventh", "seven"),
-        ("eighth", "eight"),
-        ("ninth", "nine"),
-        ("tenth", "ten"),
-        ("eleventh", "eleven"),
-        ("twelfth", "twelve"),
-        ("thirteenth", "thirteen"),
-        ("fourteenth", "fourteen"),
-        ("fifteenth", "fifteen"),
-        ("sixteenth", "sixteen"),
-        ("seventeenth", "seventeen"),
-        ("eighteenth", "eighteen"),
-        ("nineteenth", "nineteen"),
-        ("twentieth", "twenty"),
-        ("thirtieth", "thirty"),
-        ("fortieth", "forty"),
-        ("fiftieth", "fifty"),
-        ("sixtieth", "sixty"),
-        ("seventieth", "seventy"),
-        ("eightieth", "eighty"),
-        ("ninetieth", "ninety"),
-        ("hundredth", "hundred"),
-        ("thousandth", "thousand"),
-        ("millionth", "million"),
-        ("billionth", "billion"),
-        ("trillionth", "trillion"),
-        ("zeroth", "zero"),
-    ];
-
     // Find last separator (space or hyphen)
     let bytes = s.as_bytes();
     let mut last_idx: Option<usize> = None;
@@ -172,7 +144,7 @@ fn de_ordinalise(s: &str) -> String {
         ("", s)
     };
 
-    for &(ordinal, cardinal) in irregulars {
+    for (cardinal, ordinal) in ordinal_pairs() {
         if last_word == ordinal {
             if last_idx.is_some() {
                 return format!("{}{}{}", prefix, last_sep as char, cardinal);
@@ -189,42 +161,6 @@ fn de_ordinalise(s: &str) -> String {
 fn words_to_float(s: &str) -> Result<f64, JsonataError> {
     let s = de_ordinalise(s);
 
-    let word_vals: &[(&str, f64)] = &[
-        ("zero", 0.0),
-        ("one", 1.0),
-        ("two", 2.0),
-        ("three", 3.0),
-        ("four", 4.0),
-        ("five", 5.0),
-        ("six", 6.0),
-        ("seven", 7.0),
-        ("eight", 8.0),
-        ("nine", 9.0),
-        ("ten", 10.0),
-        ("eleven", 11.0),
-        ("twelve", 12.0),
-        ("thirteen", 13.0),
-        ("fourteen", 14.0),
-        ("fifteen", 15.0),
-        ("sixteen", 16.0),
-        ("seventeen", 17.0),
-        ("eighteen", 18.0),
-        ("nineteen", 19.0),
-        ("twenty", 20.0),
-        ("thirty", 30.0),
-        ("forty", 40.0),
-        ("fifty", 50.0),
-        ("sixty", 60.0),
-        ("seventy", 70.0),
-        ("eighty", 80.0),
-        ("ninety", 90.0),
-        ("hundred", 100.0),
-        ("thousand", 1e3),
-        ("million", 1e6),
-        ("billion", 1e9),
-        ("trillion", 1e12),
-    ];
-
     let s = s.replace(['-', ','], " ");
     let words: Vec<&str> = s.split_whitespace().collect();
 
@@ -235,12 +171,7 @@ fn words_to_float(s: &str) -> Result<f64, JsonataError> {
         if *w == "and" {
             continue;
         }
-        let val = word_vals
-            .iter()
-            .find(|(name, _)| name == w)
-            .map(|(_, v)| *v);
-
-        let Some(val) = val else {
+        let Some(val) = word_value(w) else {
             return Err(JsonataError::new(
                 "D3137",
                 format!("$parseInteger: unknown word {w:?}"),

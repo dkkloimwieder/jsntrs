@@ -136,7 +136,10 @@ pub fn fn_flatten(args: &[Value], _focus: &Value) -> JsonataResult {
     Ok(Value::Array(Rc::from(result)))
 }
 
-fn flatten_recursive(arr: &[Value], depth: usize) -> Vec<Value> {
+/// Recursively flatten nested arrays up to the given depth — the body of
+/// `$flatten`, shared with `fast_path`'s lifted `$flatten` so the two cannot
+/// drift (jsntrs-6d5.2).
+pub(crate) fn flatten_recursive(arr: &[Value], depth: usize) -> Vec<Value> {
     let mut result = Vec::new();
     for item in arr {
         if depth > 0

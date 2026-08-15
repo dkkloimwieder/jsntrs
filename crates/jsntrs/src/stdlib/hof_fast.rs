@@ -159,18 +159,15 @@ fn extract_param_field(node: NodeId, arena: &AstArena, param: &str) -> Option<St
 }
 
 /// Extract a literal value from a node.
-fn extract_literal(node: NodeId, arena: &AstArena) -> Option<Value> {
-    match arena.get(node) {
-        Expr::NumberLit { value, .. } => Some(Value::Number(*value)),
-        Expr::StringLit { value, .. } => Some(Value::String(value.clone().into())),
-        Expr::ValueLit { value, .. } => match value.as_str() {
-            "true" => Some(Value::Bool(true)),
-            "false" => Some(Value::Bool(false)),
-            "null" => Some(Value::Null),
-            _ => None,
-        },
-        _ => None,
-    }
+/// The literal a node denotes, if it is one.
+///
+/// Argument order is `(arena, node)` like every other AST walker in the
+/// crate; this took `(node, arena)` until jsntrs-6d5.2, which is also when
+/// the duplicated node table went away in favour of `fast_path`'s.
+fn extract_literal(arena: &AstArena, node: NodeId) -> Option<Value> {
+    crate::fast_path::extract_literal(arena, node)
+        .as_ref()
+        .map(crate::fast_path::literal_to_value)
 }
 
 /// See through a parenthesised single-expression block, e.g. `($c.x * $c.y)`.
@@ -300,7 +297,7 @@ fn analyze_binary(
 
         // $v.field op literal
         if let Some(field) = extract_param_field(lhs, arena, param) {
-            if let Some(lit) = extract_literal(rhs, arena) {
+            if let Some(lit) = extract_literal(arena, rhs) {
                 return Some(SimpleLambda::FieldPredicate {
                     field,
                     op,
@@ -322,7 +319,7 @@ fn analyze_binary(
         // the field on the left, and flip_relational has no exact mirror for
         // non-commutative arithmetic (lit - field ≠ field - lit).
         if is_relational(op)
-            && let Some(lit) = extract_literal(lhs, arena)
+            && let Some(lit) = extract_literal(arena, lhs)
             && is_mirrorable_literal(op, &lit)
             && let Some(field) = extract_param_field(rhs, arena, param)
         {
@@ -462,7 +459,7 @@ fn collect_predicate_clauses(
         // Leaf: must be $param.field op literal (or literal op $param.field)
         Expr::Binary { op, lhs, rhs, .. } if is_relational(*op) || is_arithmetic(*op) => {
             if let Some(field) = extract_param_field(*lhs, arena, param) {
-                if let Some(lit) = extract_literal(*rhs, arena) {
+                if let Some(lit) = extract_literal(arena, *rhs) {
                     out.push(PredicateClause {
                         field,
                         op: *op,
@@ -476,7 +473,7 @@ fn collect_predicate_clauses(
             // clause stores the field on the left and flip_relational cannot
             // mirror non-commutative arithmetic.
             if is_relational(*op)
-                && let Some(lit) = extract_literal(*lhs, arena)
+                && let Some(lit) = extract_literal(arena, *lhs)
                 && is_mirrorable_literal(*op, &lit)
                 && let Some(field) = extract_param_field(*rhs, arena, param)
             {

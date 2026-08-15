@@ -3,19 +3,25 @@
 //! Unlike `$parseInteger`'s strict whole-string parser, this consumes the
 //! longest word-number prefix (ordinal-aware, incl. 'nineteen hundred'
 //! style years) and reports how many bytes it used.
+//!
+//! The word tables live in [`crate::stdlib::number_words`], cardinals and
+//! ordinals alike; this module used to carry three inline slices of the
+//! ordinal ones (jsntrs-6d5.2).
 
-use crate::stdlib::number_words::{ONES, TENS};
+use crate::stdlib::number_words::{ONES, ONES_ORDINAL, TENS, TENS_ORDINAL};
 
-pub(super) fn parse_word_number_from_string(s: &str) -> (usize, i64) {
+/// `(value, bytes consumed)`, matching the rest of the datetime input
+/// parsers (`parse_alphabetic`, `parse_month_name`, `parse_roman`, …). It
+/// used to be the other way round, alone among them (jsntrs-6d5.2).
+/// `(0, 0)` means nothing was recognised.
+pub(super) fn parse_word_number_from_string(s: &str) -> (i64, usize) {
     let s_lower = s.to_lowercase();
-    parse_complex_number(&s_lower, &ONES, &TENS)
+    parse_complex_number(&s_lower)
 }
 
-pub(super) struct WordParser<'a> {
+struct WordParser<'a> {
     s: &'a str,
     pos: usize,
-    ones: &'a [&'a str; 20],
-    tens: &'a [&'a str; 10],
 }
 
 impl WordParser<'_> {
@@ -60,74 +66,21 @@ impl WordParser<'_> {
     fn parse_sub100(&mut self) -> Option<i64> {
         let save = self.pos;
         // Teens/ones (19 down to 10).
-        let ones_ordinals = [
-            "zeroth",
-            "first",
-            "second",
-            "third",
-            "fourth",
-            "fifth",
-            "sixth",
-            "seventh",
-            "eighth",
-            "ninth",
-            "tenth",
-            "eleventh",
-            "twelfth",
-            "thirteenth",
-            "fourteenth",
-            "fifteenth",
-            "sixteenth",
-            "seventeenth",
-            "eighteenth",
-            "nineteenth",
-        ];
         for i in (10..=19usize).rev() {
-            let ord = if i < ones_ordinals.len() {
-                ones_ordinals[i]
-            } else {
-                ""
-            };
-            if self.try_word_or_ordinal(self.ones[i], ord) {
+            if self.try_word_or_ordinal(ONES[i], ONES_ORDINAL[i]) {
                 return Some(i as i64);
             }
         }
         // Tens (ninety down to twenty).
-        let tens_ordinals = [
-            "",
-            "",
-            "twentieth",
-            "thirtieth",
-            "fortieth",
-            "fiftieth",
-            "sixtieth",
-            "seventieth",
-            "eightieth",
-            "ninetieth",
-        ];
         for i in (2..=9usize).rev() {
-            let ord = if i < tens_ordinals.len() {
-                tens_ordinals[i]
-            } else {
-                ""
-            };
-            if self.try_word_or_ordinal(self.tens[i], ord) {
+            if self.try_word_or_ordinal(TENS[i], TENS_ORDINAL[i]) {
                 let v = i as i64 * 10;
                 let dash_save = self.pos;
                 if self.pos < self.s.len() && self.s[self.pos..].starts_with('-') {
                     self.pos += 1;
                 }
-                let ones_ordinals2 = [
-                    "", "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
-                    "eighth", "ninth",
-                ];
                 for j in (1..=9usize).rev() {
-                    let o2 = if j < ones_ordinals2.len() {
-                        ones_ordinals2[j]
-                    } else {
-                        ""
-                    };
-                    if self.try_word_or_ordinal(self.ones[j], o2) {
+                    if self.try_word_or_ordinal(ONES[j], ONES_ORDINAL[j]) {
                         return Some(v + j as i64);
                     }
                 }
@@ -137,12 +90,7 @@ impl WordParser<'_> {
         }
         // Ones (nine down to one).
         for i in (1..=9usize).rev() {
-            let ord = if i < ones_ordinals.len() {
-                ones_ordinals[i]
-            } else {
-                ""
-            };
-            if self.try_word_or_ordinal(self.ones[i], ord) {
+            if self.try_word_or_ordinal(ONES[i], ONES_ORDINAL[i]) {
                 return Some(i as i64);
             }
         }
@@ -153,7 +101,7 @@ impl WordParser<'_> {
     fn parse_sub1000(&mut self) -> Option<i64> {
         let save = self.pos;
         for i in (1..=9usize).rev() {
-            if self.try_word(self.ones[i]) {
+            if self.try_word(ONES[i]) {
                 if self.try_word_or_ordinal("hundred", "hundredth") {
                     let v = i as i64 * 100;
                     let rem = self.parse_sub100().unwrap_or(0);
@@ -167,22 +115,17 @@ impl WordParser<'_> {
     }
 }
 
-pub(super) fn parse_complex_number(s: &str, ones: &[&str; 20], tens: &[&str; 10]) -> (usize, i64) {
-    let mut p = WordParser {
-        s,
-        pos: 0,
-        ones,
-        tens,
-    };
+fn parse_complex_number(s: &str) -> (i64, usize) {
+    let mut p = WordParser { s, pos: 0 };
     let save = p.pos;
 
     // Try "nineteen hundred" style.
     for i in (1..=19usize).rev() {
-        if p.try_word(p.ones[i]) {
+        if p.try_word(ONES[i]) {
             if p.try_word_or_ordinal("hundred", "hundredth") {
                 let total = i as i64 * 100;
                 let rem = p.parse_sub100().unwrap_or(0);
-                return (p.pos, total + rem);
+                return (total + rem, p.pos);
             }
             p.pos = save;
             break;
@@ -196,9 +139,9 @@ pub(super) fn parse_complex_number(s: &str, ones: &[&str; 20], tens: &[&str; 10]
             if let Some(rest) = p.parse_sub1000() {
                 total += rest;
             }
-            return (p.pos, total);
+            return (total, p.pos);
         }
-        return (p.pos, thousand_part);
+        return (thousand_part, p.pos);
     }
 
     (0, 0)

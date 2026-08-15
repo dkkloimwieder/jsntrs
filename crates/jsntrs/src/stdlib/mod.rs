@@ -2,7 +2,7 @@
 //!
 //! Port of Go `functions/` package.
 
-mod array;
+pub(crate) mod array;
 mod boolean;
 pub mod datetime;
 mod eval_fn;
