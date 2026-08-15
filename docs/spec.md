@@ -476,6 +476,15 @@ The entry point is `Eval(node *parser.Node, input any, env *Environment) (any, e
 | `NodeTransform` | `evalTransform(node, input, env)` | `eval_transform.go:33` |
 | `NodeParent` | Env lookup of `parentKey` (`%%`) | `evaluator.go:71` |
 
+**Rust port deviation (jsntrs-p0v.22).** `NodeDescendant` dispatches to the
+*path-step* walk (§4.7, "`input` + `descendantLookup(input)`"), not to the bare
+`descendantLookup`. jsonata-js runs one `evaluateDescendants` for both
+positions and it always pushes a non-array input before recursing, so `**` and
+`x.**` agree: `**` on `{"a": 1}` is `[{"a": 1}, 1]`, on `5` is `5`, on `{}` is
+`{}`, on `[1, 2]` is `[1, 2]` (the array itself is never added), and on an
+undefined document is undefined. The rootless dispatch dropped the document
+from every one of those.
+
 ### 4.1.3 Public API
 
 `ApplyFunction(fn any, args []any, focus any, env *Environment)` (line 82) is the public API for calling function values from the standard library, delegating to `callFunction`.

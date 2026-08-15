@@ -21,8 +21,8 @@ pub(crate) use binary::apply_arithmetic;
 use binary::{apply_keep_array, eval_binary};
 use group::eval_group_by;
 use path::{
-    collapse_val, eval_path, eval_path_step, flatten_to_vec, get_step_bindings,
-    node_has_parent_ref, path_has_tuple_step, value_ptr_eq,
+    collapse_val, eval_descendant_step, eval_path, eval_path_step, flatten_to_vec,
+    get_step_bindings, node_has_parent_ref, path_has_tuple_step, value_ptr_eq,
 };
 
 use std::rc::Rc;
@@ -214,9 +214,14 @@ fn eval_inner(
                 return eval_name(value, input);
             }
             Expr::Wildcard { .. } => return eval_wildcard(input),
+            // `**` is context-independent: jsonata-js runs the same
+            // `evaluateDescendants` here and for a path step, and it always
+            // pushes the input itself before recursing. Calling the rootless
+            // `descendant_lookup` here dropped the document from a bare `**`
+            // (`{"a": 1}` → `1` instead of `[{"a": 1}, 1]`) and made `**` on a
+            // scalar or an empty object undefined (jsntrs-p0v.22).
             Expr::Descendant { .. } => {
-                let result = descendant_lookup(input);
-                return match result {
+                return match eval_descendant_step(input) {
                     Value::Sequence(seq) => Ok(seq.into_value()),
                     other => Ok(other),
                 };
@@ -1989,12 +1994,27 @@ mod tests {
     #[test]
     fn descendant_lookup_test() {
         let result = eval_with_data("**", r#"{"a": {"b": 1}, "c": 2}"#);
-        // Should collect all values recursively.
+        // The document itself, then every value recursively (jsntrs-p0v.22).
         match result {
             Value::Array(arr) => {
-                assert!(arr.len() >= 3); // {"b":1}, 1, 2
+                assert_eq!(arr.len(), 4); // {"a":…,"c":2}, {"b":1}, 1, 2
+                assert!(arr[0].is_object());
             }
             _ => panic!("expected Array, got {:?}", result),
+        }
+    }
+
+    /// jsntrs-p0v.22: a bare `**` used the rootless `descendant_lookup`, so a
+    /// scalar or empty-object document came back undefined instead of itself.
+    #[test]
+    fn descendant_includes_a_scalar_or_empty_root() {
+        assert_eq!(eval_with_data("**", "5"), Value::Number(5.0));
+        assert!(eval_with_data("**", "{}").is_object());
+        assert_eq!(eval_with_data("**", "null"), Value::Null);
+        // An array root contributes its members, not itself.
+        match eval_with_data("**", "[1, 2]") {
+            Value::Array(arr) => assert_eq!(arr.len(), 2),
+            other => panic!("expected Array, got {other:?}"),
         }
     }
 

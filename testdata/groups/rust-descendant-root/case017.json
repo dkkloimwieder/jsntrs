@@ -1,0 +1,6 @@
+{
+    "expr": "$count(**)",
+    "data": 5,
+    "bindings": {},
+    "result": 1
+}

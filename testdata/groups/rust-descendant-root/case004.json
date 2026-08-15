@@ -1,0 +1,13 @@
+{
+    "expr": "**",
+    "data": {
+        "a": null
+    },
+    "bindings": {},
+    "result": [
+        {
+            "a": null
+        },
+        null
+    ]
+}

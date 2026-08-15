@@ -1052,6 +1052,15 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("**[]", POSTFIX),
     ("obj.**[]", POSTFIX),
     ("$count(**[])", POSTFIX),
+    // Declined: a bare `**` now runs the same root-inclusive descendant
+    // walk as a `**` path step (jsntrs-p0v.22); no lift covers either.
+    ("**", POSTFIX),
+    ("**", KEEP_ARRAY),
+    ("**.x", KEEP_ARRAY),
+    ("$count(**)", POSTFIX),
+    ("[**]", POSTFIX),
+    ("** ~> $count", POSTFIX),
+    ("obj.**", POSTFIX),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

@@ -1,0 +1,10 @@
+{
+    "expr": "** ~> $count",
+    "data": {
+        "a": {
+            "b": 1
+        }
+    },
+    "bindings": {},
+    "result": 3
+}

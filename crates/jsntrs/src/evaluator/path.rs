@@ -1008,9 +1008,15 @@ pub(super) fn eval_path_step(
     Ok(seq.into_value())
 }
 
-/// Descendant (**) step: in path context it includes the current node itself,
-/// then every recursive descendant.
-fn eval_descendant_step(input: &Value) -> Value {
+/// Descendant (`**`): the current node itself, then every recursive
+/// descendant — the root is skipped only for an array input, whose members
+/// are collected instead (jsonata-js `recurseDescendants` pushes a non-array
+/// input before iterating).
+///
+/// Shared with the standalone `Expr::Descendant` evaluator: jsonata-js runs
+/// one `evaluateDescendants` for both positions, so `**` and `x.**` must
+/// agree on including the context node (jsntrs-p0v.22).
+pub(super) fn eval_descendant_step(input: &Value) -> Value {
     let mut seq = Sequence::new();
     if !matches!(input, Value::Array(_)) {
         seq.append(input.clone());

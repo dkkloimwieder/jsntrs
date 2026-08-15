@@ -1,0 +1,8 @@
+{
+    "expr": "x.**",
+    "data": {
+        "x": {}
+    },
+    "bindings": {},
+    "result": {}
+}
