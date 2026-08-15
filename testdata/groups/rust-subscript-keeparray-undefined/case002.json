@@ -1,0 +1,6 @@
+{
+    "expr": "a[][0]",
+    "data": {"b": 1},
+    "bindings": {},
+    "undefinedResult": true
+}

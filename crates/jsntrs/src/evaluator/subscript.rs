@@ -59,7 +59,20 @@ pub(super) fn eval_subscript_binary(
     let keep_array = has_keep_array(arena, node);
     let result = eval_subscript(arena, rhs, &left, input, env, index_var.as_ref())?;
     if keep_array {
-        Ok(flag_keep_array(result, Value::Array(Rc::from(vec![]))))
+        // Undefined stays undefined: `[]` never manufactures an empty array.
+        // jsonata-js `evaluate()` (jsonata.js 2.2.2, the tail of the big
+        // switch) reads
+        //     if(result && isSequence(result) && !result.tupleStream) {
+        //         if(expr.keepArray) { result.keepSingleton = true; }
+        //         if(result.length === 0) { result = undefined; }
+        //         else if(result.length === 1) { … }
+        //     }
+        // — an undefined result skips the block entirely (`result &&`), and
+        // an empty sequence is turned back into undefined *after* the
+        // keepSingleton flag is set, so the flag never has anything to wrap.
+        // Handing `[]` in as the undefined replacement made `a[0][]` on a
+        // document with no `a` answer `[]` (jsntrs-k3a).
+        Ok(flag_keep_array(result, Value::Undefined))
     } else {
         Ok(result)
     }

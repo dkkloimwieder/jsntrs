@@ -1,0 +1,6 @@
+{
+    "expr": "a[0][]",
+    "data": {"a": null},
+    "bindings": {},
+    "result": [null]
+}

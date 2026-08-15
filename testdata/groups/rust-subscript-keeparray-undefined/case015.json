@@ -1,0 +1,6 @@
+{
+    "expr": "$exists(a[0][])",
+    "data": {"b": 1},
+    "bindings": {},
+    "result": false
+}
