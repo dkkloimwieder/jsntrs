@@ -2,5 +2,5 @@
     "expr": "$formatNumber(1234.5678, \"0.0\", {\"exponent-separator\": \".\"})",
     "dataset": null,
     "bindings": {},
-    "code": "D3085"
+    "result": "1.3"
 }

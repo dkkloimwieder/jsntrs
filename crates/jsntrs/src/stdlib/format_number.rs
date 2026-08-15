@@ -181,38 +181,25 @@ pub(crate) struct SubPicture {
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
 
-fn contains_scaling(s: &[char], fc: &FmtChars) -> Result<u8, JsonataError> {
-    let pct = s.iter().filter(|&&c| c == fc.percent).count();
-    let pm = s.iter().filter(|&&c| c == fc.per_mille).count();
-    if pct > 1 {
-        return Err(JsonataError::new(
-            "D3082",
-            "$formatNumber: picture has more than one percent character",
-        ));
-    }
-    if pm > 1 {
-        return Err(JsonataError::new(
-            "D3083",
-            "$formatNumber: picture has more than one per-mille character",
-        ));
-    }
-    if pct > 0 && pm > 0 {
-        return Err(JsonataError::new(
-            "D3084",
-            "$formatNumber: picture has both percent and per-mille characters",
-        ));
-    }
-    if pct > 0 {
-        return Ok(1);
-    }
-    if pm > 0 {
-        return Ok(2);
-    }
-    Ok(0)
+fn count_char(hay: &[char], needle: char) -> usize {
+    hay.iter().filter(|&&c| c == needle).count()
 }
 
-/// Find the active region (between first and last active char), extract prefix/suffix,
-/// validate internal chars, determine scale.
+/// 0 = no scaling, 1 = percent, 2 = per-mille.
+///
+/// Only reached once validation has ruled out a picture carrying both.
+fn scaling_factor(picture: &[char], fc: &FmtChars) -> u8 {
+    if count_char(picture, fc.percent) > 0 {
+        1
+    } else if count_char(picture, fc.per_mille) > 0 {
+        2
+    } else {
+        0
+    }
+}
+
+/// Find the active region (between first and last active char) and extract
+/// prefix/suffix.
 ///
 /// Returns the active slice and its offset in `runes`; the offset is where the
 /// search for the exponent separator begins (jsonata-js searches from
@@ -245,28 +232,7 @@ fn scan_sub_picture_region<'a>(
 
     sp.prefix = runes[..start].iter().collect();
     sp.suffix = runes[end + 1..].iter().collect();
-    let active = &runes[start..=end];
-
-    for &c in active {
-        // Percent and per-mille are passive characters: legal only in the
-        // prefix or suffix, never between active characters (jsonata-js
-        // raises D3086). Exempting them here let "0,%." reach the grouping
-        // scan with a separator that has no digits to its right, whose
-        // zero position looped forever in `compute_int_group_positions`
-        // (jsntrs-spm). jsntrs reports the first violated rule; the
-        // reference's validate() lets the last-checked rule win, so a
-        // picture that also breaks a later rule (digit order, exponent
-        // shape) gets a different code there — tracked in jsntrs-p0v.23.
-        if !fc.is_active_char(c) {
-            return Err(JsonataError::new(
-                "D3086",
-                "$formatNumber: invalid character in active picture region",
-            ));
-        }
-    }
-
-    sp.scale = contains_scaling(runes, fc)?;
-    Ok((active, start))
+    Ok((&runes[start..=end], start))
 }
 
 /// Locate the exponent separator, as an index into the active slice.
@@ -275,8 +241,18 @@ fn scan_sub_picture_region<'a>(
 /// stepped over ("e0.0") is not picked up again. A separator sitting
 /// immediately *after* the active region (index `active.len()`, i.e. the
 /// first character of the suffix) still introduces an exponent part — an
-/// empty one, which `locate_sub_picture_separators` rejects. That is what
-/// makes `"0.0e"` a D3093 rather than a literal `e` suffix.
+/// empty one, which `validate_sub_picture` rejects. That is what makes
+/// `"0.0e"` a D3093 rather than a literal `e` suffix.
+///
+/// The index is relative to the active region, which is where the mantissa
+/// and exponent split. jsonata-js instead keeps the separator's index in the
+/// whole sub-picture and then slices the *active part* with it, so every
+/// picture with both a prefix and an exponent splits at the wrong offset
+/// there: `"$0.0e0"` is a spurious D3093 (its exponent part comes out empty),
+/// and `"-0E.0"` with `exponent-separator` `E` is accepted, the `.` having
+/// been swallowed into the mantissa. jsntrs stays XPath-correct and does not
+/// replicate the off-by-prefix bug — a deliberate deviation, like the D3085
+/// answer above (jsntrs-p0v.23).
 fn locate_exponent(
     runes: &[char],
     start: usize,
@@ -288,146 +264,188 @@ fn locate_exponent(
     (rel <= active_len).then_some(rel)
 }
 
-fn locate_sub_picture_separators(
-    active: &[char],
-    exp_pos: Option<usize>,
-    fc: &FmtChars,
-    scale: u8,
-) -> Result<Option<usize>, JsonataError> {
-    let mut dec_pos: Option<usize> = None;
-
-    for (i, &c) in active.iter().enumerate() {
-        if c == fc.decimal_sep {
-            if dec_pos.is_some() {
-                return Err(JsonataError::new(
-                    "D3081",
-                    "$formatNumber: picture has more than one decimal separator",
-                ));
-            }
-            dec_pos = Some(i);
-        }
-    }
-
-    if let Some(ep) = exp_pos {
-        // `ep` may be one past the active region, and it may be the last
-        // active character; either way the exponent part is empty, which
-        // jsonata-js reports as D3093 (the exponent part must comprise one
-        // or more digit-family characters).
-        let exp_part = active.get(ep + 1..).unwrap_or(&[]);
-        if exp_part.is_empty() {
-            return Err(JsonataError::new(
-                "D3093",
-                "$formatNumber: exponent part must contain at least one digit",
-            ));
-        }
-        if scale != 0 {
-            return Err(JsonataError::new(
-                "D3092",
-                "$formatNumber: percent/per-mille cannot appear in picture with exponent separator",
-            ));
-        }
-        if exp_part.contains(&fc.grouping_sep) {
-            return Err(JsonataError::new(
-                "D3093",
-                "$formatNumber: grouping separator cannot appear in exponent",
-            ));
-        }
-    }
-
-    Ok(dec_pos)
+/// A sub-picture cut into the regions the F&O 4.7.3 rules are phrased over.
+struct SubPictureParts<'a> {
+    /// The whole sub-picture. Several rules search this rather than the
+    /// active region: jsonata-js applies them to `subpicture` directly, so a
+    /// grouping separator in the *suffix* still trips D3087/D3089.
+    picture: &'a [char],
+    active: &'a [char],
+    mantissa: &'a [char],
+    integer: &'a [char],
+    fraction: &'a [char],
+    /// `None` when the picture has no exponent separator at all; `Some(&[])`
+    /// when it has one with nothing behind it.
+    exponent: Option<&'a [char]>,
 }
 
-fn parse_int_part(
-    int_part: &[char],
-    fc: &FmtChars,
-    sp: &mut SubPicture,
-) -> Result<(), JsonataError> {
-    let mut last_was_group = false;
-    let mut seen_mandatory = false;
+/// The worst rule violated so far.
+///
+/// jsonata-js `validate()` walks the rules in ascending code order assigning a
+/// single `error` variable, so on a multiply-invalid picture the *last*
+/// assignment — the highest-numbered violated rule — is the one reported:
+/// `"0%,"` is D3088, not D3082-adjacent; `"0.0e%0"` is D3093, not D3092;
+/// `"#%.0.0#"` is D3086, not D3081. jsntrs used to report the first rule it
+/// tripped over. Keeping the maximum reproduces "last assignment wins"
+/// without tying the answer to the order the checks happen to run in
+/// (jsntrs-p0v.23).
+#[derive(Default)]
+struct WorstRule(Option<&'static str>);
 
-    for (i, &c) in int_part.iter().enumerate() {
+impl WorstRule {
+    fn note(&mut self, code: &'static str) {
+        match self.0 {
+            Some(seen) if seen >= code => {}
+            _ => self.0 = Some(code),
+        }
+    }
+}
+
+fn picture_error(code: &'static str) -> JsonataError {
+    let message = match code {
+        "D3081" => "picture has more than one decimal separator",
+        "D3082" => "picture has more than one percent character",
+        "D3083" => "picture has more than one per-mille character",
+        "D3084" => "picture has both percent and per-mille characters",
+        "D3085" => "picture mantissa has no digit placeholders",
+        "D3086" => "invalid character in active picture region",
+        "D3087" => "grouping separator adjacent to decimal separator",
+        "D3088" => "grouping separator at end of integer part",
+        "D3089" => "adjacent grouping separators in picture",
+        "D3090" => "optional digit cannot follow mandatory digit in integer part",
+        "D3091" => "mandatory digit cannot follow optional digit in fraction part",
+        "D3092" => "percent/per-mille cannot appear in picture with exponent separator",
+        _ => "exponent part must comprise digit-family characters",
+    };
+    JsonataError::new(code, format!("$formatNumber: {message}"))
+}
+
+/// Check every F&O 4.7.3 rule and report the highest-numbered violation.
+fn validate_sub_picture(p: &SubPictureParts<'_>, fc: &FmtChars) -> Option<JsonataError> {
+    let mut worst = WorstRule::default();
+
+    if count_char(p.picture, fc.decimal_sep) > 1 {
+        worst.note("D3081");
+    }
+    let percents = count_char(p.picture, fc.percent);
+    let per_milles = count_char(p.picture, fc.per_mille);
+    if percents > 1 {
+        worst.note("D3082");
+    }
+    if per_milles > 1 {
+        worst.note("D3083");
+    }
+    if percents > 0 && per_milles > 0 {
+        worst.note("D3084");
+    }
+
+    if !p
+        .mantissa
+        .iter()
+        .any(|&c| fc.is_digit_char(c) || c == fc.digit)
+    {
+        worst.note("D3085");
+    }
+
+    // Percent and per-mille are passive characters: legal only in the prefix
+    // or suffix, never between active characters. Exempting them here let
+    // "0,%." reach the grouping scan with a separator that has no digits to
+    // its right, whose zero position looped forever in
+    // `compute_int_group_positions` (jsntrs-spm).
+    if p.active.iter().any(|&c| !fc.is_active_char(c)) {
+        worst.note("D3086");
+    }
+
+    // A grouping separator on either side of the decimal separator is
+    // D3087 — including one in the suffix, since the reference tests the
+    // characters around the separator in the whole sub-picture. Only a
+    // picture with no decimal separator at all reaches the D3088 rule.
+    match p.picture.iter().position(|&c| c == fc.decimal_sep) {
+        Some(d) => {
+            let before = d.checked_sub(1).map(|i| p.picture[i]);
+            let after = p.picture.get(d + 1).copied();
+            if before == Some(fc.grouping_sep) || after == Some(fc.grouping_sep) {
+                worst.note("D3087");
+            }
+        }
+        None => {
+            if p.integer.last() == Some(&fc.grouping_sep) {
+                worst.note("D3088");
+            }
+        }
+    }
+
+    if p.picture
+        .windows(2)
+        .any(|w| w[0] == fc.grouping_sep && w[1] == fc.grouping_sep)
+    {
+        worst.note("D3089");
+    }
+
+    if let Some(i) = p.integer.iter().position(|&c| c == fc.digit)
+        && p.integer[..i].iter().any(|&c| fc.is_digit_char(c))
+    {
+        worst.note("D3090");
+    }
+    if let Some(i) = p.fraction.iter().rposition(|&c| c == fc.digit)
+        && p.fraction[i..].iter().any(|&c| fc.is_digit_char(c))
+    {
+        worst.note("D3091");
+    }
+
+    if let Some(exponent) = p.exponent {
+        if !exponent.is_empty() && (percents > 0 || per_milles > 0) {
+            worst.note("D3092");
+        }
+        // The exponent part must comprise one or more digit-family
+        // characters: `#` and a grouping separator are as invalid there as a
+        // passive character, and D3093 outranks the D3092 an exponent
+        // picture with a percent sign also trips.
+        if exponent.is_empty() || exponent.iter().any(|&c| !fc.is_digit_char(c)) {
+            worst.note("D3093");
+        }
+    }
+
+    worst.0.map(picture_error)
+}
+
+fn analyse_int_part(int_part: &[char], fc: &FmtChars, sp: &mut SubPicture) {
+    for &c in int_part {
         if fc.is_digit_char(c) {
-            seen_mandatory = true;
-            last_was_group = false;
             sp.int_mandatory += 1;
             sp.has_any_int_digit = true;
         } else if c == fc.digit {
-            if seen_mandatory {
-                return Err(JsonataError::new(
-                    "D3090",
-                    "$formatNumber: optional digit cannot follow mandatory digit in integer part",
-                ));
-            }
-            last_was_group = false;
             sp.int_optional += 1;
             sp.has_any_int_digit = true;
-        } else if c == fc.grouping_sep {
-            if last_was_group {
-                return Err(JsonataError::new(
-                    "D3089",
-                    "$formatNumber: adjacent grouping separators in picture",
-                ));
-            }
-            if i == int_part.len() - 1 {
-                if sp.has_decimal {
-                    return Err(JsonataError::new(
-                        "D3087",
-                        "$formatNumber: grouping separator adjacent to decimal separator",
-                    ));
-                }
-                return Err(JsonataError::new(
-                    "D3088",
-                    "$formatNumber: grouping separator at end of integer part",
-                ));
-            }
-            last_was_group = true;
-        } else if c == fc.percent || c == fc.per_mille {
-            last_was_group = false;
         }
     }
 
-    // Compute grouping positions (from the right).
-    let mut int_digit_count_from_right: usize = 0;
+    // Grouping positions, counted in digits from the right.
+    let mut digits_to_the_right: usize = 0;
     for i in (0..int_part.len()).rev() {
         let c = int_part[i];
         if fc.is_digit_char(c) || c == fc.digit {
-            int_digit_count_from_right += 1;
+            digits_to_the_right += 1;
         } else if c == fc.grouping_sep {
-            sp.int_grp_pos.push(int_digit_count_from_right);
+            sp.int_grp_pos.push(digits_to_the_right);
         }
     }
-
-    Ok(())
 }
 
-fn parse_frac_part(
-    frac_part: &[char],
-    fc: &FmtChars,
-    sp: &mut SubPicture,
-) -> Result<(), JsonataError> {
-    let mut seen_optional = false;
-    let mut frac_digit_count: usize = 0;
+fn analyse_frac_part(frac_part: &[char], fc: &FmtChars, sp: &mut SubPicture) {
+    let mut digits_to_the_left: usize = 0;
 
     for &c in frac_part {
         if fc.is_digit_char(c) {
-            if seen_optional {
-                return Err(JsonataError::new(
-                    "D3091",
-                    "$formatNumber: mandatory digit cannot follow optional digit in fraction part",
-                ));
-            }
-            frac_digit_count += 1;
+            digits_to_the_left += 1;
             sp.frac_mandatory += 1;
         } else if c == fc.digit {
-            seen_optional = true;
-            frac_digit_count += 1;
+            digits_to_the_left += 1;
             sp.frac_optional += 1;
         } else if c == fc.grouping_sep {
-            sp.frac_grp_pos.push(frac_digit_count);
+            sp.frac_grp_pos.push(digits_to_the_left);
         }
     }
-
-    Ok(())
 }
 
 pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, JsonataError> {
@@ -436,48 +454,44 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
 
     let (active, start) = scan_sub_picture_region(&runes, fc, &mut sp)?;
     let exp_pos = locate_exponent(&runes, start, active.len(), fc);
-    let dec_pos = locate_sub_picture_separators(active, exp_pos, fc, sp.scale)?;
-
-    // The exponent part was validated as non-empty above, so `e` indexes the
-    // active slice with at least one character behind it.
-    let (int_part, frac_part, exp_part) = match (dec_pos, exp_pos) {
-        (Some(d), Some(e)) => {
-            // `e == d` when one character is configured as both separators;
-            // splitting the mantissa there has no meaning. jsntrs used to
-            // panic on the empty slice range this produced.
-            if e <= d {
-                return Err(JsonataError::new("D3085", "$formatNumber: invalid picture"));
-            }
-            (&active[..d], &active[d + 1..e], &active[e + 1..])
-        }
-        (Some(d), None) => (&active[..d], &active[d + 1..], &active[0..0]),
-        (None, Some(e)) => (&active[..e], &active[0..0], &active[e + 1..]),
-        (None, None) => (active, &active[0..0], &active[0..0]),
+    // `exp_pos` may sit one past the active region (a separator that opens the
+    // suffix), which leaves the whole region as the mantissa and the exponent
+    // part empty.
+    let mantissa = exp_pos.map_or(active, |e| &active[..e.min(active.len())]);
+    let exponent = exp_pos.map(|e| active.get(e + 1..).unwrap_or(&[]));
+    // The decimal separator is looked for in the mantissa alone: one in the
+    // exponent part is a D3093, not a mantissa split. When a single character
+    // is configured as both separators the exponent wins, exactly as in
+    // jsonata-js — "0.0" with `exponent-separator` "." is mantissa "0",
+    // exponent "0", and jsntrs used to panic on the backwards slice range.
+    let decimal = mantissa.iter().position(|&c| c == fc.decimal_sep);
+    let (integer, fraction) = match decimal {
+        Some(d) => (&mantissa[..d], &mantissa[d + 1..]),
+        None => (mantissa, &mantissa[..0]),
     };
 
-    if dec_pos.is_some() {
-        sp.has_decimal = true;
+    if let Some(err) = validate_sub_picture(
+        &SubPictureParts {
+            picture: &runes,
+            active,
+            mantissa,
+            integer,
+            fraction,
+            exponent,
+        },
+        fc,
+    ) {
+        return Err(err);
     }
 
-    parse_int_part(int_part, fc, &mut sp)?;
+    sp.scale = scaling_factor(&runes, fc);
+    sp.has_decimal = decimal.is_some();
+    analyse_int_part(integer, fc, &mut sp);
+    analyse_frac_part(fraction, fc, &mut sp);
 
-    let has_frac_digit = frac_part
-        .iter()
-        .any(|&c| fc.is_digit_char(c) || c == fc.digit);
-    if !sp.has_any_int_digit && !has_frac_digit && (dec_pos.is_some() || exp_pos.is_some()) {
-        return Err(JsonataError::new(
-            "D3085",
-            "$formatNumber: picture has no digit placeholders in mantissa",
-        ));
-    }
-
-    parse_frac_part(frac_part, fc, &mut sp)?;
-
-    for &c in exp_part {
-        if fc.is_digit_char(c) || c == fc.digit {
-            sp.exp_mandatory += 1;
-        }
-    }
+    // Validation has already rejected anything but digit-family characters in
+    // the exponent part.
+    sp.exp_mandatory = exponent.map_or(0, <[char]>::len);
     sp.exp_min_width = sp.exp_mandatory;
 
     Ok(sp)
@@ -942,16 +956,93 @@ mod tests {
         );
     }
 
-    /// jsntrs used to panic ("slice index starts at 2 but ends at 1") when
-    /// one character was configured as both the decimal and the exponent
-    /// separator, because the mantissa split ran backwards. It is a picture
-    /// error now. jsonata-js answers "1.3" here; matching that needs the
-    /// mantissa/exponent split reworked, which is left for a follow-up.
+    /// One character configured as both the decimal and the exponent
+    /// separator is an exponent separator: the mantissa ends there, so
+    /// `"0.0"` is mantissa "0", exponent "0". Expected values verified
+    /// against jsonata-js 2.1.0. jsntrs used to panic here ("slice index
+    /// starts at 2 but ends at 1") because the mantissa split ran backwards,
+    /// then answered D3085 (jsntrs-p0v.23).
     #[test]
-    fn separator_that_is_both_decimal_and_exponent_is_an_error() {
+    fn separator_that_is_both_decimal_and_exponent_splits_the_exponent() {
         let both = r#"{"exponent-separator": "."}"#;
-        assert_eq!(fmt_opts(1234.5678, "0.0", both), Err("D3085"));
-        assert_eq!(fmt_opts(1234.5678, "0.00", both), Err("D3085"));
+        assert_eq!(fmt_opts(1234.5678, "0.0", both), Ok("1.3".to_string()));
+        assert_eq!(fmt_opts(1234.5678, "0.00", both), Ok("1.03".to_string()));
+        assert_eq!(fmt_opts(1.3, "0.0", both), Ok("1.0".to_string()));
+        assert_eq!(fmt_opts(1.3, "0.00", both), Ok("1.00".to_string()));
+        // Two of them are still two decimal separators — and the second one
+        // lands in the exponent part, which outranks D3081.
+        assert_eq!(fmt_opts(1.3, "0.0.0", both), Err("D3093"));
+    }
+
+    /// Expected codes verified against jsonata-js 2.1.0 (jsntrs-p0v.23).
+    /// jsonata-js `validate()` assigns one error variable in ascending code
+    /// order, so the highest-numbered violated rule is the one reported;
+    /// jsntrs used to answer whichever rule it checked first.
+    #[test]
+    fn the_highest_numbered_violated_rule_is_reported() {
+        for (picture, code) in [
+            ("0%,", "D3088"),    // over D3082's neighbourhood
+            ("0#%0", "D3090"),   // over D3086
+            ("0.0%e0", "D3092"), // over D3086
+            ("0.0e%0", "D3093"), // over D3092
+            ("#%.0.0#", "D3086"),
+            ("‰,‰0- ", "D3086"), // over D3083
+            ("0.,,0", "D3089"),  // over D3087
+        ] {
+            assert_eq!(
+                fmt_args(&[Value::Number(7.0), Value::String(picture.into())]),
+                Err(code),
+                "{picture}"
+            );
+        }
+    }
+
+    /// Rules the reference phrases over the whole sub-picture, not over the
+    /// active region: a grouping separator on either side of the decimal
+    /// separator is D3087 wherever it sits, and two adjacent grouping
+    /// separators are D3089. Expected codes verified against jsonata-js
+    /// 2.1.0; jsntrs saw only the integer part and accepted "0.,0".
+    #[test]
+    fn grouping_separator_rules_span_the_whole_sub_picture() {
+        for (picture, code) in [("0,.0", "D3087"), ("0.,0", "D3087"), ("0,,0", "D3089")] {
+            assert_eq!(
+                fmt_args(&[Value::Number(7.0), Value::String(picture.into())]),
+                Err(code),
+                "{picture}"
+            );
+        }
+    }
+
+    /// The exponent part must comprise digit-family characters: an optional
+    /// digit, a grouping separator or a sign are all D3093. Expected codes
+    /// verified against jsonata-js 2.1.0; jsntrs only rejected an empty
+    /// exponent part and a grouping separator in it (jsntrs-p0v.23).
+    #[test]
+    fn exponent_part_must_be_digit_family() {
+        for picture in ["0.0e#", "0.0e0#", "0.0e-0", "0.0e0,0", "0e0.0"] {
+            assert_eq!(
+                fmt_args(&[Value::Number(1234.5678), Value::String(picture.into())]),
+                Err("D3093"),
+                "{picture}"
+            );
+        }
+    }
+
+    /// jsonata-js indexes the *active part* with the exponent separator's
+    /// position in the whole sub-picture, so any picture with both a prefix
+    /// and an exponent splits at the wrong offset there: "$0.0e0" is a
+    /// spurious D3093 (its exponent part comes out empty) and "-0E.0" is
+    /// accepted with the '.' swallowed into the mantissa. jsntrs is
+    /// XPath-correct and does not replicate the off-by-prefix bug
+    /// (jsntrs-p0v.23) — these expectations deliberately differ from the
+    /// reference.
+    #[test]
+    fn the_exponent_split_is_not_offset_by_the_prefix() {
+        assert_eq!(fmt(1234.5678, "$0.0e0"), "$1.2e3");
+        assert_eq!(
+            fmt_opts(7.0, "-0E.0", r#"{"exponent-separator": "E"}"#),
+            Err("D3093")
+        );
     }
 
     /// Expected codes verified against jsonata-js 2.1.0 (jsntrs-spm): a
