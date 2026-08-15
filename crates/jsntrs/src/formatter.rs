@@ -13,6 +13,17 @@ const INDENT: &str = "  ";
 const BREAK_THRESHOLD: usize = 3;
 const LINE_WIDTH: usize = 60;
 
+/// The characters the JSONata lexer skips between tokens — and the only ones
+/// `format` may strip from the end of its output.
+///
+/// `String::trim_end` uses Unicode's much wider notion of whitespace, which
+/// includes characters the lexer treats as ordinary text: `\x0c`, `\u{a0}`,
+/// `\u{2028}` and friends are not stop characters, so one at the end of the
+/// expression belongs to the last *token* — a field name, say — and trimming
+/// it changed the expression (jsntrs-ecq.12). Everything `emit` adds as
+/// padding is in this set.
+const LEXER_SPACE: [char; 5] = [' ', '\t', '\n', '\r', '\u{b}'];
+
 /// A block comment extracted from source: `/* text */` with its byte offset.
 #[derive(Debug, Clone)]
 struct Comment {
@@ -147,7 +158,7 @@ pub fn format(expr: &str) -> Result<String, JsonataError> {
     f.emit_trailing_comments();
     match f.error {
         Some(e) => Err(e),
-        None => Ok(f.out.trim_end().to_string()),
+        None => Ok(f.out.trim_end_matches(LEXER_SPACE).to_string()),
     }
 }
 
@@ -2219,6 +2230,65 @@ mod tests {
                 "not idempotent: {src}"
             );
         }
+    }
+
+    // ── Trailing whitespace ──────────────────────────────────
+
+    /// `String::trim_end` strips Unicode whitespace, which is wider than the
+    /// set the lexer skips: `\x0c`, `\u{a0}`, `\u{2028}`, `\u{85}` are all
+    /// ordinary characters to it, so one at the end of the expression is part
+    /// of the last *token* and trimming it silently renamed the field
+    /// (jsntrs-ecq.12).
+    ///
+    /// The output has to *end* in one for the trim to reach it, which rules
+    /// out a backtick-quoted name (the closing backtick shields it): the two
+    /// spellings that reach the end are a `$variable` and the bare spelling
+    /// forced by a name that itself holds a backtick.
+    #[test]
+    fn trailing_whitespace_the_lexer_does_not_skip_is_token_text() {
+        for space in ['\u{c}', '\u{a0}', '\u{2028}', '\u{85}', '\u{2003}'] {
+            for src in [format!("$x{space}"), format!("a`b{space}")] {
+                let once = fmt(&src);
+                assert!(
+                    once.ends_with(space),
+                    "trailing {space:?} eaten out of {src:?}: {once:?}"
+                );
+                assert_eq!(format(&once).expect("re-parse"), once, "not idempotent");
+            }
+        }
+    }
+
+    /// And the name it belongs to still selects the same field: `` a`b\u{a0} ``
+    /// trimmed down to `` a`b ``, which matches nothing.
+    #[test]
+    fn trimmed_name_would_select_a_different_field() {
+        use crate::Expression;
+        let data = "{\"a`b\u{a0}\": 5, \"a`b\": 6}";
+        let eval = |text: &str| {
+            Expression::compile(text)
+                .unwrap_or_else(|e| panic!("compile `{text}`: {e}"))
+                .evaluate(data)
+                .unwrap_or_else(|e| panic!("eval `{text}`: {e}"))
+                .to_string()
+        };
+        let src = "a`b\u{a0}";
+        assert_eq!(eval(src), "5", "unexpected source result");
+        assert_eq!(eval(&fmt(src)), "5", "formatted output changed the name");
+        // The spelling the old trim produced picks the other field.
+        assert_eq!(eval("a`b"), "6");
+    }
+
+    /// The whitespace the lexer *does* skip is still stripped — including the
+    /// indent `emit_comments_before` leaves behind.
+    #[test]
+    fn trailing_lexer_whitespace_is_still_trimmed() {
+        for src in ["a  ", "a\n\t", "a\r\n", "a\u{b}", "  a \t\n"] {
+            assert_eq!(fmt(src), "a", "not trimmed: {src:?}");
+        }
+        assert!(
+            !fmt("$x /* end */").ends_with(' '),
+            "comment indent left dangling"
+        );
     }
 
     // ── Error handling ───────────────────────────────────────
