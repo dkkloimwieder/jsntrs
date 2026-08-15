@@ -1,0 +1,6 @@
+{
+    "expr": "$string(1.2345678901234567e21)",
+    "dataset": null,
+    "bindings": {},
+    "result": "1.2345678901234568e+21"
+}

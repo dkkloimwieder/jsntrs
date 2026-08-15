@@ -1,0 +1,6 @@
+{
+    "expr": "$string(999999999999999.9)",
+    "dataset": null,
+    "bindings": {},
+    "result": "1000000000000000"
+}

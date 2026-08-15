@@ -973,6 +973,14 @@ mod tests {
         let big = Value::from_json_str("123456789012345678901").unwrap();
         assert_eq!(big.as_f64(), Some(1.234_567_890_123_456_8e20));
         assert_eq!(big.to_json_string(), "123456789012345680000");
+        // The `$string()` casting layer agrees here: jsonata-js's stringify
+        // replacer only rounds *non*-integers to 15 significant digits, so a
+        // whole number this large keeps every digit on both layers
+        // (jsntrs-p0v.24).
+        assert_eq!(
+            format_float(1.234_567_890_123_456_8e20),
+            "123456789012345680000"
+        );
 
         assert_eq!(
             Value::from_json_str("1e400").unwrap().as_f64(),
