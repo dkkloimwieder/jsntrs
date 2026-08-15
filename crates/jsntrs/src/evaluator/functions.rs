@@ -351,8 +351,17 @@ pub fn eval_partial(
                 )
                 .with_token(value.clone()));
             }
+            // Not a bare `Name` step, so the callee was already written with
+            // its `$`: T1007 is the "you forgot the $" variant and cannot
+            // apply here. The documentation's own run-time-error example is
+            // this shape for a full invocation — `$notafunction()` yields
+            // `code: "T1006"`, the *generic* code, with `token:
+            // "notafunction"` (docs.jsonata.org, Embedding and Extending
+            // JSONata, "expression.evaluate"). T1007/T1008 are the partial-
+            // application analogues of T1005/T1006, so this branch owes the
+            // generic one.
             return Err(JsonataError::new(
-                "T1007",
+                "T1008",
                 "attempted to partially apply an undefined function",
             )
             .or_token(name));

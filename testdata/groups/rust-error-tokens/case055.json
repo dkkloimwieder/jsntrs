@@ -1,0 +1,7 @@
+{
+    "expr": "$undefinedvar(?)",
+    "dataset": null,
+    "bindings": {},
+    "code": "T1008",
+    "token": "undefinedvar"
+}
