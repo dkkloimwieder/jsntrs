@@ -145,72 +145,182 @@ Numbers have a **single** representation, `Value::Number(f64)` (`crates/jsntrs/s
 
 ## 2. Error Code Catalog
 
+### 2.0 What the specification actually requires (provenance)
+
+Read this before treating any row below as normative. **The JSONata
+language documentation does not publish an error-code catalog.** Its
+source tree (`jsonata-js/jsonata/docs/`) has 29 pages and none of them is
+an error reference; only six codes are named anywhere in it, and only one
+of those is named as a language rule:
+
+- **S0217** — *"It is implemented by static analysis of the expression at
+  compile time and can only be used within expressions that navigate
+  through that target parent value in the first place. If, for any
+  reason, the parent location cannot be determined, then a **static
+  error (S0217)** is thrown."* (Path Operators, `%` (Parent)). This is
+  the only code the documentation attaches to a language rule — and it
+  requires the error to be **static**, i.e. raised when the expression is
+  compiled. jsntrs raises S0217 at **evaluation** time
+  (`evaluator/mod.rs`), so `false ? % : 1` evaluates to `1` here and is a
+  compile error in the reference. Tracked as a finding, not fixed: making
+  it static needs the compile-time parent-resolution analysis.
+- **S0202** and **T1006** — named only inside two *illustrative* error
+  objects (Embedding and Extending JSONata). They show shape, not law.
+- **D1011**, **D1012**, **D2015** — the Configuring Guardrails page,
+  which opens *"This page contains information relating to the JavaScript
+  reference implementation of JSONata, and not the JSONata expression
+  language itself."* These are options of that implementation
+  (`stack`, `timeout`, `sequence`), not language codes. jsntrs implements
+  none of them: its depth cap reports **U1001** and its cancellation flag
+  reports **D3001**.
+
+Everything else in this catalog is inherited vocabulary. The only
+complete definition of the other codes is `errorCodes` in jsonata-js
+(2.2.2, `jsonata.js:5446`), which is authority of last resort. Rows below
+therefore describe **what jsntrs emits**, and the *Notes* column flags
+where that sits outside the inherited definition.
+
+### 2.0.1 What an error carries
+
+The documentation specifies the error object only by example. For a parse
+error it shows
+
+```
+{ code: "S0202", stack: "...", position: 16, token: "}", value: "]",
+  message: "Syntax error: expected ']' got '}'" }
+```
+
+and for a run-time error
+
+```
+{ code: "T1006", stack: "...", position: 14, token: "notafunction",
+  message: "Attempted to invoke a non-function" }
+```
+
+(Embedding and Extending JSONata, `jsonata(str[, options])` and
+`expression.evaluate(...)`). Both are introduced with *"for example"*.
+There is **no normative statement anywhere in the documentation that an
+error must carry a token, nor any rule for what a token's value should
+be.** `JsonataError.token` is therefore a compatibility nicety with no
+spec claim behind it, and no expectation should be re-derived from it.
+
+Two consequences jsntrs holds to:
+
+1. jsntrs attaches a token only where it names something that appears in
+   the source: an operator (`+`, `<=`, `&`, `..`, `@`), the name a call
+   site invokes (`abs`, `map`, `substring`), a variable name (`x`, `B`),
+   or a literal (`1e1000`). All 81 pinned `token` expectations in
+   `testdata/` are of that kind.
+2. jsntrs does **not** reproduce the reference's AST-label tokens. For
+   S0217, jsonata 2.2.2 reports `token: "parent"` for `%`, `token:
+   "path"` for `%.a` and `token: "function"` for `$foo(%)` — the parser's
+   enclosing *node type*, not a source token. jsntrs leaves the S0217
+   token empty. Do not port those.
+
 ### 2.1 Syntax/Lexer Errors (S0xxx)
 
-| Code | Trigger | Message Pattern |
+| Code | Trigger | Notes |
 |---|---|---|
-| S0101 | Unterminated string literal | String literal must be terminated |
-| S0102 | Invalid number literal | Number out of range |
-| S0103 | Invalid escape sequence in string | Unsupported escape sequence |
-| S0104 | Invalid unicode escape `\uXXXX` | Invalid unicode codepoint |
-| S0105 | Unterminated backtick-quoted name | Quoted name must be terminated |
-| S0106 | Unclosed block comment `/*` | Block comment must be terminated |
-| S0201 | Unexpected token in expression | Syntax error: unexpected token |
-| S0202 | Expected token not found | Expected `X` got `Y` |
-| S0203 | Expected token type | Expected `X` before end of expression |
-| S0206 | Unmatched bracket/paren | Unmatched `X` |
-| S0211 | Invalid regex grouping | Regex error |
-| S0213 | Invalid step in path (numeric literal) | Invalid step |
-| S0217 | `%` operator outside valid path context | Parent operator not valid |
-| S0301 | Empty regex pattern | Empty regex |
-| S0302 | Invalid regex (bad flag or syntax) | Invalid regex flag / Invalid regex |
-| S0401 | Content-type on non-array/function type | Signature error |
-| S0402 | Malformed function signature | Signature parse error |
+| S0101 | Unterminated string literal | |
+| S0102 | Invalid number literal | |
+| S0103 | Unsupported escape sequence in a string | |
+| S0104 | `\u` not followed by four hex digits | |
+| S0105 | Unterminated backtick-quoted name | |
+| S0106 | Unclosed block comment `/*` | |
+| S0201 | Syntax error at a token; also "unexpected end of expression" for a truncated prefix (`a[`, `a.b.`, `$a := `) | reference reports S0203/S0207 for those three |
+| S0202 | Expected token `X`, got `Y` | |
+| S0203 | Expected `X` before end of expression | |
+| S0204 | Malformed array constructor (`[1,2` with no `]`) | reference reports S0203; its S0204 means "unknown operator" |
+| S0207 | Nothing follows an infix operator (`1 + `) | |
+| S0208 | Function-definition parameter is not a `$variable` | |
+| S0209 | Predicate follows a grouping expression in a step | |
+| S0210 | More than one grouping expression in a step | |
+| S0211 | Symbol cannot be used as a unary/prefix operator | *not* "invalid regex grouping" — earlier revisions of this file said so |
+| S0212 | Left side of `:=` is not a `$variable` | token left empty; reference names the offending LHS |
+| S0213 | Literal value used as a step in a path | |
+| S0214 | Right side of `@`/`#` is not a variable name | |
+| S0215 | Context variable binding must precede predicates on a step | |
+| S0216 | Context variable binding must precede the order-by clause | |
+| S0217 | `%` cannot be resolved to a parent | **raised at evaluation, not compile time** — see §2.0 |
+| S0301 | Empty regex literal | |
+| S0302 | Invalid regex flag / unterminated regex | |
+| S0401 | Type parameters applied to something other than a function or array | |
+| S0402 | Malformed function signature (union group, content type) | |
+
+jsntrs never emits **S0205** or **S0206**. An earlier revision of this
+file listed S0206 as "unmatched bracket/paren"; in the inherited catalog
+S0206 is "Unknown expression type" and jsntrs has no site for it.
 
 ### 2.2 Type Errors (T0xxx, T1xxx, T2xxx)
 
-| Code | Trigger | Message Pattern |
+| Code | Trigger | Notes |
 |---|---|---|
-| T0410 | Argument type mismatch / wrong arity | Argument `N` of function must be... |
-| T0412 | Array content-type violation | Array element type mismatch |
-| T1003 | Key expression evaluates to non-string | Key must evaluate to string |
-| T1005 | Function invoked without `$` prefix | Attempted to invoke unquoted name |
-| T1006 | Attempted to invoke undefined/non-function | Attempted to invoke non-function |
-| T1007 | Partial application of non-$ function | Cannot partially apply |
-| T1008 | Partial application of non-function | Cannot partially apply non-function |
-| T2001 | Arithmetic operand is not a number | Left/right operand must be number |
-| T2002 | Arithmetic operand is null | Left/right operand must be number (null) |
-| T2003 | Range left side not integer | Left side of range must be integer |
-| T2004 | Range right side not integer | Right side of range must be integer |
-| T2006 | `~>` right side not a function | Right side of chain must be function |
-| T2007 | Cannot compare string and number | Cannot compare string and number |
-| T2008 | Cannot compare incompatible types | Cannot compare types |
-| T2009 | Comparison operands must be same type | Operands must be both numbers or strings |
-| T2010 | Comparison operands must be numbers or strings | Operands must be numbers or strings |
-| T2011 | Transform update clause must return object | Transform update must be object |
-| T2012 | Transform delete clause must return string/array of strings | Transform delete must be strings |
+| T0410 | Argument `N` does not match the function signature; also arity violations | the general-purpose argument error |
+| T0411 | Context value is not compatible with argument `N` | only for focus-substituted calls (`5.$uppercase()`) |
+| T0412 | Argument `N` must be an array of `<type>` | also `$merge(1)` — a bare value is the one-element sequence, so it is the same condition as `$merge([1])` |
+| T1003 | Object key expression did not evaluate to a string | |
+| T1005 | Invoking a name bound as a function but written without `$` | the "did you mean `$x`?" variant |
+| T1006 | Attempted to invoke a non-function | the generic variant; documented shape (§2.0.1) |
+| T1007 | Partially applying a name bound without `$` | the "did you mean `$x`?" variant |
+| T1008 | Attempted to partially apply a non-function | the generic variant, including `$undefinedvar(?)` |
+| T1010 | Matcher function does not return the expected object structure | |
+| T2001 | Left operand of an arithmetic operator is not a number | |
+| T2002 | Right operand of an arithmetic operator is not a number | |
+| T2003 | Left side of `..` is not an integer | |
+| T2004 | Right side of `..` is not an integer | |
+| T2006 | Right side of `~>` is not a function | |
+| T2007 | Order-by comparison of mismatched types | |
+| T2008 | Order-by expression is neither numeric nor string | |
+| T2009 | Comparison operands are of different types | |
+| T2010 | Comparison operands are neither numeric nor string | |
+| T2011 | Transform insert/update clause did not evaluate to an object | |
+| T2012 | Transform delete clause is not a string or array of strings | |
 
 ### 2.3 Domain/Runtime Errors (D1xxx, D2xxx, D3xxx)
 
-| Code | Trigger | Message Pattern |
+| Code | Trigger | Notes |
 |---|---|---|
-| D1001 | Number out of range (Inf/NaN from arithmetic) | Number out of range |
-| D1002 | Invalid regex pattern / unary minus on non-number | Invalid regex / Cannot negate |
-| D1009 | Duplicate key in object/group construction | Duplicate key |
-| D2014 | Range exceeds 10M elements | Range too large |
-| D3001 | Modulo by zero | Modulo by zero |
-| D3010 | `$replace` empty pattern; invalid regex argument to `$contains`/`$split`; malformed `$base64decode` input | Pattern cannot be empty / invalid regex / bad base64 |
-| D3030 | `$number` cannot cast value | Cannot cast to number |
-| D3060 | `$sqrt` of negative number | Negative square root |
-| D3061 | `$power` result non-finite | Power result non-finite |
-| D3070 | Sort type mismatch | Cannot sort mixed types |
-| D3121 | `$eval` maximum nesting exceeded | Maximum nesting depth exceeded |
+| D1001 | Non-finite arithmetic result (`1e308 * 10`) | `/` is exempt: `5/0` yields Infinity and errors only when consumed |
+| D1002 | Unary minus on a non-numeric value; **also** an invalid regex in the match path | the second use sits outside the inherited definition ("cannot negate a non-numeric value") |
+| D1004 | `$replace` pattern matches a zero-length string | |
+| D1009 | Two key definitions evaluate to the same key | |
+| D2014 | `..` would allocate more than 1e7 elements | |
+| D3001 | String function applied to Infinity/NaN; **also** modulo by zero; **also** evaluation cancelled | only the first matches the inherited definition — see §2.4 |
+| D3006 | Required argument missing (`$not()`, `$eval()`, `$formatNumber()`, `$formatInteger()`, `$parseInteger()`, `$match()`) | **not in any catalog and not in the documentation** — jsntrs-local. Reference answers T0410 |
+| D3010 | `$replace` empty pattern; invalid regex to `$contains`/`$split`; malformed `$base64decode`; **also** `$append`/`$pad` size caps | the size caps are jsntrs-local guardrails |
+| D3011 | `$replace` fourth argument is not a positive number | |
+| D3012 | `$replace` replacement value is not a string | |
+| D3020 | `$split` third argument is not a positive number | |
+| D3030 | `$number` cannot cast the value | |
+| D3050 | `$reduce` function takes fewer than two arguments | |
+| D3060 | `$sqrt` of a negative number | |
+| D3061 | `$power` result cannot be represented as a JSON number | documented condition: Numeric Functions, `$power` |
+| D3070 | Single-argument `$sort` on mixed types | |
+| D3080–D3093 | `$formatNumber` picture-string validation | one code per XPath 3.1 F&O §4.7.3 rule |
+| D3100 | `$formatBase` radix outside 2..36 | documented condition: Numeric Functions, `$formatBase` |
+| D3110 | `$toMillis` argument is not an ISO 8601 timestamp | |
+| D3120 | Syntax error in the expression passed to `$eval` | |
+| D3121 | Dynamic error in `$eval`; also `$eval` nesting depth exceeded | |
+| D3130 | Unsupported `format-integer` sequence | |
+| D3131 | Decimal digit pattern mixes digit groups | |
+| D3132 | Unknown component specifier in a date/time picture | |
+| D3133 | `name` modifier applied to something other than months/days | |
+| D3134 | Timezone specifier has more than four digits | |
+| D3135 | No matching `]` in a date/time picture | |
+| D3136 | Picture is missing specifiers needed to parse the timestamp | |
+| D3137 | `$error()` | message passthrough |
+| D3138 | `$single` matched more than one result | |
+| D3139 | `$single` matched nothing | |
+| D3140 | Malformed URL to `$decodeUrl`/`$decodeUrlComponent`; **also** an unpaired surrogate in a `\uXXXX` string escape | the lexer use sits outside the inherited definition |
+| D3141 | `$assert` | message passthrough |
 
-### 2.4 Stack Overflow
+### 2.4 Non-language codes
 
-| Code | Trigger | Message Pattern |
+| Code | Trigger | Notes |
 |---|---|---|
-| U1001 | Recursive call depth exceeds 100 | Stack overflow |
+| U1001 | Lambda call depth exceeds `DEFAULT_MAX_CALL_DEPTH` (100), or the tail-call trampoline exceeds depth × 10,000 iterations | U1001 is in no catalog; the documentation's only U1001 is a *user-supplied* code in a third-party ReDoS example (Configuring Guardrails). The reference's stack guardrail is D1011 |
+| D3001 | Evaluation cancelled via the cancellation flag | the documented analogue is D1012 ("Evaluation timeout"), on a page that disclaims being the language |
+| D0000 | Not a JSONata error: malformed JSON *input*, and internal invariant violations that should be unreachable | never produced by evaluating a well-formed input |
 
 ---
 
