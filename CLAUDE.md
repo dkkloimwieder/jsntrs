@@ -113,6 +113,15 @@ own suite, so a green run does **not** prove spec-correctness: where an
 inherited case pins an implementation artifact, re-derive the expectation
 from the spec and change the case.
 
+Error **tokens** are not part of the contract. The documentation specifies
+error *codes*; it nowhere says an error must carry a token, and the two it
+shows sit inside "for example" illustrations. The fixtures' tokens are the
+reference parser's internals — S0217's is an AST node type (`path`, `binary`,
+`condition`, `unary`, `function`), which the language has no notion of. The
+engine still attaches tokens and they should stay accurate, but
+`tests/conformance.rs` reports a difference instead of failing on one, and no
+new token expectation should be added to a case.
+
 When you change an inherited case, say so in the case — add a `divergence`
 note giving the reason and the spec citation:
 
