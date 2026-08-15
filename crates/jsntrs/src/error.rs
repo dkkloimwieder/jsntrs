@@ -55,6 +55,24 @@ impl JsonataError {
         self
     }
 
+    /// Attach the source token *only if none is set yet*.
+    ///
+    /// The reference implementation attributes an error to the enclosing
+    /// call site with `if (!err.token) { err.token = procName; }` (jsonata
+    /// 2.2.2 `jsonata.js:4948`), so the innermost site that already named a
+    /// token keeps it: `$map([1], function($x){ $x + 'a' })` stays attached
+    /// to `+`, while `$map([1], function($x){ 1 ~> 2 })` — whose `T2006`
+    /// names nothing — comes out attached to `map`. Contrast
+    /// [`Self::with_token`], which overwrites the way `evaluateBinary`'s
+    /// `err.token = op` does.
+    #[must_use]
+    pub(crate) fn or_token(mut self, token: &str) -> Self {
+        if self.token.is_empty() {
+            self.token.push_str(token);
+        }
+        self
+    }
+
     /// Attach the offending value, rendered as text.
     #[must_use]
     pub fn with_value(mut self, value: impl Into<String>) -> Self {

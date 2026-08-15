@@ -73,8 +73,22 @@ fn eval_concat_chain(
     for &operand in &operands {
         let val = eval_operand(arena, operand, input, env)?;
         if !val.is_undefined() {
-            val.stringify_into(&mut buf)?;
+            // Stringification is the operator's own work, so its failures
+            // carry `&` — the operand evaluation above does not.
+            with_op_token(BinaryOp::Concat, val.stringify_into(&mut buf))?;
         }
+    }
+    Ok(Value::String(buf.into()))
+}
+
+/// `&` on two already-evaluated operands: undefined contributes nothing.
+fn concat_pair(left: &Value, right: &Value) -> JsonataResult {
+    let mut buf = String::new();
+    if !left.is_undefined() {
+        left.stringify_into(&mut buf)?;
+    }
+    if !right.is_undefined() {
+        right.stringify_into(&mut buf)?;
     }
     Ok(Value::String(buf.into()))
 }
@@ -95,6 +109,41 @@ fn collect_concat_operands(arena: &AstArena, node: NodeId, out: &mut Vec<NodeId>
     }
 }
 
+/// Stamp the operator onto an error the way jsonata-js `evaluateBinary` does.
+///
+/// Its `try` wraps *only* the operator application — the right operand is
+/// evaluated on the line above it — and the `catch` assigns `err.token = op`
+/// unconditionally (jsonata 2.2.2 `jsonata.js:3925-3959`). Two consequences
+/// the placement of this call has to preserve:
+///
+/// - operand errors keep their own attribution: `1 + $abs('x')` reports
+///   token `"abs"`, and `1 + (1 ~> 2)` reports no token at all;
+/// - `and`/`or` are the exception, because `evaluateBooleanExpression`
+///   evaluates the deferred right operand *inside* the `try`: `false or
+///   $abs('x')` comes back attributed to `"or"`, overwriting `"abs"`.
+#[inline]
+fn with_op_token<T>(op: BinaryOp, result: JsonataResult<T>) -> JsonataResult<T> {
+    result.map_err(|e| e.with_token(op.as_str()))
+}
+
+/// `and`/`or`, whose right operand is evaluated lazily *and* inside the
+/// reference's token-stamping `try` — see [`with_op_token`].
+fn eval_boolean_op(
+    arena: &AstArena,
+    op: BinaryOp,
+    left: &Value,
+    rhs: NodeId,
+    input: &Value,
+    env: &Rc<Environment>,
+) -> JsonataResult {
+    let short_circuit = op == BinaryOp::Or;
+    if left.to_boolean()? == short_circuit {
+        return Ok(Value::Bool(short_circuit));
+    }
+    let right = eval_operand(arena, rhs, input, env)?;
+    Ok(Value::Bool(right.to_boolean()?))
+}
+
 /// Apply a single binary operator given a pre-evaluated left value and an unevaluated rhs node.
 /// `lhs_node` is the original LHS NodeId (used only for subscript `[` AST inspection).
 fn apply_binary_op(
@@ -108,19 +157,8 @@ fn apply_binary_op(
 ) -> JsonataResult {
     match op {
         // Short-circuit operators.
-        BinaryOp::And => {
-            if !left.to_boolean()? {
-                return Ok(Value::Bool(false));
-            }
-            let right = eval_operand(arena, rhs, input, env)?;
-            Ok(Value::Bool(right.to_boolean()?))
-        }
-        BinaryOp::Or => {
-            if left.to_boolean()? {
-                return Ok(Value::Bool(true));
-            }
-            let right = eval_operand(arena, rhs, input, env)?;
-            Ok(Value::Bool(right.to_boolean()?))
+        BinaryOp::And | BinaryOp::Or => {
+            with_op_token(op, eval_boolean_op(arena, op, &left, rhs, input, env))
         }
         BinaryOp::CondTern => {
             if left.to_boolean()? {
@@ -145,20 +183,13 @@ fn apply_binary_op(
         | BinaryOp::Mod
         | BinaryOp::Pow => {
             let right = eval_operand(arena, rhs, input, env)?;
-            apply_arithmetic(op, &left, &right)
+            with_op_token(op, apply_arithmetic(op, &left, &right))
         }
         // String concatenation — handled by eval_concat_chain before reaching here.
         // This fallback exists only if somehow reached directly (shouldn't happen).
         BinaryOp::Concat => {
             let right = eval_operand(arena, rhs, input, env)?;
-            let mut buf = String::new();
-            if !left.is_undefined() {
-                left.stringify_into(&mut buf)?;
-            }
-            if !right.is_undefined() {
-                right.stringify_into(&mut buf)?;
-            }
-            Ok(Value::String(buf.into()))
+            with_op_token(op, concat_pair(&left, &right))
         }
         // Equality.
         BinaryOp::Eq => {
@@ -178,7 +209,7 @@ fn apply_binary_op(
         // Comparison.
         BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
             let right = eval_operand(arena, rhs, input, env)?;
-            compare_values(&left, &right, op)
+            with_op_token(op, compare_values(&left, &right, op))
         }
         // Membership.
         BinaryOp::In => {
@@ -188,7 +219,7 @@ fn apply_binary_op(
         // Range.
         BinaryOp::Range => {
             let right = eval_operand(arena, rhs, input, env)?;
-            apply_range(&left, &right)
+            with_op_token(op, apply_range(&left, &right))
         }
         _ => Err(JsonataError::new(
             "D3001",

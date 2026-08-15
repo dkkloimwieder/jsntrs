@@ -1,0 +1,7 @@
+{
+    "expr": "function(x){x}",
+    "dataset": null,
+    "bindings": {},
+    "code": "S0208",
+    "token": "x"
+}

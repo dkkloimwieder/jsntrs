@@ -1,0 +1,7 @@
+{
+    "expr": "( $x := 5; $x(?) )",
+    "dataset": null,
+    "bindings": {},
+    "code": "T1008",
+    "token": "x"
+}

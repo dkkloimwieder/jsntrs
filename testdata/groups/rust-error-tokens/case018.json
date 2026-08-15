@@ -1,0 +1,7 @@
+{
+    "expr": "'a' + 1",
+    "dataset": null,
+    "bindings": {},
+    "code": "T2001",
+    "token": "+"
+}

@@ -1,0 +1,16 @@
+{
+    "expr": "$filter(items, function($v){ $v.a = 1 or 2 <= $v.b })",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "result": {
+        "a": 1,
+        "b": "z"
+    }
+}

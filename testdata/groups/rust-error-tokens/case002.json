@@ -1,0 +1,7 @@
+{
+    "expr": "$sqrt(-1)",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3060",
+    "token": "sqrt"
+}

@@ -1,0 +1,14 @@
+{
+    "expr": "items.$number(b)",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "D3030",
+    "token": "number"
+}

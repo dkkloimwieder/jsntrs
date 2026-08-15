@@ -1,0 +1,14 @@
+{
+    "expr": "items.$base64decode(a)",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "T0410",
+    "token": "base64decode"
+}

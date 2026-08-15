@@ -1,0 +1,7 @@
+{
+    "expr": "$sum([1,'a'])",
+    "dataset": null,
+    "bindings": {},
+    "code": "T0412",
+    "token": "sum"
+}

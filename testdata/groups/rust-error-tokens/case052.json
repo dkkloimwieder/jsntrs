@@ -1,0 +1,14 @@
+{
+    "expr": "$filter(items, function($v){ 2 > $v.b and $v.a = 1 })",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "T2009",
+    "token": ">"
+}

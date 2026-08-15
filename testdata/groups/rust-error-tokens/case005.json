@@ -1,0 +1,7 @@
+{
+    "expr": "foo(1)",
+    "dataset": null,
+    "bindings": {},
+    "code": "T1006",
+    "token": "foo"
+}

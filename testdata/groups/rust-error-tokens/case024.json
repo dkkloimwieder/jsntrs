@@ -1,0 +1,7 @@
+{
+    "expr": "true and 1/0",
+    "dataset": null,
+    "bindings": {},
+    "code": "D1001",
+    "token": "and"
+}

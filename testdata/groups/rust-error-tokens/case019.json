@@ -1,0 +1,7 @@
+{
+    "expr": "1 < 'a'",
+    "dataset": null,
+    "bindings": {},
+    "code": "T2009",
+    "token": "<"
+}

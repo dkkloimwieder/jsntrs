@@ -1,0 +1,7 @@
+{
+    "expr": "false or $abs('x')",
+    "dataset": null,
+    "bindings": {},
+    "code": "T0410",
+    "token": "or"
+}

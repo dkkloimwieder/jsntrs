@@ -108,11 +108,43 @@ fn body_is_tail_call(arena: &AstArena, node: NodeId) -> bool {
 pub struct TailCall {
     pub func: FunctionValue,
     pub args: Vec<Value>,
+    /// Call-site name of the tail-called procedure, for error attribution.
+    ///
+    /// The reference's trampoline stamps it onto the procedure it is about
+    /// to apply (`next.token = result.body.procedure.value`, jsonata 2.2.2
+    /// `jsonata.js:4974`) so a failure inside the tail call is attributed to
+    /// the *callee*, not to the frame that trampolined it: in
+    /// `( $A := function(){$B()}; $B := function(){1 ~> 2}; $A() )` the
+    /// T2006 carries token `"B"`. Empty when the callee is not a plain
+    /// `$name` — the reference guards the assignment on
+    /// `procedure.type === 'variable'`.
+    pub token: compact_str::CompactString,
 }
 
 impl fmt::Debug for TailCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TailCall({:?}, {} args)", self.func, self.args.len())
+    }
+}
+
+/// The name a call site invokes a function by, for error attribution.
+///
+/// The reference computes `expr.procedure.type === 'path' ?
+/// expr.procedure.steps[0].value : expr.procedure.value` (jsonata 2.2.2
+/// `jsonata.js:4935`) and attaches it to anything the invocation throws
+/// that is not already attributed. Nodes `processAST` rebuilds without a
+/// `value` — lambda literals and blocks — yield nothing, which is why
+/// `(function($x)<n>{$x})('a')` reports T0410 with no token at all.
+pub(super) fn call_site_name(arena: &AstArena, procedure: NodeId) -> &str {
+    match arena.get(procedure) {
+        Expr::Variable { name, .. } => name.as_str(),
+        Expr::Name { value, .. } => value.as_str(),
+        Expr::Path { steps, .. } => match steps.first().map(|&s| arena.get(s)) {
+            Some(Expr::Variable { name, .. }) => name.as_str(),
+            Some(Expr::Name { value, .. }) => value.as_str(),
+            _ => "",
+        },
+        _ => "",
     }
 }
 
@@ -146,6 +178,11 @@ pub fn eval_function(
         Err(e) => return Err(e),
     };
 
+    // The name this call site invokes the function by; every error the
+    // invocation itself raises is attributed to it unless something nearer
+    // already named a token (see [`call_site_name`]).
+    let name = call_site_name(arena, procedure);
+
     let func = match fn_val {
         Value::Function(f) => f,
         Value::Undefined => {
@@ -157,15 +194,15 @@ pub fn eval_function(
                 return Err(JsonataError::new(
                     "T1005",
                     format!("attempted to invoke a function that has no definition: {value}"),
-                ));
+                )
+                .with_token(value.clone()));
             }
-            return Err(JsonataError::new(
-                "T1006",
-                "attempted to invoke undefined function",
-            ));
+            return Err(
+                JsonataError::new("T1006", "attempted to invoke undefined function").or_token(name),
+            );
         }
         _ => {
-            return Err(JsonataError::new("T1006", "not a function".to_string()));
+            return Err(JsonataError::new("T1006", "not a function".to_string()).or_token(name));
         }
     };
 
@@ -185,7 +222,8 @@ pub fn eval_function(
     // Signature validation for SignedBuiltins at direct call site.
     // HOF callbacks bypass this (they go through call_function instead).
     if let FunctionValue::SignedBuiltin { signature, .. } = &*func {
-        let (coerced, return_undefined) = super::process_call_args(signature, &args)?;
+        let (coerced, return_undefined) =
+            super::process_call_args(signature, &args).map_err(|e| e.or_token(name))?;
         if return_undefined {
             return Ok(Value::Undefined);
         }
@@ -195,12 +233,18 @@ pub fn eval_function(
     }
 
     // Tail-call optimization: if this call is in tail position within a
-    // lambda body, return a TailCall sentinel instead of recursing.
+    // lambda body, return a TailCall sentinel instead of recursing. The
+    // call-site name rides along so the trampoline that eventually applies
+    // it can attribute failures to this callee.
     if thunk && let FunctionValue::Lambda(_) = &*func {
-        return Ok(Value::TailCall(Box::new(TailCall { func: *func, args })));
+        return Ok(Value::TailCall(Box::new(TailCall {
+            func: *func,
+            args,
+            token: name.into(),
+        })));
     }
 
-    let result = call_function(&func, &args, input, env, arena)?;
+    let result = call_function(&func, &args, input, env, arena).map_err(|e| e.or_token(name))?;
     if keep_array && call_result_is_sequence(&result) {
         Ok(super::flag_keep_array(result, Value::Undefined))
     } else {
@@ -286,6 +330,9 @@ pub fn eval_partial(
     };
 
     let fn_val = eval_no_stack_check(arena, procedure, input, env)?;
+    // Same attribution rule as a full invocation (jsonata 2.2.2
+    // `jsonata.js:5103` and `:5117` both name the call site).
+    let name = call_site_name(arena, procedure);
     let func = match fn_val {
         Value::Function(f) => f,
         Value::Undefined => {
@@ -295,23 +342,25 @@ pub fn eval_partial(
                     return Err(JsonataError::new(
                         "T1007",
                         "attempted to partially apply a function referenced without $",
-                    ));
+                    )
+                    .with_token(value.clone()));
                 }
                 return Err(JsonataError::new(
                     "T1008",
                     "cannot partially apply a non-function: the function is not defined",
-                ));
+                )
+                .with_token(value.clone()));
             }
             return Err(JsonataError::new(
                 "T1007",
                 "attempted to partially apply an undefined function",
-            ));
+            )
+            .or_token(name));
         }
         _ => {
-            return Err(JsonataError::new(
-                "T1008",
-                "cannot partially apply a non-function",
-            ));
+            return Err(
+                JsonataError::new("T1008", "cannot partially apply a non-function").or_token(name),
+            );
         }
     };
 
@@ -384,6 +433,12 @@ pub fn call_function(
     let mut current_func = func.clone();
     let mut current_args: Vec<Value> = args.to_vec();
     let mut iter = 0;
+    // Attribution for the frame currently being applied. Empty on the first
+    // pass — the caller (`eval_function`) owns that name — and replaced on
+    // every bounce by the name the tail call was written with, mirroring
+    // `next.token = result.body.procedure.value` in the reference's
+    // trampoline (jsonata 2.2.2 `jsonata.js:4974`).
+    let mut current_token = compact_str::CompactString::default();
 
     loop {
         if env.is_cancelled() {
@@ -392,19 +447,20 @@ pub fn call_function(
 
         match &current_func {
             FunctionValue::SignedBuiltin { func: f, .. } => {
-                return f(&current_args, focus);
+                return f(&current_args, focus).map_err(|e| e.or_token(&current_token));
             }
             FunctionValue::Builtin(f) | FunctionValue::Partial(f) => {
-                return f(&current_args, focus);
+                return f(&current_args, focus).map_err(|e| e.or_token(&current_token));
             }
             FunctionValue::EnvAwareBuiltin(f) => {
-                return f(&current_args, focus, env, arena);
+                return f(&current_args, focus, env, arena).map_err(|e| e.or_token(&current_token));
             }
             FunctionValue::Lambda(lambda) => {
                 // Lambda signature validation.
                 if let Some(specs) = &lambda.signature {
                     let (coerced, return_undefined) =
-                        super::process_call_args(specs, &current_args)?;
+                        super::process_call_args(specs, &current_args)
+                            .map_err(|e| e.or_token(&current_token))?;
                     if return_undefined {
                         return Ok(Value::Undefined);
                     }
@@ -421,7 +477,8 @@ pub fn call_function(
                             "stack overflow error: evaluation exceeded stack depth {}",
                             counter.max
                         ),
-                    ));
+                    )
+                    .or_token(&current_token));
                 }
                 counter.depth.set(depth);
 
@@ -455,10 +512,12 @@ pub fn call_function(
                                     "stack overflow error: evaluation exceeded stack depth {}",
                                     counter.max
                                 ),
-                            ));
+                            )
+                            .or_token(&current_token));
                         }
                         current_func = tc.func;
                         current_args = tc.args;
+                        current_token = tc.token;
                     }
                     // The body is a syntactic position: the reference
                     // evaluates it with `evaluate()`, so a sequence has
@@ -466,8 +525,14 @@ pub fn call_function(
                     // returns — unless the body is a tail-position call,
                     // whose result the trampoline hands back raw
                     // (jsntrs-p0v.6).
-                    other if lambda.tail_call_body => return other,
-                    other => return other.map(super::collapse_sequence),
+                    other if lambda.tail_call_body => {
+                        return other.map_err(|e| e.or_token(&current_token));
+                    }
+                    other => {
+                        return other
+                            .map(super::collapse_sequence)
+                            .map_err(|e| e.or_token(&current_token));
+                    }
                 }
             }
         }

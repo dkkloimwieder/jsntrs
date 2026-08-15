@@ -1,0 +1,7 @@
+{
+    "expr": "[1,2].$abs('x')",
+    "dataset": null,
+    "bindings": {},
+    "code": "T0410",
+    "token": "abs"
+}

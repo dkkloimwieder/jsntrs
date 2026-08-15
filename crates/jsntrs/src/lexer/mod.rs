@@ -326,10 +326,14 @@ impl Lexer {
                     }
                 }
                 _ => {
+                    // The reference attaches the offending character, not
+                    // the backslash (`token: currentChar`, jsonata 2.2.2
+                    // jsonata.js:5983).
                     return Err(lex_error(
                         "S0103",
                         &format!("invalid escape sequence: \\{}", esc as char),
-                    ));
+                    )
+                    .with_token((esc as char).to_string()));
                 }
             }
         }
@@ -374,14 +378,17 @@ impl Lexer {
         let num_str = std::str::from_utf8(&self.src[num_start..self.pos])
             .unwrap_or("0")
             .to_owned();
-        let f: f64 = num_str
-            .parse()
-            .map_err(|_| lex_error("S0102", &format!("invalid number literal: {num_str}")))?;
+        // The reference attaches the whole numeric text it matched
+        // (`token: match[0]`, jsonata 2.2.2 jsonata.js:6014).
+        let f: f64 = num_str.parse().map_err(|_| {
+            lex_error("S0102", &format!("invalid number literal: {num_str}"))
+                .with_token(num_str.clone())
+        })?;
         if f.is_infinite() || f.is_nan() {
-            return Err(lex_error(
-                "S0102",
-                &format!("invalid number literal: {num_str}"),
-            ));
+            return Err(
+                lex_error("S0102", &format!("invalid number literal: {num_str}"))
+                    .with_token(num_str.clone()),
+            );
         }
         Ok(Token::number(num_str, f, start_pos))
     }

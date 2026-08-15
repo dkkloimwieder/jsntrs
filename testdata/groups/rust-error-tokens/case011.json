@@ -1,0 +1,7 @@
+{
+    "expr": "$map([1], function($x){ 1 ~> 2 })",
+    "dataset": null,
+    "bindings": {},
+    "code": "T2006",
+    "token": "map"
+}

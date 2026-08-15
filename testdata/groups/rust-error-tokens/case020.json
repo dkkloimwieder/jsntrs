@@ -1,0 +1,7 @@
+{
+    "expr": "{} < {}",
+    "dataset": null,
+    "bindings": {},
+    "code": "T2010",
+    "token": "<"
+}

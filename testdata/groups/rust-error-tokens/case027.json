@@ -1,0 +1,7 @@
+{
+    "expr": "-'a'",
+    "dataset": null,
+    "bindings": {},
+    "code": "D1002",
+    "token": "-"
+}

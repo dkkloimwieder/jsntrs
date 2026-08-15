@@ -559,20 +559,12 @@ const EXPECTED_FAILURES: &[&str] = &[];
 /// leaves unset, as `("group/file.json", expected token)` pairs — one entry
 /// per unmet expectation, so a file with two of them is listed twice.
 ///
-/// These are the only four `token` expectations in the whole suite, and all
-/// four are engine gaps, not fixture errors: jsonata-js 2.1.0 reports
-/// `token: "min"` (T0410), `token: "+"` (T2002) and `token: "@"` / `"#"`
-/// (S0214) for exactly these expressions. jsntrs returns the right code but
-/// applies `JsonataError::with_token` only on the parser's "unexpected
-/// token" family, so nothing is attached here. Tracked as an engine gap;
-/// keep this list shrinking. The reconciliation below is exact, so a new
-/// gap and a fixed one both fail the suite.
-const KNOWN_TOKEN_GAPS: &[(&str, &str)] = &[
-    ("errors/case025.json", "min"),
-    ("errors/case026.json", "+"),
-    ("joins/errors.json", "@"),
-    ("joins/errors.json", "#"),
-];
+/// Empty since jsntrs-hyj: the four entries that used to live here
+/// (`token: "min"` on T0410, `"+"` on T2002, `"@"` and `"#"` on S0214) were
+/// real engine gaps, and the engine now attributes those errors the way
+/// jsonata 2.2.2 does. Keep this list empty if you can; the reconciliation
+/// below is exact, so a new gap and a stale entry both fail the suite.
+const KNOWN_TOKEN_GAPS: &[(&str, &str)] = &[];
 
 /// Exact number of cases the suite must load and run.
 ///
@@ -581,7 +573,7 @@ const KNOWN_TOKEN_GAPS: &[(&str, &str)] = &[
 /// total, so a third of a group could vanish unnoticed). Pin the count
 /// instead. This is the single constant to bump when cases are added or
 /// removed — the diff then always says how many, in one line.
-const EXPECTED_CASE_TOTAL: usize = 2673;
+const EXPECTED_CASE_TOTAL: usize = 2728;
 
 #[test]
 fn conformance_suite() {

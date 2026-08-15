@@ -1,0 +1,14 @@
+{
+    "expr": "$map(items, function($v){ $substring($v.a, 'z') })",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "T0410",
+    "token": "substring"
+}

@@ -1,0 +1,7 @@
+{
+    "expr": "['a'..2]",
+    "dataset": null,
+    "bindings": {},
+    "code": "T2003",
+    "token": ".."
+}

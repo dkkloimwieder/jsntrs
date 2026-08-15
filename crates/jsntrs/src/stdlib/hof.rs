@@ -5,7 +5,6 @@ use std::rc::Rc;
 use crate::error::{JsonataError, JsonataResult};
 use crate::evaluator::{Environment, FunctionValue, call_function};
 use crate::parser::AstArena;
-use crate::parser::ast::BinaryOp;
 use crate::value::{Sequence, Value};
 
 use super::context_arg_code;
@@ -176,13 +175,16 @@ pub fn fn_filter(
     if let Some(ref fast) = try_fast_lambda(&func, arena) {
         match fast {
             SimpleLambda::FieldPredicate {
-                field, op, literal, ..
+                field,
+                op,
+                literal,
+                written,
             } => {
                 let mut result = Vec::new();
                 for (i, item) in arr.iter().enumerate() {
                     env.poll_cancelled(i)?;
                     let fv = hof_fast::get_field(item, field);
-                    let val = hof_fast::eval_binary_simple(&fv, *op, literal)?;
+                    let val = hof_fast::eval_binary_simple_as(&fv, *op, literal, *written)?;
                     if val.to_boolean()? {
                         result.push(item.clone());
                     }
@@ -207,23 +209,10 @@ pub fn fn_filter(
             SimpleLambda::CompoundPredicate {
                 clauses, combiner, ..
             } => {
-                let is_and = *combiner == BinaryOp::And;
                 let mut result = Vec::new();
-                'outer: for (i, item) in arr.iter().enumerate() {
+                for (i, item) in arr.iter().enumerate() {
                     env.poll_cancelled(i)?;
-                    for clause in clauses {
-                        let fv = hof_fast::get_field(item, &clause.field);
-                        let pass = hof_fast::eval_binary_simple(&fv, clause.op, &clause.literal)?
-                            .to_boolean()?;
-                        if is_and && !pass {
-                            continue 'outer;
-                        }
-                        if !is_and && pass {
-                            result.push(item.clone());
-                            continue 'outer;
-                        }
-                    }
-                    if is_and {
+                    if hof_fast::eval_compound_predicate(item, clauses, *combiner)? {
                         result.push(item.clone());
                     }
                 }
@@ -514,34 +503,27 @@ type FastPredicate = Box<dyn Fn(&Value) -> JsonataResult<bool>>;
 fn fast_single_predicate(fast: &SimpleLambda) -> Option<FastPredicate> {
     match fast {
         SimpleLambda::FieldPredicate {
-            field, op, literal, ..
+            field,
+            op,
+            literal,
+            written,
         } => {
             let field = field.clone();
             let op = *op;
             let literal = literal.clone();
+            let written = *written;
             Some(Box::new(move |item: &Value| {
                 let fv = hof_fast::get_field(item, &field);
-                hof_fast::eval_binary_simple(&fv, op, &literal)?.to_boolean()
+                hof_fast::eval_binary_simple_as(&fv, op, &literal, written)?.to_boolean()
             }))
         }
         SimpleLambda::CompoundPredicate {
             clauses, combiner, ..
         } => {
             let clauses = clauses.clone();
-            let is_and = *combiner == BinaryOp::And;
+            let combiner = *combiner;
             Some(Box::new(move |item: &Value| {
-                for clause in &clauses {
-                    let fv = hof_fast::get_field(item, &clause.field);
-                    let pass = hof_fast::eval_binary_simple(&fv, clause.op, &clause.literal)?
-                        .to_boolean()?;
-                    if is_and && !pass {
-                        return Ok(false);
-                    }
-                    if !is_and && pass {
-                        return Ok(true);
-                    }
-                }
-                Ok(is_and)
+                hof_fast::eval_compound_predicate(item, &clauses, combiner)
             }))
         }
         _ => None,

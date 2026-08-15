@@ -1,0 +1,14 @@
+{
+    "expr": "items.$substring(a,'z')",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "T0410",
+    "token": "substring"
+}

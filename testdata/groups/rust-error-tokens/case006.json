@@ -1,0 +1,7 @@
+{
+    "expr": "( $f := function($x)<n>{$x}; $f('a') )",
+    "dataset": null,
+    "bindings": {},
+    "code": "T0410",
+    "token": "f"
+}

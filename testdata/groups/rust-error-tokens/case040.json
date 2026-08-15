@@ -1,0 +1,14 @@
+{
+    "expr": "items.$round(b, 2)",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "T0410",
+    "token": "round"
+}

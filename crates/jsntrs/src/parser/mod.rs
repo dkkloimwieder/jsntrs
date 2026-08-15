@@ -561,19 +561,24 @@ impl Parser {
                 // Focus binding @$var
                 self.advance()?;
                 // S0214: the token after @ must be a variable ($name), not a plain name.
+                // The reference attributes it to the operator itself
+                // (`token: "@"`, jsonata 2.2.2 jsonata.js:6574), not to the
+                // offending right-hand token.
                 if self.token.typ == TokenType::Name {
                     return Err(parse_error(
                         "S0214",
                         "the @ operator must be followed by a $variable, not a plain name",
                         tok.pos,
-                    ));
+                    )
+                    .with_token("@"));
                 }
                 if self.token.typ != TokenType::Variable {
                     return Err(parse_error(
                         "S0214",
                         "the @ operator must be followed by a $variable",
                         tok.pos,
-                    ));
+                    )
+                    .with_token("@"));
                 }
                 let var_name = self.token.value.clone();
                 // The bound variable ends an operand: lex what follows in
@@ -587,19 +592,22 @@ impl Parser {
                 // Index binding #$var
                 self.advance()?;
                 // S0214: the token after # must be a variable ($name), not a plain name.
+                // Attributed to `#` itself (jsonata 2.2.2 jsonata.js:6590).
                 if self.token.typ == TokenType::Name {
                     return Err(parse_error(
                         "S0214",
                         "the # operator must be followed by a $variable, not a plain name",
                         tok.pos,
-                    ));
+                    )
+                    .with_token("#"));
                 }
                 if self.token.typ != TokenType::Variable {
                     return Err(parse_error(
                         "S0214",
                         "the # operator must be followed by a $variable",
                         tok.pos,
-                    ));
+                    )
+                    .with_token("#"));
                 }
                 let var_name = self.token.value.clone();
                 // Same as `@`: the token after the variable is infix context.
@@ -827,11 +835,14 @@ impl Parser {
         let mut params = Vec::new();
         while self.token.typ != TokenType::RParen {
             if self.token.typ != TokenType::Variable {
+                // The reference names the offending parameter token
+                // (`token: arg.value`, jsonata 2.2.2 jsonata.js:6384).
                 return Err(parse_error(
                     "S0208",
                     "expected $parameter name in lambda",
                     self.token.pos,
-                ));
+                )
+                .with_token(self.token.value.clone()));
             }
             let param = self.arena.alloc(Expr::Variable {
                 name: self.token.value.clone(),

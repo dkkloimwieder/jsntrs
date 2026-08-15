@@ -1,0 +1,14 @@
+{
+    "expr": "$map(items, function($v){ $uppercase($v.a) })",
+    "data": {
+        "items": [
+            {
+                "a": 1,
+                "b": "z"
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "T0410",
+    "token": "uppercase"
+}

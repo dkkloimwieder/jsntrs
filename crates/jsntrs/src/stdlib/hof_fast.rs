@@ -25,6 +25,10 @@ pub enum SimpleLambda {
         field: String,
         op: BinaryOp,
         literal: Value,
+        /// The operator the *source* wrote, which differs from `op` when the
+        /// analyzer mirrored `literal op field` (see [`flip_relational`]).
+        /// Errors are attributed to it, never to the mirrored `op`.
+        written: BinaryOp,
     },
     /// function($v) { $v.field = $v.field2 } — two fields compared
     TwoFieldPredicate {
@@ -58,6 +62,9 @@ pub struct PredicateClause {
     pub field: String,
     pub op: BinaryOp,
     pub literal: Value,
+    /// The operator the *source* wrote — see
+    /// [`SimpleLambda::FieldPredicate::written`].
+    pub written: BinaryOp,
 }
 
 /// A piece of a concat template — evaluated into a string buffer.
@@ -301,6 +308,7 @@ fn analyze_binary(
                     field,
                     op,
                     literal: lit,
+                    written: op,
                 });
             }
             // $v.field1 op $v.field2
@@ -325,6 +333,7 @@ fn analyze_binary(
                 field,
                 op: flip_relational(op),
                 literal: lit,
+                written: op,
             });
         }
     }
@@ -461,6 +470,7 @@ fn collect_predicate_clauses(
                         field,
                         op: *op,
                         literal: lit,
+                        written: *op,
                     });
                     return true;
                 }
@@ -477,6 +487,7 @@ fn collect_predicate_clauses(
                     field,
                     op: flip_relational(*op),
                     literal: lit,
+                    written: *op,
                 });
                 return true;
             }
@@ -543,6 +554,13 @@ pub fn get_field(item: &Value, field: &str) -> Value {
 /// `apply_arithmetic`) so fast-path results — including error codes —
 /// cannot diverge from full evaluation.
 ///
+/// Errors carry the operator as their token, because the general path they
+/// stand in for is `evaluateBinary`, which stamps `err.token = op` on
+/// anything the operator application throws (jsonata 2.2.2
+/// `jsonata.js:3959`). Without it, `$map(x, function($v){$v.a < $v.b})`
+/// would report a different `token` than the same body evaluated through
+/// the general path.
+///
 /// # Errors
 /// Exactly the errors the general evaluator raises for the same
 /// operands: T2009/T2010 for invalid comparisons, T2001/T2002 for
@@ -554,6 +572,70 @@ pub fn get_field(item: &Value, field: &str) -> Value {
 /// analysis in this module must never lift such an op.
 #[inline]
 pub fn eval_binary_simple(lhs: &Value, op: BinaryOp, rhs: &Value) -> JsonataResult {
+    eval_binary_simple_as(lhs, op, rhs, op)
+}
+
+/// [`eval_binary_simple`] for a comparison the analyzer *mirrored*.
+///
+/// `10 < $v.qty` is lifted as `qty > 10` so the field always sits on the
+/// left, but `evaluateBinary` names the operator the source wrote, not the
+/// one that ran. Passing the written operator keeps the token identical to
+/// the general path's — otherwise `$filter(x, function($v){2 > $v.n})` on a
+/// string `n` would report `T2009` with token `"<"` when lifted and `">"`
+/// when not (jsntrs-hyj).
+#[inline]
+pub fn eval_binary_simple_as(
+    lhs: &Value,
+    op: BinaryOp,
+    rhs: &Value,
+    written: BinaryOp,
+) -> JsonataResult {
+    eval_binary_simple_inner(lhs, op, rhs).map_err(|e| e.with_token(written.as_str()))
+}
+
+/// Evaluate a lifted `and`/`or` chain of clauses against one item,
+/// short-circuiting exactly as the general path does.
+///
+/// Attribution follows `evaluateBinary`: for `and`/`or` it evaluates the
+/// *left* operand before the try block and the deferred right operand inside
+/// it, then stamps `err.token = op` on whatever the block throws (jsonata
+/// 2.2.2 `jsonata.js:3912-3924`). So only the first clause's own evaluation
+/// keeps its own token — every later clause, and every boolean coercion,
+/// reports the combiner. `$filter(x, function($v){$v.a = 2 and 2 < $v.b})`
+/// is `T2009` token `"and"`, not `"<"`.
+///
+/// # Errors
+/// Whatever a clause's comparison or its boolean coercion raises.
+pub fn eval_compound_predicate(
+    item: &Value,
+    clauses: &[PredicateClause],
+    combiner: BinaryOp,
+) -> JsonataResult<bool> {
+    let is_and = combiner == BinaryOp::And;
+    for (i, clause) in clauses.iter().enumerate() {
+        let fv = get_field(item, &clause.field);
+        let val = eval_binary_simple_as(&fv, clause.op, &clause.literal, clause.written);
+        // Only the leading operand is evaluated outside the try block.
+        let val = if i == 0 {
+            val?
+        } else {
+            val.map_err(|e| e.with_token(combiner.as_str()))?
+        };
+        let pass = val
+            .to_boolean()
+            .map_err(|e| e.with_token(combiner.as_str()))?;
+        if is_and && !pass {
+            return Ok(false);
+        }
+        if !is_and && pass {
+            return Ok(true);
+        }
+    }
+    Ok(is_and)
+}
+
+#[inline]
+fn eval_binary_simple_inner(lhs: &Value, op: BinaryOp, rhs: &Value) -> JsonataResult {
     match op {
         BinaryOp::Gt => lhs.compare(rhs, CompareOp::Gt),
         BinaryOp::Lt => lhs.compare(rhs, CompareOp::Lt),
@@ -624,14 +706,19 @@ pub fn eval_concat_template(item: &Value, pieces: &[TemplatePiece]) -> JsonataRe
                 if let Value::String(s) = &v {
                     buf.push_str(s);
                 } else if !v.is_undefined() {
-                    // Non-string field in concat — stringify it
-                    v.stringify_into(&mut buf)?;
+                    // Non-string field in concat — stringify it.
+                    // Stringification is `&`'s own work, so its D3001 is
+                    // attributed to the operator, as in `evaluateBinary`.
+                    v.stringify_into(&mut buf).map_err(concat_token)?;
                 }
             }
             TemplatePiece::StringifyField(field) => {
                 let v = get_field(item, field);
                 if !v.is_undefined() {
-                    v.stringify_into(&mut buf)?;
+                    // A `$string(field)` piece: the reference attributes it
+                    // to the call, not to the surrounding `&`.
+                    v.stringify_into(&mut buf)
+                        .map_err(|e| e.or_token("string"))?;
                 }
             }
             TemplatePiece::SubstringField {
@@ -645,26 +732,34 @@ pub fn eval_concat_template(item: &Value, pieces: &[TemplatePiece]) -> JsonataRe
                 }
                 push_piece(
                     &mut buf,
-                    super::string_funcs::fn_substring(&args, &Value::Undefined)?,
+                    super::string_funcs::fn_substring(&args, &Value::Undefined)
+                        .map_err(|e| e.or_token("substring"))?,
                 );
             }
             TemplatePiece::LowercaseField(field) => {
                 let args = [get_field(item, field)];
                 push_piece(
                     &mut buf,
-                    super::string_funcs::fn_lowercase(&args, &Value::Undefined)?,
+                    super::string_funcs::fn_lowercase(&args, &Value::Undefined)
+                        .map_err(|e| e.or_token("lowercase"))?,
                 );
             }
             TemplatePiece::UppercaseField(field) => {
                 let args = [get_field(item, field)];
                 push_piece(
                     &mut buf,
-                    super::string_funcs::fn_uppercase(&args, &Value::Undefined)?,
+                    super::string_funcs::fn_uppercase(&args, &Value::Undefined)
+                        .map_err(|e| e.or_token("uppercase"))?,
                 );
             }
         }
     }
     Ok(Value::String(buf.into()))
+}
+
+/// Attribute a `&` piece failure to the concat operator.
+fn concat_token(e: crate::error::JsonataError) -> crate::error::JsonataError {
+    e.with_token(BinaryOp::Concat.as_str())
 }
 
 /// Append a builtin's result to the concat buffer (`&` semantics:
@@ -713,6 +808,15 @@ pub(crate) struct MappedCall {
     func: Box<FunctionValue>,
     arg_template: Vec<CallArg>,
     prepared: Option<PreparedState>,
+    /// The name this call site invokes the callee by.
+    ///
+    /// The general paths this lift stands in for — `eval_function` and
+    /// `eval_path_function_step` — both attribute an unattributed failure to
+    /// the call site's name (`call_site_name` + `or_token`), mirroring
+    /// `evaluateFunction`'s `if (!err.token) err.token = procName`
+    /// (jsonata 2.2.2 `jsonata.js:4949`). Resolution here happens once, at
+    /// analysis time, so it must be carried rather than recomputed.
+    token: String,
 }
 
 /// Classification of a function argument for lifted dispatch.
@@ -829,6 +933,7 @@ pub(crate) fn analyze_mapped_call(
         func,
         arg_template,
         prepared,
+        token: func_name.to_string(),
     })
 }
 
@@ -1021,6 +1126,13 @@ fn exec_prepared(prepared: &PreparedState, field_val: &Value) -> Option<JsonataR
 /// Execute a MappedCall for a single item. Function is already resolved,
 /// constant args are already evaluated. Only field args need per-item work.
 ///
+/// Every failure is attributed to the call site's name, because that is what
+/// the general paths this lift replaces do (`eval_function` and
+/// `eval_path_function_step`, both `.or_token(name)`). Without it the token
+/// on `items.$uppercase(a)` would depend on whether the step was lifted —
+/// a fast path that changes an observable field of the error is not
+/// semantics-preserving, whatever its code says.
+///
 /// # Errors
 /// Returns evaluation errors from the underlying function call.
 pub(crate) fn exec_mapped_call(
@@ -1035,7 +1147,7 @@ pub(crate) fn exec_mapped_call(
         if let Some(CallArg::Field(name)) = mc.arg_template.first() {
             let field_val = get_field(item, name);
             if let Some(result) = exec_prepared(prepared, &field_val) {
-                return result;
+                return result.map_err(|e| e.or_token(&mc.token));
             }
         }
     }
@@ -1056,7 +1168,8 @@ pub(crate) fn exec_mapped_call(
     // hands them to the raw fn unchecked, which silently accepted extra
     // arguments and skipped singleton coercion.
     if let FunctionValue::SignedBuiltin { signature, .. } = &*mc.func {
-        let (coerced, return_undefined) = crate::evaluator::process_call_args(signature, &args)?;
+        let (coerced, return_undefined) = crate::evaluator::process_call_args(signature, &args)
+            .map_err(|e| e.or_token(&mc.token))?;
         if return_undefined {
             return Ok(Value::Undefined);
         }
@@ -1064,7 +1177,7 @@ pub(crate) fn exec_mapped_call(
             args = coerced;
         }
     }
-    call_function(&mc.func, &args, item, env, arena)
+    call_function(&mc.func, &args, item, env, arena).map_err(|e| e.or_token(&mc.token))
 }
 
 #[cfg(test)]
@@ -1111,15 +1224,19 @@ mod tests {
                 ref field,
                 op: BinaryOp::Ge,
                 literal: Value::Number(n),
+                written: BinaryOp::Ge,
             }) if field == "qty" && n == 10.0
         ));
         // Literal on the left flips the operator: 10 < $v.qty ≡ $v.qty > 10.
+        // `written` keeps the operator the source spelled, so an error from
+        // the mirrored form still reports `<` (jsntrs-hyj).
         assert!(matches!(
             analyze_src("function($v){10 < $v.qty}"),
             Some(SimpleLambda::FieldPredicate {
                 ref field,
                 op: BinaryOp::Gt,
                 literal: Value::Number(n),
+                written: BinaryOp::Lt,
             }) if field == "qty" && n == 10.0
         ));
     }
@@ -1242,7 +1359,21 @@ mod tests {
         assert_eq!(clauses.len(), 2);
         assert!(matches!(
             &clauses[1],
-            PredicateClause { field, op: BinaryOp::Lt, .. } if field == "b"
+            PredicateClause { field, op: BinaryOp::Lt, written: BinaryOp::Lt, .. }
+                if field == "b"
+        ));
+
+        // A mirrored clause runs flipped but still reports the written
+        // operator (jsntrs-hyj).
+        let Some(SimpleLambda::CompoundPredicate { clauses, .. }) =
+            analyze_src("function($v){$v.a > 1 and 5 > $v.b}")
+        else {
+            panic!("expected CompoundPredicate");
+        };
+        assert!(matches!(
+            &clauses[1],
+            PredicateClause { field, op: BinaryOp::Lt, written: BinaryOp::Gt, .. }
+                if field == "b"
         ));
     }
 

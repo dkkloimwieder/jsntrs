@@ -1104,13 +1104,16 @@ fn eval_path_function_step(
     };
 
     let fn_val = eval_no_stack_check(arena, procedure, item, env)?;
+    // A call site here is a call site in the reference too, so it owes the
+    // callee's name to anything the invocation raises unattributed —
+    // `[1,2].$abs('x')` reports token "abs", same as a bare `$abs('x')`.
+    let name = super::functions::call_site_name(arena, procedure);
     let func = match &fn_val {
         Value::Function(f) => f.clone(),
         _ => {
-            return Err(JsonataError::new(
-                "T1006",
-                "attempted to invoke undefined function",
-            ));
+            return Err(
+                JsonataError::new("T1006", "attempted to invoke undefined function").or_token(name),
+            );
         }
     };
 
@@ -1133,7 +1136,8 @@ fn eval_path_function_step(
     // Same signature gate as `eval_function` (a lambda never reaches it —
     // `call_function` validates a lambda's own signature further in).
     if let FunctionValue::SignedBuiltin { signature, .. } = &*func {
-        let (coerced, return_undefined) = super::process_call_args(signature, &args)?;
+        let (coerced, return_undefined) =
+            super::process_call_args(signature, &args).map_err(|e| e.or_token(name))?;
         if return_undefined {
             return Ok(Value::Undefined);
         }
@@ -1142,7 +1146,7 @@ fn eval_path_function_step(
         }
     }
 
-    call_function(&func, &args, item, env, arena)
+    call_function(&func, &args, item, env, arena).map_err(|e| e.or_token(name))
 }
 
 #[cfg(test)]

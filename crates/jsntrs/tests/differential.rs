@@ -2,8 +2,18 @@
 //!
 //! Every pair here is evaluated twice — fast paths enabled, then disabled
 //! via `fast_path::testing` — and both results must be identical, including
-//! error codes. This guards against the fast-path layer diverging from the
-//! general evaluator (gnata-bec.5).
+//! the error *code and token*. This guards against the fast-path layer
+//! diverging from the general evaluator (gnata-bec.5).
+//!
+//! Comparing the code alone is not enough. `token` is a field of every
+//! JSONata error, the conformance fixtures assert on it, and it names the
+//! operator or call site that failed — so a lift that dispatches without it
+//! changes the answer even when the code is right. That is exactly what
+//! happened once tokens started being attributed (jsntrs-hyj): the mapped
+//! call lift reached `call_function` with no callee name, and
+//! `items.$uppercase(a)` reported `T0410` with token `""` where the general
+//! path — and jsonata 2.2.2 — report `"uppercase"`. [`diverged`] compares
+//! both fields so the next such lift cannot slip through.
 //!
 //! # Tiers
 //!
@@ -1168,15 +1178,23 @@ type EvalResult = Result<Value, JsonataError>;
 fn describe(r: &EvalResult) -> String {
     match r {
         Ok(v) => format!("Ok({v:?})"),
-        Err(e) => format!("Err({})", e.code),
+        Err(e) => format!("Err({} token {:?})", e.code, e.token),
     }
 }
 
-/// Compare fast vs general results: equal values or equal error codes.
+/// Compare fast vs general results: equal values, or equal error code *and*
+/// equal error token.
+///
+/// The token is part of the answer, not decoration: a JSONata error is
+/// `{code, token, position, value}`, the conformance fixtures assert on it,
+/// and it is what tells a caller which call site or operator failed. This
+/// used to compare `code` alone, which let a lift that dispatched without
+/// the callee's name — `items.$uppercase(a)` reporting token `""` where the
+/// general path reports `"uppercase"` — pass unnoticed (jsntrs-hyj).
 fn diverged(fast: &EvalResult, general: &EvalResult) -> bool {
     match (fast, general) {
         (Ok(a), Ok(b)) => !(a.is_undefined() && b.is_undefined()) && !jsntrs::deep_equal(a, b),
-        (Err(a), Err(b)) => a.code != b.code,
+        (Err(a), Err(b)) => a.code != b.code || a.token != b.token,
         _ => true,
     }
 }

@@ -618,11 +618,15 @@ fn eval_chain_step(
         let arguments = arguments.clone();
         let keep_array = *keep_array;
         let fn_val = eval_no_stack_check(arena, procedure, input, env)?;
+        // `x ~> $f(…)` is a function *invocation* in the reference too
+        // (`evaluateApplyExpression` delegates to `evaluateFunction` when the
+        // right side is a call), so it attributes errors to the callee's name
+        // exactly like a direct call: `[1,2] ~> $map(3)` reports token "map".
+        let name = functions::call_site_name(arena, procedure);
         let Value::Function(func) = fn_val else {
-            return Err(JsonataError::new(
-                "T1006",
-                "attempted to invoke undefined function",
-            ));
+            return Err(
+                JsonataError::new("T1006", "attempted to invoke undefined function").or_token(name),
+            );
         };
         let mut args = vec![piped.clone()];
         for &arg_node in &arguments {
@@ -632,7 +636,8 @@ fn eval_chain_step(
             }
             args.push(eval_operand(arena, arg_node, input, env)?);
         }
-        let result = call_function(&func, &args, input, env, arena)?;
+        let result =
+            call_function(&func, &args, input, env, arena).map_err(|e| e.or_token(name))?;
         // Apply keep_array wrapping if the [] suffix is present *and* the
         // result stands in for a sequence — same rule as a direct call
         // (`call_result_is_sequence`), so `x ~> $sum()[]` stays a scalar
@@ -763,9 +768,11 @@ fn eval_unary(
             if val.is_undefined() {
                 return Ok(Value::Undefined);
             }
-            let n = val
-                .as_f64()
-                .ok_or_else(|| JsonataError::new("D1002", "cannot negate a non-numeric value"))?;
+            // The reference attaches the operator itself (`token: expr.value`,
+            // jsonata 2.2.2 jsonata.js:3991).
+            let n = val.as_f64().ok_or_else(|| {
+                JsonataError::new("D1002", "cannot negate a non-numeric value").with_token("-")
+            })?;
             Ok(Value::Number(-n))
         }
         UnaryOp::ArrayCons => {
