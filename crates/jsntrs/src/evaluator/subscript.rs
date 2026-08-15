@@ -116,6 +116,31 @@ fn numeric_index(value: &Value) -> JsonataResult<Option<f64>> {
     }
 }
 
+/// Turn a subscript number into the integer position it denotes.
+///
+/// The language documentation is explicit that the rounding is *downwards*,
+/// not towards zero:
+///
+/// > If the number is not an integer, then it is rounded *down* to an
+/// > integer.
+/// > — <https://docs.jsonata.org/simple> § Navigating JSON Arrays
+///
+/// and again for the filter operator:
+///
+/// > Non-integer values round down to the nearest integer.
+/// > — <https://docs.jsonata.org/path-operators> § `[ ... ]` (Filter)
+///
+/// The two only differ on negative fractions, which is exactly where a
+/// negative subscript counts back from the end: `[1,2,3][-1.9]` floors to
+/// `-2`, i.e. `3 + -2 = 1`, i.e. `2`. Truncation would have given `-1` and
+/// selected the last element instead (jsntrs-2u4).
+///
+/// `f64 as i64` saturates in Rust, so a huge index lands on `i64::MAX` /
+/// `i64::MIN` and is rejected as out of range rather than wrapping.
+fn floor_index(n: f64) -> i64 {
+    n.floor() as i64
+}
+
 /// The `utils.isArrayOfNumbers` gate for multi-index selection (`[[1,3]]`).
 ///
 /// The reference builds it out of `isNumeric`:
@@ -197,7 +222,7 @@ fn eval_subscript(
         }
         // Single numeric index.
         if let Some(n) = numeric_index(&index)? {
-            let idx = n.trunc() as i64;
+            let idx = floor_index(n);
             let len = arr.len() as i64;
             let actual = if idx < 0 { len + idx } else { idx };
             if actual < 0 || actual >= len {
@@ -229,7 +254,7 @@ fn eval_subscript(
         let test = eval_operand(arena, rhs, item, eval_env)?;
         // Numeric result = index selection from entire array.
         if let Some(n) = numeric_index(&test)? {
-            let idx = n.trunc() as i64;
+            let idx = floor_index(n);
             let len = arr.len() as i64;
             let actual = if idx < 0 { len + idx } else { idx };
             if actual >= 0 && actual < len {
@@ -268,7 +293,7 @@ fn eval_subscript_single(
     let index = eval_operand(arena, rhs, left, eval_env)?;
     if let Some(n) = numeric_index(&index)? {
         // Numeric index on a single value — treat as array of one.
-        let idx = n.trunc() as i64;
+        let idx = floor_index(n);
         if idx == 0 || idx == -1 {
             return Ok(left.clone());
         }
@@ -290,7 +315,7 @@ fn select_by_indices(arr: &[Value], indices: &[Value]) -> Value {
     let mut actual_indices: Vec<i64> = indices
         .iter()
         .map(|v| {
-            let idx = v.as_f64().unwrap_or(0.0) as i64;
+            let idx = floor_index(v.as_f64().unwrap_or(0.0));
             if idx < 0 { len + idx } else { idx }
         })
         .collect();

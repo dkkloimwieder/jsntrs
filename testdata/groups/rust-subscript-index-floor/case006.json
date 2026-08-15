@@ -1,0 +1,6 @@
+{
+    "expr": "[1,2,3][0.5]",
+    "data": null,
+    "bindings": {},
+    "result": 1
+}
