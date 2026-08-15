@@ -10,7 +10,7 @@ Guidance for Claude Code sessions in this repo.
 repo — it lives in the original combined repository
 (github.com/dkkloimwieder/gnata), which also retains the full development
 history. `docs/spec.md` is the behavioral contract distilled from it. The
-port is feature-complete: all 2,972 conformance cases pass, and
+port is feature-complete: all 3,092 conformance cases pass, and
 `tests/conformance.rs` asserts zero failures, zero skips, and the exact
 case count (bump `EXPECTED_CASE_TOTAL` when adding cases).
 
@@ -97,8 +97,10 @@ jsntrs implements **JSONata as specified**. jsonata-js is evidence of what
 a behavior is meant to be — never the authority. It has real bugs, and
 reproducing one is a defect, not conformance. Authority, in order:
 
-1. The JSONata language documentation (jsonata.org), including its error
-   codes.
+1. The JSONata language documentation (jsonata.org). Note it publishes
+   **no error-code page** — only six codes appear anywhere in it, and only
+   S0217 as a language rule. See `docs/behaviors.md` §2.0 before treating
+   any code as specified.
 2. XPath 3.1 F&O for the picture-string builtins — §4.7.3 picture rules,
    §4.7.4 `analyse`, §4.7.5 formatting for `$formatNumber`, plus
    `format-integer` and `format-dateTime`.
@@ -175,7 +177,7 @@ combined repo's tracker — do not rename them.
 - `docs/*.md` cite the Go reference implementation by filename (`gnata.go`,
   `internal/…`) and sometimes by absolute path; those files live in the
   original gnata repo, not here.
-- Test suite: `testdata/groups/` (167 groups) + `testdata/datasets/`
+- Test suite: `testdata/groups/` (176 groups) + `testdata/datasets/`
 - `testdata/oracles/` holds recorded answers from another engine as
   evidence for a builtin; the harness does not read it
 - Benchmarks: `bench/README.md` (engines, methodology, fixture regeneration)
