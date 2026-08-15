@@ -10,7 +10,7 @@ Guidance for Claude Code sessions in this repo.
 repo — it lives in the original combined repository
 (github.com/dkkloimwieder/gnata), which also retains the full development
 history. `docs/spec.md` is the behavioral contract distilled from it. The
-port is feature-complete: all 2,775 conformance cases pass, and
+port is feature-complete: all 2,972 conformance cases pass, and
 `tests/conformance.rs` asserts zero failures, zero skips, and the exact
 case count (bump `EXPECTED_CASE_TOTAL` when adding cases).
 
@@ -165,7 +165,7 @@ combined repo's tracker — do not rename them.
 - `docs/*.md` cite the Go reference implementation by filename (`gnata.go`,
   `internal/…`) and sometimes by absolute path; those files live in the
   original gnata repo, not here.
-- Test suite: `testdata/groups/` (162 groups) + `testdata/datasets/`
+- Test suite: `testdata/groups/` (167 groups) + `testdata/datasets/`
 - `testdata/oracles/` holds recorded answers from another engine as
   evidence for a builtin; the harness does not read it
 - Benchmarks: `bench/README.md` (engines, methodology, fixture regeneration)

@@ -1,7 +1,7 @@
 # jsntrs
 
 A [JSONata](https://jsonata.org) 2.x query and transformation engine in
-Rust, compiling native and to WebAssembly. All 2,775 cases of the ported
+Rust, compiling native and to WebAssembly. All 2,972 cases of the ported
 JSONata conformance suite pass, and the gate is strict: `cargo test` fails
 on a single regression.
 
@@ -23,7 +23,7 @@ let result = expr.evaluate(r#"{"Order": [{"Product": [{"Price": 34.5, "Quantity"
 | Path | What |
 |---|---|
 | `crates/jsntrs/` | The engine crate (library, wasm bindings, criterion benches, fuzz targets) |
-| `testdata/` | Conformance suite: 162 groups, 2,775 cases (seeded from jsonata-js, since extended and in places deliberately divergent — see `testdata/NOTICE` and `docs/spec.md`) |
+| `testdata/` | Conformance suite: 167 groups, 2,972 cases (seeded from jsonata-js, since extended and in places deliberately divergent — see `testdata/NOTICE` and `docs/spec.md`) |
 | `docs/` | Behavioral spec and reference docs distilled from the Go reference implementation |
 | `bench/` | Optional cross-engine benchmark harness (jsonata-js, Go gnata, jsonata-core, jsonata-rs) — see `bench/README.md` |
 | `scripts/build-wasm.sh` | Optimized WASM build (wasm-pack + wasm-opt → `pkg/`); wasm-opt is required |
