@@ -72,11 +72,6 @@ pub fn fn_format_number(args: &[Value], _focus: &Value) -> JsonataResult {
 
 // ── Format character set ──────────────────────────────────────────────────────
 
-/// The `minus-sign` property. jsonata-js exposes it as an option and jsntrs
-/// does not yet, so it is the default everywhere it is written: in front of
-/// the negative sub-picture's prefix, and in front of a negative exponent.
-const MINUS_SIGN: char = '-';
-
 /// The option values, and the single characters they configure.
 ///
 /// Every one of these is a *string* in jsonata-js, and the reference uses
@@ -127,6 +122,13 @@ pub(crate) struct FmtChars {
     /// character, so `{"pattern-separator": ""}` makes `"000"` three
     /// sub-pictures and a D3080.
     pattern_sep: CompactString,
+    /// The `minus-sign` property: "the character used as a minus sign in the
+    /// formatted number if there is no subpicture for formatting negative
+    /// numbers" (F&O 4.7.1). It is written in front of the negative
+    /// sub-picture's prefix (4.7.4) and in front of a negative exponent
+    /// (4.7.5 bullet 13b), and nowhere else — it never appears in the picture
+    /// string, so it is emitted whole rather than matched (jsntrs-12g).
+    minus_sign: CompactString,
     /// The `exponent-separator`, kept as the string it is emitted as.
     /// `exponent_char` is what the picture scan matches: a multi-character
     /// value matches no single character, and jsntrs deliberately does not
@@ -151,6 +153,7 @@ impl Default for FmtChars {
             zero_char: Some('0'),
             zero_base: Some('0'),
             digit: '#',
+            minus_sign: CompactString::const_new("-"),
             pattern_sep: CompactString::const_new(";"),
             exponent_sep: CompactString::const_new("e"),
             exponent_char: Some('e'),
@@ -204,6 +207,7 @@ impl FmtChars {
                 "digit" if val.chars().count() == 1 => {
                     fc.digit = val.chars().next().unwrap_or(fc.digit);
                 }
+                "minus-sign" => fc.minus_sign = CompactString::new(val),
                 "pattern-separator" => fc.pattern_sep = CompactString::new(val),
                 "exponent-separator" => {
                     fc.exponent_sep = CompactString::new(val);
@@ -929,7 +933,7 @@ fn format_sub_picture(adjusted: f64, sp: &SubPicture, fc: &FmtChars) -> String {
         }
         sv.extend(fc.exponent_sep.chars());
         if exponent < 0 {
-            sv.push(MINUS_SIGN);
+            sv.extend(fc.minus_sign.chars());
         }
         sv.extend(digits);
     }
@@ -958,8 +962,11 @@ pub(crate) fn split_on_pattern_sep(picture: &str, sep: &str) -> Vec<String> {
 
 /// Split a picture and analyse both sub-pictures: the positive one and the
 /// one negative values take, which is the second sub-picture when the picture
-/// carries a pattern separator and otherwise a copy with a minus sign glued
-/// to the prefix.
+/// carries a pattern separator and otherwise a copy with the `minus-sign`
+/// character glued to the prefix — F&O 4.7.4, "If the picture string contains
+/// only one sub-picture, the prefix for the negative sub-picture is set by
+/// concatenating the minus-sign character and the prefix for the positive
+/// sub-picture (if any), in that order."
 pub(crate) fn prepare_sub_pictures(
     picture: &str,
     fc: &FmtChars,
@@ -977,7 +984,7 @@ pub(crate) fn prepare_sub_pictures(
         parse_sub_picture(&pics[1], fc)?
     } else {
         let mut np = pos_pic.clone();
-        np.prefix = format!("{MINUS_SIGN}{}", pos_pic.prefix);
+        np.prefix = format!("{}{}", fc.minus_sign, pos_pic.prefix);
         np
     };
     Ok((pos_pic, neg_pic))
@@ -1343,6 +1350,29 @@ mod tests {
         // picture holds "more than one instance" of it.
         assert_eq!(fmt_opts(7.0, "0", r#"{"percent": ""}"#), Err("D3082"));
         assert_eq!(fmt_opts(7.0, "0", r#"{"per-mille": ""}"#), Err("D3083"));
+    }
+
+    /// F&O 4.7.1 gives the decimal format a `minus-sign` property, "the
+    /// character used as a minus sign in the formatted number if there is no
+    /// subpicture for formatting negative numbers"; 4.7.4 concatenates it with
+    /// the positive prefix to make the negative one, and 4.7.5 bullet 13(b)
+    /// writes it in front of a negative exponent. jsntrs wrote the constant
+    /// "-" in both places and never read the option (jsntrs-12g).
+    #[test]
+    fn minus_sign_option_is_honoured() {
+        let at = r#"{"minus-sign": "@"}"#;
+        assert_eq!(fmt_opts(-7.0, "0", at), Ok("@7".to_string()));
+        assert_eq!(fmt_opts(-7.0, "$0.00", at), Ok("@$7.00".to_string()));
+        assert_eq!(
+            fmt_opts(0.000_012_345, "0.0e0", at),
+            Ok("1.2e@5".to_string())
+        );
+        // "if there is no subpicture for formatting negative numbers": with
+        // one, the property is not used for the mantissa.
+        assert_eq!(fmt_opts(-7.0, "0;(0)", at), Ok("(7)".to_string()));
+        // The default is still "-" — for both writers.
+        assert_eq!(fmt(-7.0, "0"), "-7");
+        assert_eq!(fmt(0.000_012_345, "0.0e0"), "1.2e-5");
     }
 
     /// `pattern-separator` splits the picture as a string, like

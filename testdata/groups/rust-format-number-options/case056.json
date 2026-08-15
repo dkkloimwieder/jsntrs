@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(0.000012345, \"0.0e0\", {\"minus-sign\": \"@\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "1.2e@5",
+    "authority": "XPath 3.1 F&O 4.7.1 (the minus-sign property), 4.7.4 (the negative sub-picture's prefix) and 4.7.5 bullet 13(b) (a negative exponent)."
+}

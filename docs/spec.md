@@ -1491,9 +1491,21 @@ jsntrs-p0v.18 for the audit.
 - **Parameters**: `(number, picture [, options])`.
 - **<2 args**: **D3006**.
 - **nil first arg**: undefined propagation.
-- **options**: Object with keys: `decimal-separator`, `grouping-separator`, `percent`, `per-mille`, `zero-digit`, `digit`, `pattern-separator`, `exponent-separator`. jsonata-js
-  also reads `minus-sign`, `infinity` and `NaN`; jsntrs does not (the last two
-  are unreachable there, and `minus-sign` is a gap — see below).
+- **options**: Object with keys: `decimal-separator`, `grouping-separator`,
+  `percent`, `per-mille`, `zero-digit`, `digit`, `pattern-separator`,
+  `exponent-separator`, `minus-sign` (jsntrs-12g). `infinity` and `NaN` are
+  read by jsonata-js and not here: both are unreachable, non-finite input
+  being a **D3001**.
+- **Option values outside the spec**: F&O 4.7.1 gives every picture-string
+  property "a single ·character·", requires `decimal-separator`,
+  `grouping-separator`, `exponent-separator`, `percent`, `per-mille`, `digit`
+  and `pattern-separator` to "have distinct values", and adds that "none of
+  these properties may be equal to any ·character· in the ·decimal digit
+  family·"; `zero-digit` must be "a character in Unicode category Nd with
+  decimal digit value 0". An empty, multi-character, duplicated or
+  digit-family option value is therefore **not a legal decimal format**, and
+  nothing below is spec-constrained — it records what jsntrs does, and where
+  that differs from jsonata-js.
 - **String-valued options (jsntrs-2px, jsonata 2.2.2-verified 2026-08-15)**:
   every option value is a *string*, and the reference uses each one in two
   ways. A picture character is "active" only when some option is exactly that
@@ -1523,8 +1535,17 @@ jsntrs-p0v.18 for the audit.
     where the reference makes `#` passive and substring-searches the value in
     the D3090/D3091 rules (`$formatNumber(7, "#0", {"digit": "ab"})` is "#7"
     there, "7" here).
-  - `minus-sign` is not read at all: jsntrs always writes `-` in front of the
-    negative sub-picture and a negative exponent.
+  - `digit` being a character is the whole of jsntrs-lim, which asked for the
+    reference's substring search. Declined: F&O 4.7.1 requires `digit` to be
+    "a single ·character·", distinct from the other picture-string properties
+    and from the digit family, so `{"digit": "ab"}` is not a legal decimal
+    format and neither answer is spec-derived.
+  - `minus-sign` **is** read (jsntrs-12g): it is a genuine 4.7.1 property, and
+    4.7.4/4.7.5 write it in front of the negative sub-picture's prefix and in
+    front of a negative exponent. `$formatNumber(-7, "0", {"minus-sign":
+    "@"})` is `"@7"` and `$formatNumber(0.000012345, "0.0e0", {"minus-sign":
+    "@"})` is `"1.2e@5"`. It is emitted whole, like the other string-valued
+    options, and never matched against the picture — it cannot appear there.
 - **Picture syntax**: XPath 3.1 `format-number` compatible.
 - **Sub-pictures**: Separated by pattern-separator (default `;`). Max 2 sub-pictures (**D3080**).
 - **Error codes**: D3006, T0410, D3080-D3093 (picture validation errors).
