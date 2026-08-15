@@ -4,7 +4,7 @@
 //! driving CodeMirror decorations via WASM.
 
 use crate::error::JsonataError;
-use crate::parser::ast::{AstArena, Expr, GroupExpr, NodeId, Stage, StageKind, UnaryOp};
+use crate::parser::ast::{AstArena, Expr, GroupExpr, NodeId, UnaryOp};
 use crate::parser::{Parser, process_ast};
 
 /// Semantic token type for highlighting.
@@ -242,11 +242,10 @@ impl<'a> HlWalker<'a> {
         // `arena` is a shared `&'a` borrow independent of `&mut self`, so
         // nodes are matched in place — no per-node deep clone.
         match self.arena.get(id) {
-            Expr::Name { pos, stages, .. } => {
+            Expr::Name { pos, .. } => {
                 let pos = *pos;
                 let end = self.name_end(pos);
                 self.push(pos, end, HlType::Name);
-                self.walk_stages(stages);
             }
             Expr::StringLit { pos, .. } => {
                 let pos = *pos;
@@ -505,15 +504,6 @@ impl<'a> HlWalker<'a> {
                 self.push(pos, end, HlType::Function);
             }
             _ => self.walk(id),
-        }
-    }
-
-    fn walk_stages(&mut self, stages: &[Stage]) {
-        for stage in stages {
-            match &stage.kind {
-                StageKind::Filter { expression } => self.walk(*expression),
-                StageKind::Index { .. } => {}
-            }
         }
     }
 

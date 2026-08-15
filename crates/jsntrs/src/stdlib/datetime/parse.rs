@@ -300,7 +300,6 @@ pub(super) fn parse_with_picture(input: &str, picture: &str) -> Result<Option<i6
             _ => {}
         }
     }
-    let _ = has_sec; // used implicitly
 
     // If the picture has no datetime components at all, return undefined.
     let has_any_token = parts.iter().any(|p| p.is_token);
@@ -468,7 +467,7 @@ pub(super) fn parse_with_picture(input: &str, picture: &str) -> Result<Option<i6
                 }
             }
             'Z' | 'z' => {
-                let (offset, n) = parse_tz_from_input(&input_runes[pos..], part.component);
+                let (offset, n) = parse_tz_from_input(&input_runes[pos..]);
                 if n > 0 {
                     tz_offset = offset;
                     has_tz = true;
@@ -562,7 +561,7 @@ pub(super) fn parse_token_value(runes: &[char], modifier: &str) -> (i64, i64) {
         return parse_roman(runes);
     }
     if modifier == "a" || modifier == "A" {
-        return parse_alphabetic(runes, modifier);
+        return parse_alphabetic(runes);
     }
     if modifier == "N"
         || modifier == "n"
@@ -685,8 +684,19 @@ pub(super) fn parse_roman(runes: &[char]) -> (i64, i64) {
     (total, i as i64)
 }
 
-pub(super) fn parse_alphabetic(runes: &[char], modifier: &str) -> (i64, i64) {
-    let base = if modifier == "A" { 'A' } else { 'a' };
+/// Read an alphabetic numeral (`a`/`A` picture component) off the front of
+/// `runes`: `a` = 1 … `z` = 26, `aa` = 27, base 26.
+///
+/// Case-insensitive, and deliberately not parameterised by the picture's
+/// case: XPath 3.1 F&O §4.6 specifies these sequences for *formatting*
+/// (format-integer) and says nothing about parsing them back, and the
+/// JSONata documentation for `$parseInteger` says only that it "parses the
+/// contents of the `string` parameter to an integer … using the format
+/// specified by the `picture` string". Neither obliges the parser to reject
+/// `"AB"` for picture `a`, so it does not. The function used to compute
+/// `let base = if modifier == "A" { 'A' } else { 'a' }` and then discard it
+/// with `let _ = base;`, which read as if the case mattered.
+pub(super) fn parse_alphabetic(runes: &[char]) -> (i64, i64) {
     let mut i = 0;
     let mut result: i64 = 0;
     while i < runes.len() && runes[i].is_ascii_alphabetic() {
@@ -702,7 +712,6 @@ pub(super) fn parse_alphabetic(runes: &[char], modifier: &str) -> (i64, i64) {
     if i == 0 {
         return (-1, -1);
     }
-    let _ = base;
     (result, i as i64)
 }
 

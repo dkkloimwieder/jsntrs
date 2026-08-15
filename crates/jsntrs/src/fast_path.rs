@@ -188,13 +188,12 @@ fn collect_pure_path(arena: &AstArena, node: NodeId) -> Option<Vec<String>> {
         // Single name: `foo`
         Expr::Name {
             value,
-            stages,
             group: None,
             focus: None,
             index: None,
             keep_array: false,
             ..
-        } if stages.is_empty() => Some(vec![value.clone()]),
+        } => Some(vec![value.clone()]),
 
         // Dotted path: `a.b.c`
         Expr::Path {
@@ -208,13 +207,12 @@ fn collect_pure_path(arena: &AstArena, node: NodeId) -> Option<Vec<String>> {
                 match arena.get(step) {
                     Expr::Name {
                         value,
-                        stages,
                         group: None,
                         focus: None,
                         index: None,
                         keep_array: false,
                         ..
-                    } if stages.is_empty() => {
+                    } => {
                         segments.push(value.clone());
                     }
                     _ => return None,

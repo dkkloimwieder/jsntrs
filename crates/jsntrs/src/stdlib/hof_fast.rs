@@ -148,15 +148,12 @@ fn extract_param_field(node: NodeId, arena: &AstArena, param: &str) -> Option<St
     match arena.get(steps[1]) {
         Expr::Name {
             value,
-            stages,
             group,
             focus,
             index,
             keep_array: false,
             ..
-        } if stages.is_empty() && group.is_none() && focus.is_none() && index.is_none() => {
-            Some(value.clone())
-        }
+        } if group.is_none() && focus.is_none() && index.is_none() => Some(value.clone()),
         _ => None,
     }
 }
@@ -979,18 +976,12 @@ fn classify_call_arg(node: NodeId, arena: &AstArena, param: Option<&str>) -> Cal
         // cannot express — defer to the general path (jsntrs-6wr.3).
         Expr::Name {
             value,
-            stages,
             group,
             focus,
             index,
             keep_array: false,
             ..
-        } if stages.is_empty()
-            && group.is_none()
-            && focus.is_none()
-            && index.is_none()
-            && param.is_none() =>
-        {
+        } if group.is_none() && focus.is_none() && index.is_none() && param.is_none() => {
             CallArg::Field(value.clone())
         }
 

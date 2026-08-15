@@ -265,7 +265,6 @@ fn eval_subscript(
             return Ok(arr[actual as usize].clone());
         }
         // Not numeric — fall through to per-element predicate filter below.
-        let _ = index;
     }
 
     // Predicate filter — evaluate rhs against each element, in the same

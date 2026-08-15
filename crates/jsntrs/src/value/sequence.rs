@@ -96,26 +96,17 @@ impl Sequence {
 
     /// Collapse with KeepArray support for `[]` suffix on function calls.
     ///
+    /// Setting the flag is the whole of it: [`into_value`](Self::into_value)
+    /// already answers an `Array` for every non-empty flagged sequence and
+    /// `Undefined` for an empty one, so the post-collapse re-wrap this used
+    /// to run — `scalar => Value::Array(…)` — had no scalar to catch.
+    ///
     /// Go equivalent: `CollapseAndKeep` in `value.go`.
     pub fn collapse_and_keep(mut self, keep_array: bool) -> Value {
         if keep_array {
             self.keep_singleton = true;
         }
-        let result = self.into_value();
-        if keep_array {
-            match result {
-                Value::Array(_) => result,
-                Value::Undefined => Value::Undefined,
-                scalar => Value::Array(Rc::from(vec![scalar])),
-            }
-        } else {
-            result
-        }
-    }
-
-    /// Return values as a plain Vec (cloned).
-    pub fn to_vec(&self) -> Vec<Value> {
-        self.values.clone()
+        self.into_value()
     }
 }
 

@@ -261,7 +261,6 @@ pub enum Expr {
         value: String,
         pos: usize,
         keep_array: bool,
-        stages: Vec<Stage>,
         group: Option<GroupExpr>,
         focus: Option<String>,
         index: Option<String>,
@@ -298,7 +297,7 @@ pub enum Expr {
     /// subscript chain around it honours the flag.
     Descendant { keep_array: bool, pos: usize },
     /// Parent reference (%).
-    Parent { pos: usize, slot: Option<Slot> },
+    Parent { pos: usize },
     /// Regex literal (/pattern/flags).
     Regex {
         pattern: String,
@@ -395,7 +394,6 @@ pub enum Expr {
         body: NodeId,
         signature: Option<Signature>,
         pos: usize,
-        thunk: bool,
     },
 
     /// Transform: |pattern|update,delete|.
@@ -463,32 +461,11 @@ pub struct SortTerm {
     pub expression: NodeId,
 }
 
-/// Predicate or index binding attached to a path step.
-#[derive(Debug, Clone)]
-pub struct Stage {
-    pub kind: StageKind,
-    pub pos: usize,
-}
-
-#[derive(Debug, Clone)]
-pub enum StageKind {
-    Filter { expression: NodeId },
-    Index { var_name: String },
-}
-
 /// Group-by expression attached to a path step.
 #[derive(Debug, Clone)]
 pub struct GroupExpr {
     pub pairs: Vec<[NodeId; 2]>, // [key_expr, value_expr]
     pub pos: usize,
-}
-
-/// Parent reference slot.
-#[derive(Debug, Clone)]
-pub struct Slot {
-    pub label: String,
-    pub level: i32,
-    pub index: i32,
 }
 
 pub(crate) fn push_group_pairs(group: Option<&GroupExpr>, out: &mut Vec<NodeId>) {
@@ -504,12 +481,7 @@ pub(crate) fn push_group_pairs(group: Option<&GroupExpr>, out: &mut Vec<NodeId>)
 /// knows the AST's child edges.
 pub(crate) fn push_children(expr: &Expr, out: &mut Vec<NodeId>) {
     match expr {
-        Expr::Name { stages, group, .. } => {
-            for s in stages {
-                if let StageKind::Filter { expression } = &s.kind {
-                    out.push(*expression);
-                }
-            }
+        Expr::Name { group, .. } => {
             push_group_pairs(group.as_ref(), out);
         }
         Expr::Variable { group, .. } => push_group_pairs(group.as_ref(), out),

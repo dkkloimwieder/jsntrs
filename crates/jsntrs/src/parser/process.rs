@@ -394,8 +394,8 @@ fn process_node_inner(arena: &mut AstArena, node: NodeId) -> Result<NodeId, Json
 /// Process the left operand of a subscript without promoting a decorated
 /// step to a `Path`.
 ///
-/// jsntrs models a predicate as `Binary(Subscript)` rather than a `stages`
-/// list on the step, so [`step_has_keep_array`] and
+/// jsntrs models a predicate as `Binary(Subscript)` rather than as a list
+/// hung off the step (jsonata-js's `stages`), so [`step_has_keep_array`] and
 /// `evaluator::binary::has_keep_array` find `A[]`'s flag by walking the
 /// subscript's left chain (`Phone[][type="mobile"].number`). A `Path` in that
 /// chain would hide the flag from both, and `eval_subscript_binary`
@@ -633,7 +633,6 @@ fn collect_path_steps(
             value,
             pos,
             keep_array: false,
-            stages: Vec::new(),
             group: None,
             focus: None,
             index: None,
@@ -989,14 +988,12 @@ fn push_parent_context_children(expr: &Expr, navigating: bool, stack: &mut Vec<(
             stack.push((*rhs, navigating));
             push_group_pair_children(group.as_ref(), stack);
         }
-        Expr::Name { stages, group, .. } => {
-            for s in stages {
-                if let super::ast::StageKind::Filter { expression } = &s.kind {
-                    stack.push((*expression, true));
-                }
-            }
-            push_group_pair_children(group.as_ref(), stack);
-        }
+        // A `Name`'s predicates are not hung off the node: jsntrs models one
+        // as an enclosing `Binary(Subscript)`, which the arm above already
+        // walks. (This arm used to iterate a `stages` list that nothing ever
+        // populated — removed with the rest of that dead surface in
+        // jsntrs-6d5.3.)
+        Expr::Name { group, .. } => push_group_pair_children(group.as_ref(), stack),
         Expr::Variable { group, .. } => push_group_pair_children(group.as_ref(), stack),
         Expr::Grouped { expr, group, .. } => {
             stack.push((*expr, navigating));

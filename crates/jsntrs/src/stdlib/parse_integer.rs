@@ -38,32 +38,33 @@ pub fn fn_parse_integer(args: &[Value], _focus: &Value) -> JsonataResult {
         }
     };
 
-    match parse_integer_with_picture(s, picture) {
-        Ok(n) => Ok(Value::Number(n as f64)),
-        Err(e) if e.code == "D3137_FLOAT" => {
-            // The message contains the float string
-            if let Ok(f) = e.message.parse::<f64>() {
-                Ok(Value::Number(f))
-            } else {
-                Err(e)
-            }
-        }
-        Err(e) => Err(e),
-    }
+    parse_integer_with_picture(s, picture).map(Value::Number)
 }
 
-fn parse_integer_with_picture(s: &str, picture: &str) -> Result<i64, JsonataError> {
+/// The parsed value, as the `f64` `$parseInteger` answers with.
+///
+/// The three integer paths (Roman, alphabetic, decimal digits) are computed
+/// in `i64` and widened here; the word path is `f64` throughout, because
+/// "trillion trillion" is 1e24 and no integer type holds it. Until this
+/// commit that overflow was signalled by *raising* an error whose code was
+/// the invented string `"D3137_FLOAT"` and whose message was the float,
+/// caught and re-parsed one frame up. `D3137_FLOAT` is not a code any
+/// catalog defines — the JSONata documentation publishes no error-code page
+/// at all (see `docs/behaviors.md` § 2.0), so a caller had nothing to match
+/// it against — and one escaping through any path but the single `if` that
+/// re-parses it would have been unspellable.
+fn parse_integer_with_picture(s: &str, picture: &str) -> Result<f64, JsonataError> {
     let (format_token, _modifier) = split_picture_modifier(picture);
 
     match format_token {
-        "w" | "W" | "Ww" => return words_to_int(&s.to_lowercase()),
-        "i" | "I" => return from_roman(&s.to_uppercase()),
+        "w" | "W" | "Ww" => return words_to_float(&s.to_lowercase()),
+        "i" | "I" => return from_roman(&s.to_uppercase()).map(|n| n as f64),
         _ => {
             let chars: Vec<char> = format_token.chars().collect();
             if chars.len() == 1 {
                 let ch = chars[0];
                 if ch.is_ascii_alphabetic() {
-                    return from_alphabetic(&s.to_lowercase());
+                    return from_alphabetic(&s.to_lowercase()).map(|n| n as f64);
                 }
             }
         }
@@ -106,7 +107,7 @@ fn parse_integer_with_picture(s: &str, picture: &str) -> Result<i64, JsonataErro
     }
 
     let cleaned = digits.trim();
-    cleaned.parse::<i64>().map_err(|_| {
+    cleaned.parse::<i64>().map(|n| n as f64).map_err(|_| {
         JsonataError::new(
             "D3137",
             format!("$parseInteger: cannot parse {s:?} as integer"),
@@ -269,17 +270,6 @@ fn words_to_float(s: &str) -> Result<f64, JsonataError> {
     Ok(total + current)
 }
 
-fn words_to_int(s: &str) -> Result<i64, JsonataError> {
-    // Largest f64 below 2^63; Go writes `1<<63 - 1024` in untyped-constant
-    // (arbitrary-precision) arithmetic. `(1_i64 << 63)` wraps to i64::MIN.
-    const MAX_SAFE: f64 = 9_223_372_036_854_774_784.0; // 2^63 - 1024
-    let f = words_to_float(s)?;
-    if f > MAX_SAFE || f < -MAX_SAFE {
-        return Err(JsonataError::new("D3137_FLOAT", format!("{f}")));
-    }
-    Ok(f as i64)
-}
-
 // ── Roman numerals ───────────────────────────────────────────────────────────
 
 fn from_roman(s: &str) -> Result<i64, JsonataError> {
@@ -354,8 +344,8 @@ mod tests {
         assert_eq!(parse("0123", "0000"), 123.0);
     }
 
-    /// In-range word values take the i64 path; values past ±(2^63-1024)
-    /// pass through as floats via the D3137_FLOAT detour (Go-verified:
+    /// Word values are accumulated as `f64` and answered as they stand, so
+    /// magnitudes no integer type holds survive intact (Go-verified:
     /// "trillion trillion" -> 1e24, "nine hundred trillion" -> 9e14).
     #[test]
     fn words_range_guard_boundary() {

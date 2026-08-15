@@ -186,8 +186,8 @@ pub(super) fn format_token(
         }
         'w' => {
             // Week of month (ISO week Thursday method).
-            let (thy, thm, thd) = iso_week_thursday(year, month, day);
-            let wom = week_of_month(thy, thm, thd);
+            let (_thy, _thm, thd) = iso_week_thursday(year, month, day);
+            let wom = week_of_month(thd);
             Ok(format_integer_mod(i64::from(wom), &modifier))
         }
         'x' => {

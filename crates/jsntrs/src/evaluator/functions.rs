@@ -42,9 +42,6 @@ pub enum FunctionValue {
 
     /// User-defined lambda (function expression).
     Lambda(Rc<Lambda>),
-
-    /// Partial application (pre-bound args with placeholder slots).
-    Partial(Rc<BuiltinFn>),
 }
 
 impl fmt::Debug for FunctionValue {
@@ -56,7 +53,6 @@ impl fmt::Debug for FunctionValue {
                 write!(f, "SignedBuiltin({} params)", signature.len())
             }
             FunctionValue::Lambda(l) => write!(f, "Lambda({:?})", l.params),
-            FunctionValue::Partial(_) => write!(f, "Partial(<fn>)"),
         }
     }
 }
@@ -67,7 +63,6 @@ pub struct Lambda {
     pub params: Vec<String>,
     pub body: NodeId,
     pub closure: Rc<Environment>,
-    pub thunk: bool,
     /// Parsed at compile time; `None` for an untyped lambda.
     pub signature: Option<std::sync::Arc<[super::ParamSpec]>>,
     pub captured_focus: Value,
@@ -272,18 +267,16 @@ pub(super) fn call_result_is_sequence(result: &Value) -> bool {
 
 /// Evaluate a lambda expression node, creating a closure.
 pub fn eval_lambda(arena: &AstArena, node: NodeId, input: &Value, env: &Rc<Environment>) -> Value {
-    let (params, body, sig, thunk) = match arena.get(node) {
+    let (params, body, sig) = match arena.get(node) {
         Expr::Lambda {
             params,
             body,
             signature,
-            thunk,
             ..
         } => (
             params.clone(),
             *body,
             signature.as_ref().map(|s| std::sync::Arc::clone(&s.params)),
-            *thunk,
         ),
         _ => unreachable!("eval_lambda called on non-Lambda node"),
     };
@@ -304,7 +297,6 @@ pub fn eval_lambda(arena: &AstArena, node: NodeId, input: &Value, env: &Rc<Envir
         tail_call_body: body_is_tail_call(arena, body),
         body,
         closure: Rc::clone(env),
-        thunk,
         signature: sig,
         captured_focus: input.clone(),
     }))))
@@ -432,7 +424,7 @@ pub fn call_function(
     // trampoline setup (avoids cloning func + args.to_vec()).
     match func {
         FunctionValue::SignedBuiltin { func: f, .. } => return f(args, focus),
-        FunctionValue::Builtin(f) | FunctionValue::Partial(f) => return f(args, focus),
+        FunctionValue::Builtin(f) => return f(args, focus),
         FunctionValue::EnvAwareBuiltin(f) => return f(args, focus, env, arena),
         FunctionValue::Lambda(_) => {}
     }
@@ -458,7 +450,7 @@ pub fn call_function(
             FunctionValue::SignedBuiltin { func: f, .. } => {
                 return f(&current_args, focus).map_err(|e| e.or_token(&current_token));
             }
-            FunctionValue::Builtin(f) | FunctionValue::Partial(f) => {
+            FunctionValue::Builtin(f) => {
                 return f(&current_args, focus).map_err(|e| e.or_token(&current_token));
             }
             FunctionValue::EnvAwareBuiltin(f) => {

@@ -159,7 +159,6 @@ impl Parser {
                     value: tok.value,
                     pos: tok.pos,
                     keep_array: false,
-                    stages: Vec::new(),
                     group: None,
                     focus: None,
                     index: None,
@@ -173,7 +172,6 @@ impl Parser {
                     value: tok.value,
                     pos: tok.pos,
                     keep_array: false,
-                    stages: Vec::new(),
                     group: None,
                     focus: None,
                     index: None,
@@ -274,10 +272,7 @@ impl Parser {
             TokenType::Percent => {
                 self.infix = true;
                 self.advance()?;
-                Ok(self.arena.alloc(Expr::Parent {
-                    pos: tok.pos,
-                    slot: None,
-                })?)
+                Ok(self.arena.alloc(Expr::Parent { pos: tok.pos })?)
             }
             TokenType::LBracket => {
                 // Array constructor [...] — and the only place `..` is a
@@ -906,7 +901,6 @@ impl Parser {
             body,
             signature,
             pos,
-            thunk: false,
         })
     }
 

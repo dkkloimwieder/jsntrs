@@ -173,13 +173,57 @@ pub(super) fn ymd_to_epoch_days(y: i32, m: u8, d: u8) -> i64 {
     era * 146_097 + doe as i64 - 719_468
 }
 
-pub(super) fn week_of_month(_thy: i32, _thm: u8, thd: u8) -> u32 {
-    u32::from(thd).div_ceil(7)
+/// The `[w]` component: which week of the month the week is, given the
+/// **Thursday** of that week (only its day-of-month is needed, which is why
+/// this takes one argument and not a whole date).
+///
+/// XPath 3.1 F&O §9.8.4.8 fixes the convention, since the calendar it
+/// otherwise defers to does not:
+///
+/// > ISO 8601 does not define a numbering for weeks within a month. When the
+/// > `w` component is used, the convention to be adopted is that each
+/// > Monday-to-Sunday week is considered to fall within a particular month if
+/// > its Thursday occurs in that month; the weeks that fall in a particular
+/// > month under this definition are numbered starting from 1.
+///
+/// "The *n*th Thursday of the month" is exactly `ceil(day / 7)`, so the
+/// caller resolves the week's Thursday with `iso_week_thursday` and this
+/// counts it. The spec's own example checks out: 29 January 2013 has its
+/// Thursday on the 31st, and `31.div_ceil(7)` is 5 —
+///
+/// > Thus, for example, 29 January 2013 falls in week 5 because the Thursday
+/// > of the week (31 January 2013) is the fifth Thursday in January, and
+/// > 1 February 2013 is also in week 5 for the same reason.
+pub(super) fn week_of_month(thursday_day: u8) -> u32 {
+    u32::from(thursday_day).div_ceil(7)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::day_of_week;
+    use super::{day_of_week, iso_week_thursday, week_of_month};
+
+    /// The worked example XPath 3.1 F&O §9.8.4.8 gives for the `[w]`
+    /// component: "29 January 2013 falls in week 5 because the Thursday of
+    /// the week (31 January 2013) is the fifth Thursday in January, and
+    /// 1 February 2013 is also in week 5 for the same reason." The second
+    /// half is the load-bearing one — 1 February is in a *different* month
+    /// from its own week's Thursday, so a naive `day_of_month / 7` would
+    /// answer 1 there.
+    #[test]
+    fn week_of_month_follows_the_thursday() {
+        let wom = |y, m, d| {
+            let (_thy, _thm, thd) = iso_week_thursday(y, m, d);
+            week_of_month(thd)
+        };
+        assert_eq!(wom(2013, 1, 29), 5);
+        assert_eq!(wom(2013, 2, 1), 5);
+        // Boundaries of the ceil: the Thursdays of these weeks are 3, 7, 10
+        // and 31 January 2013 — the 1st, 1st, 2nd and 5th Thursdays.
+        assert_eq!(wom(2013, 1, 3), 1);
+        assert_eq!(wom(2013, 1, 7), 2); // Mon 7 Jan; its Thursday is the 10th
+        assert_eq!(wom(2013, 1, 6), 1); // Sun 6 Jan; still the 3 Jan week
+        assert_eq!(wom(2013, 1, 31), 5);
+    }
 
     #[test]
     fn day_of_week_known_dates() {

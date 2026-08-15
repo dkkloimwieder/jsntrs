@@ -46,16 +46,24 @@ pub(super) fn format_timezone(
     Ok(s)
 }
 
-pub(super) fn parse_tz_from_input(runes: &[char], component: char) -> (i32, usize) {
+/// Read a timezone offset off the front of `runes`, returning the offset in
+/// minutes and how many characters it consumed.
+///
+/// The `Z`/`z` picture components differ only in how they *format* — `z`
+/// prefixes "GMT" — so this takes no component: the prefix is accepted on
+/// input either way. The guard used to read
+/// `(component == 'z' || s.starts_with("GMT")) && s.starts_with("GMT")`,
+/// which is just `s.starts_with("GMT")`; the component never had a say, and
+/// the recursive call already passed `'Z'` regardless.
+pub(super) fn parse_tz_from_input(runes: &[char]) -> (i32, usize) {
     if runes.is_empty() {
         return (0, 0);
     }
     let s: String = runes.iter().collect();
 
-    // Handle GMT prefix (z component).
-    if (component == 'z' || s.starts_with("GMT")) && s.starts_with("GMT") {
+    if s.starts_with("GMT") {
         let rest: Vec<char> = runes[3..].to_vec();
-        let (offset, n) = parse_tz_from_input(&rest, 'Z');
+        let (offset, n) = parse_tz_from_input(&rest);
         return (offset, 3 + n);
     }
 

@@ -4,9 +4,7 @@
 //! pretty-printed text with consistent indentation and line-breaking rules.
 
 use crate::error::JsonataError;
-use crate::parser::ast::{
-    AstArena, BinaryOp, Expr, GroupExpr, NodeId, Signature, Stage, StageKind, UnaryOp,
-};
+use crate::parser::ast::{AstArena, BinaryOp, Expr, GroupExpr, NodeId, Signature, UnaryOp};
 use crate::parser::{Parser, process_ast};
 
 const INDENT: &str = "  ";
@@ -242,26 +240,29 @@ impl<'a> Formatter<'a> {
     ///
     /// # Decoration audit
     ///
-    /// Five slots decorate a node *after* its own text — `stages`
-    /// (`[pred]`, `#$i`), `keep_array` (`[]`), `focus` (`@$v`), `index`
-    /// (`#$i`) and `group` (`{…}`) — and each is carried only by the node
-    /// kinds the parser's `set_*` helpers can reach. Dropping one is silent
-    /// semantic loss, so this table is the contract; `every_decorated_node_kind_round_trips`
-    /// exercises one expression per ✓ (jsntrs-ecq.9).
+    /// Four slots decorate a node *after* its own text — `keep_array`
+    /// (`[]`), `focus` (`@$v`), `index` (`#$i`) and `group` (`{…}`) — and
+    /// each is carried only by the node kinds the parser's `set_*` helpers
+    /// can reach. Dropping one is silent semantic loss, so this table is the
+    /// contract; `every_decorated_node_kind_round_trips` exercises one
+    /// expression per ✓ (jsntrs-ecq.9).
     ///
-    /// | node        | stages | keep_array | focus | index | group |
-    /// |-------------|--------|------------|-------|-------|-------|
-    /// | `Name`      | ✓      | ✓          | ✓     | ✓     | ✓     |
-    /// | `Variable`  | –      | ✓          | ✓     | ✓     | ✓     |
-    /// | `Binary`    | –      | ✓          | ✓     | ✓     | ✓     |
-    /// | `Unary`     | –      | ✓          | –     | –     | ✓     |
-    /// | `Block`     | –      | ✓          | ✓     | ✓     | –     |
-    /// | `Function`  | –      | ✓          | –     | –     | ✓     |
-    /// | `Sort`      | –      | ✓          | ✓     | ✓     | –     |
-    /// | `Path`      | –      | (derived)  | –     | –     | ✓     |
-    /// | `Grouped`   | –      | –          | –     | –     | ✓     |
-    /// | `Wildcard`  | –      | ✓          | –     | –     | –     |
-    /// | `Descendant`| –      | ✓          | –     | –     | –     |
+    /// | node        | keep_array | focus | index | group |
+    /// |-------------|------------|-------|-------|-------|
+    /// | `Name`      | ✓          | ✓     | ✓     | ✓     |
+    /// | `Variable`  | ✓          | ✓     | ✓     | ✓     |
+    /// | `Binary`    | ✓          | ✓     | ✓     | ✓     |
+    /// | `Unary`     | ✓          | –     | –     | ✓     |
+    /// | `Block`     | ✓          | ✓     | ✓     | –     |
+    /// | `Function`  | ✓          | –     | –     | ✓     |
+    /// | `Sort`      | ✓          | ✓     | ✓     | –     |
+    /// | `Path`      | (derived)  | –     | –     | ✓     |
+    /// | `Grouped`   | –          | –     | –     | ✓     |
+    ///
+    /// A predicate is *not* a slot here: jsntrs parses `a[b > 3]` as a
+    /// `Binary(Subscript)` whose children `emit` walks, where jsonata-js
+    /// hangs a `stages` list off the step. The `Expr::Name` field that
+    /// mirrored that list was never populated (jsntrs-6d5.3).
     ///
     /// Every other kind (`StringLit`, `NumberLit`, `ValueLit`, `Parent`,
     /// `Regex`, `Placeholder`, `Condition`, `Bind`, `Partial`, `Lambda`,
@@ -319,7 +320,6 @@ impl<'a> Formatter<'a> {
         match expr {
             Expr::Name {
                 ref value,
-                ref stages,
                 ref group,
                 keep_array,
                 ref focus,
@@ -330,7 +330,6 @@ impl<'a> Formatter<'a> {
                 if keep_array {
                     self.out.push_str("[]");
                 }
-                self.emit_stages(stages, depth);
                 self.emit_bindings(focus.as_deref(), index.as_deref());
                 self.emit_group(group.as_ref(), depth);
             }
@@ -379,12 +378,7 @@ impl<'a> Formatter<'a> {
                     self.out.push_str("[]");
                 }
             }
-            Expr::Parent { ref slot, .. } => {
-                self.out.push('%');
-                if let Some(slot) = slot {
-                    self.out.push_str(&slot.label);
-                }
-            }
+            Expr::Parent { .. } => self.out.push('%'),
             Expr::Regex {
                 ref pattern,
                 ref flags,
@@ -951,22 +945,6 @@ impl<'a> Formatter<'a> {
         if let Some(i) = index {
             self.out.push_str("#$");
             self.out.push_str(i);
-        }
-    }
-
-    fn emit_stages(&mut self, stages: &[Stage], depth: usize) {
-        for stage in stages {
-            match &stage.kind {
-                StageKind::Filter { expression } => {
-                    self.out.push('[');
-                    self.emit(*expression, depth);
-                    self.out.push(']');
-                }
-                StageKind::Index { var_name } => {
-                    self.out.push('#');
-                    self.out.push_str(var_name);
-                }
-            }
         }
     }
 
@@ -2175,7 +2153,7 @@ mod tests {
         }
     }
 
-    // ── Decoration slots (group, focus, index, keep_array, stages) ──
+    // ── Decoration slots (group, focus, index, keep_array) ──
 
     /// The audit on [`Formatter::emit`] made executable: one expression per
     /// decoration slot the parser can fill, each of which must survive a
@@ -2186,7 +2164,9 @@ mod tests {
     fn every_decorated_node_kind_round_trips() {
         // (source, the decoration text that must survive)
         let cases = [
-            // Name: stages, keep_array, focus, index, group.
+            // Name: keep_array, focus, index, group. (`a[b > 3]` is a
+            // Binary(Subscript) around the Name, not a slot on it, but the
+            // predicate has to survive the round trip just the same.)
             ("a[b > 3]", "[b > 3]"),
             ("a[]", "[]"),
             ("a@$v", "@$v"),

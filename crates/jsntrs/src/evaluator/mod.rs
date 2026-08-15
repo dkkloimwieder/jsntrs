@@ -800,7 +800,8 @@ fn eval_unary(
             // An infinity is not a number either, but it is the one jsntrs
             // already reports as out of range wherever it is consumed —
             // arithmetic results (`eval_arithmetic`), subscripts
-            // (`numeric_index`) and `check_numeric` all raise D1001 — so the
+            // (`numeric_index`) and boolean coercion (`to_boolean`) all raise
+            // D1001 — so the
             // operand of a unary minus raises it too rather than being the
             // single place an infinity passes through an operator unchecked.
             //

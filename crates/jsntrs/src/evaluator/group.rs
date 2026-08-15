@@ -400,12 +400,11 @@ fn analyze_group_pair(
     let key_strategy = match arena.get(key_node) {
         Expr::Name {
             value,
-            stages,
             group: None,
             focus: None,
             index: None,
             ..
-        } if stages.is_empty() => KeyStrategy::FieldAccess(value.clone()),
+        } => KeyStrategy::FieldAccess(value.clone()),
         _ => KeyStrategy::FullEval(key_node),
     };
 
@@ -416,14 +415,11 @@ fn analyze_group_pair(
         match arena.get(val_node) {
             Expr::Name {
                 value,
-                stages,
                 group: None,
                 focus: None,
                 index: None,
                 ..
-            } if stages.is_empty() && !uses_group_bindings(arena, val_node) => {
-                ValStrategy::FieldAccess(value.clone())
-            }
+            } if !uses_group_bindings(arena, val_node) => ValStrategy::FieldAccess(value.clone()),
             _ if uses_group_bindings(arena, val_node) => {
                 ValStrategy::FullEvalWithBindings(val_node)
             }

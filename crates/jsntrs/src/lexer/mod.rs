@@ -118,7 +118,15 @@ impl Lexer {
                 .to_owned();
 
             if id.is_empty() {
-                // Unrecognised character — skip and retry
+                // Loop-progress guard, not a code path. An *unrecognised*
+                // character is not a stop char, so it is swallowed into the
+                // identifier above and comes back as a `Name` — it never
+                // reaches here. `id` can only be empty if `self.src[self.pos]`
+                // is a stop char, and every stop char is either whitespace
+                // (skipped at the top) or a `single_char_op` byte (returned
+                // above), so today nothing arrives. Keep the guard anyway:
+                // without it, widening `is_stop_char` would spin this `loop`
+                // forever instead of failing a test.
                 self.pos += char_len_at(&self.src, self.pos);
                 continue;
             }

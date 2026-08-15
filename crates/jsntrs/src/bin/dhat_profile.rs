@@ -10,18 +10,15 @@
 //! Produces dhat-heap.json in the working directory.
 //! View at <https://nnethercote.github.io/dh_view/dh_view.html>
 
-#[cfg(feature = "dhat-heap")]
+// No `#[cfg(feature = "dhat-heap")]` guards below: the `[[bin]]` entry in
+// Cargo.toml declares `required-features = ["dhat-heap"]`, so cargo skips
+// this target entirely when the feature is off and the guards could never
+// choose the other arm. The one that existed printed "rebuild with
+// --features dhat-heap" from a binary that only exists with the feature on.
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 fn main() {
-    #[cfg(not(feature = "dhat-heap"))]
-    {
-        eprintln!("error: rebuild with: cargo run --features dhat-heap --bin jsntrs-dhat -- ...");
-        std::process::exit(1);
-    }
-
-    #[cfg(feature = "dhat-heap")]
     {
         use jsntrs::Environment;
         use jsntrs::Expression;

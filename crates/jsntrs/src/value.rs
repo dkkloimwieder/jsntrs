@@ -227,19 +227,6 @@ impl Value {
         }
     }
 
-    /// Validates that this is a finite number.
-    ///
-    /// # Errors
-    /// Returns `D1001` if the value is `Inf` or `NaN`.
-    pub fn check_numeric(&self) -> Result<(), JsonataError> {
-        if let Value::Number(n) = self
-            && (n.is_infinite() || n.is_nan())
-        {
-            return Err(JsonataError::with_code("D1001").with_value(format_float(*n)));
-        }
-        Ok(())
-    }
-
     // ── Boolean coercion ─────────────────────────────────────────────
 
     /// Implements JSONata boolean casting rules.
