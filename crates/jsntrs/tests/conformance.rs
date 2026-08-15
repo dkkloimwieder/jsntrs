@@ -265,10 +265,9 @@ fn parse_test_object(
     // Expression: either inline "expr" or external "expr-file".
     let expr = if let Some(e) = obj.get("expr").and_then(|v| v.as_str()) {
         e.to_string()
-    } else if let Some(f) = obj.get("expr-file").and_then(|v| v.as_str()) {
-        std::fs::read_to_string(dir.join(f)).ok()?
     } else {
-        return None;
+        let f = obj.get("expr-file").and_then(|v| v.as_str())?;
+        std::fs::read_to_string(dir.join(f)).ok()?
     };
 
     // Load input data.

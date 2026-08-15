@@ -1177,7 +1177,7 @@ mod tests {
                     assert!(matches!(arena.get(s), Expr::Name { .. }));
                 }
             }
-            other => panic!("expected Path, got {:?}", other),
+            other => panic!("expected Path, got {other:?}"),
         }
     }
 
@@ -1401,7 +1401,7 @@ mod tests {
                 keep_singleton_array: true,
                 ..
             } => {}
-            other => panic!("expected Path with keep_singleton_array, got {:?}", other),
+            other => panic!("expected Path with keep_singleton_array, got {other:?}"),
         }
     }
 
@@ -1413,10 +1413,10 @@ mod tests {
                 assert_eq!(steps.len(), 2);
                 match arena.get(steps[1]) {
                     Expr::Name { value, .. } => assert_eq!(value, "Product Name"),
-                    other => panic!("expected Name, got {:?}", other),
+                    other => panic!("expected Name, got {other:?}"),
                 }
             }
-            other => panic!("expected Path, got {:?}", other),
+            other => panic!("expected Path, got {other:?}"),
         }
     }
 
@@ -1434,14 +1434,14 @@ mod tests {
                             Expr::Function { thunk, .. } => {
                                 assert!(thunk, "function in tail position should have thunk=true");
                             }
-                            other => panic!("expected Function, got {:?}", other),
+                            other => panic!("expected Function, got {other:?}"),
                         },
-                        other => panic!("expected Condition, got {:?}", other),
+                        other => panic!("expected Condition, got {other:?}"),
                     }
                 }
-                other => panic!("expected Lambda, got {:?}", other),
+                other => panic!("expected Lambda, got {other:?}"),
             },
-            other => panic!("expected Bind, got {:?}", other),
+            other => panic!("expected Bind, got {other:?}"),
         }
     }
 
@@ -1490,7 +1490,7 @@ mod tests {
                 assert!(matches!(arena.get(*lhs), Expr::Path { .. }));
                 assert!(matches!(arena.get(*rhs), Expr::Path { .. }));
             }
-            other => panic!("expected Binary +, got {:?}", other),
+            other => panic!("expected Binary +, got {other:?}"),
         }
     }
 
@@ -1503,7 +1503,7 @@ mod tests {
                 assert!(matches!(arena.get(expressions[0]), Expr::Path { .. }));
                 assert!(matches!(arena.get(expressions[1]), Expr::Path { .. }));
             }
-            other => panic!("expected Block, got {:?}", other),
+            other => panic!("expected Block, got {other:?}"),
         }
     }
 
@@ -1519,14 +1519,14 @@ mod tests {
                             Expr::Function { thunk, .. } => {
                                 assert!(thunk, "last expr in block should be tail-call");
                             }
-                            other => panic!("expected Function, got {:?}", other),
+                            other => panic!("expected Function, got {other:?}"),
                         }
                     }
-                    other => panic!("expected Block, got {:?}", other),
+                    other => panic!("expected Block, got {other:?}"),
                 },
-                other => panic!("expected Lambda, got {:?}", other),
+                other => panic!("expected Lambda, got {other:?}"),
             },
-            other => panic!("expected Bind, got {:?}", other),
+            other => panic!("expected Bind, got {other:?}"),
         }
     }
 
@@ -1587,7 +1587,7 @@ mod tests {
                 assert!(matches!(arena.get(expressions[0]), Expr::Path { .. }));
                 assert!(matches!(arena.get(expressions[1]), Expr::Path { .. }));
             }
-            other => panic!("expected Unary (array), got {:?}", other),
+            other => panic!("expected Unary (array), got {other:?}"),
         }
     }
 
@@ -1605,7 +1605,7 @@ mod tests {
                 assert!(matches!(arena.get(*then), Expr::Path { .. }));
                 assert!(matches!(arena.get(else_.unwrap()), Expr::Path { .. }));
             }
-            other => panic!("expected Condition, got {:?}", other),
+            other => panic!("expected Condition, got {other:?}"),
         }
     }
 }

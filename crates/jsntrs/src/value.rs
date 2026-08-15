@@ -1508,7 +1508,7 @@ mod tests {
         let json = r#"{"z":1,"a":2,"m":3}"#;
         let val = Value::from_json_str(json).unwrap();
         let obj = val.as_object().unwrap();
-        let keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+        let keys: Vec<&str> = obj.keys().map(compact_str::CompactString::as_str).collect();
         assert_eq!(keys, vec!["z", "a", "m"]);
     }
 

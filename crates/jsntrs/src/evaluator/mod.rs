@@ -2211,7 +2211,7 @@ mod tests {
                 assert_eq!(obj.get("a"), Some(&Value::Number(1.0)));
                 assert_eq!(obj.get("b"), Some(&Value::Number(2.0)));
             }
-            other => panic!("expected Object, got {:?}", other),
+            other => panic!("expected Object, got {other:?}"),
         }
     }
 
@@ -2257,7 +2257,7 @@ mod tests {
                 assert_eq!(arr.len(), 4); // {"a":…,"c":2}, {"b":1}, 1, 2
                 assert!(arr[0].is_object());
             }
-            _ => panic!("expected Array, got {:?}", result),
+            _ => panic!("expected Array, got {result:?}"),
         }
     }
 
@@ -2304,7 +2304,7 @@ mod tests {
 
     #[test]
     fn stdlib_string() {
-        assert_eq!(eval_simple(r#"$string(42)"#), Value::String("42".into()));
+        assert_eq!(eval_simple(r"$string(42)"), Value::String("42".into()));
     }
 
     #[test]
@@ -2474,7 +2474,7 @@ mod tests {
                 assert_eq!(arr[0], Value::from_json(serde_json::json!({"value": 1})));
                 assert_eq!(arr[2], Value::from_json(serde_json::json!({"value": 3})));
             }
-            other => panic!("expected Array, got {:?}", other),
+            other => panic!("expected Array, got {other:?}"),
         }
     }
 
@@ -2490,7 +2490,7 @@ mod tests {
                 assert_eq!(arr[0], Value::from_json(serde_json::json!({"value": 3})));
                 assert_eq!(arr[2], Value::from_json(serde_json::json!({"value": 1})));
             }
-            other => panic!("expected Array, got {:?}", other),
+            other => panic!("expected Array, got {other:?}"),
         }
     }
 
@@ -2558,10 +2558,10 @@ mod tests {
                 // red group has 2 items.
                 match obj.get("red") {
                     Some(Value::Array(arr)) => assert_eq!(arr.len(), 2),
-                    other => panic!("expected Array for red group, got {:?}", other),
+                    other => panic!("expected Array for red group, got {other:?}"),
                 }
             }
-            other => panic!("expected Object, got {:?}", other),
+            other => panic!("expected Object, got {other:?}"),
         }
     }
 
@@ -2573,20 +2573,20 @@ mod tests {
             {"OrderID": "B", "Value": 20},
             {"OrderID": "A", "Value": 30}
         ]}}"#;
-        let result = eval_with_data(r#"Account.Order{OrderID: Value}"#, data);
+        let result = eval_with_data(r"Account.Order{OrderID: Value}", data);
         match &result {
             Value::Object(obj) => {
-                assert!(obj.contains_key("A"), "expected key A, got {:?}", result);
-                assert!(obj.contains_key("B"), "expected key B, got {:?}", result);
+                assert!(obj.contains_key("A"), "expected key A, got {result:?}");
+                assert!(obj.contains_key("B"), "expected key B, got {result:?}");
             }
-            other => panic!("expected Object, got {:?}", other),
+            other => panic!("expected Object, got {other:?}"),
         }
     }
 
     #[test]
     fn group_by_variable() {
         // Test group-by on a $$ variable (case026)
-        let result = eval_expr(r#"$${id: value}"#, &Value::from_json_str("[]").unwrap()).unwrap();
+        let result = eval_expr(r"$${id: value}", &Value::from_json_str("[]").unwrap()).unwrap();
         assert_eq!(
             result,
             Value::Object(Rc::new(crate::value::ObjectMap::default()))
@@ -3190,17 +3190,14 @@ mod tests {
 
     #[test]
     fn type_function() {
-        assert_eq!(eval_simple(r#"$type(42)"#), Value::String("number".into()));
+        assert_eq!(eval_simple(r"$type(42)"), Value::String("number".into()));
         assert_eq!(
             eval_simple(r#"$type("hi")"#),
             Value::String("string".into())
         );
-        assert_eq!(
-            eval_simple(r#"$type(true)"#),
-            Value::String("boolean".into())
-        );
-        assert_eq!(eval_simple(r#"$type(null)"#), Value::String("null".into()));
-        assert_eq!(eval_simple(r#"$type([1])"#), Value::String("array".into()));
+        assert_eq!(eval_simple(r"$type(true)"), Value::String("boolean".into()));
+        assert_eq!(eval_simple(r"$type(null)"), Value::String("null".into()));
+        assert_eq!(eval_simple(r"$type([1])"), Value::String("array".into()));
     }
 
     // ── Error function ────────────────────────────────────────────

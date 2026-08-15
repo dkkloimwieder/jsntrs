@@ -1320,7 +1320,7 @@ mod tests {
     fn nested_conditions() {
         let result = fmt("a ? b ? 1 : 2 : 3");
         assert!(
-            result.contains("?"),
+            result.contains('?'),
             "should contain ternary operator: {result}"
         );
         // Should be idempotent
@@ -1419,8 +1419,8 @@ mod tests {
             !result.contains('\n'),
             "short object should be inline: {result}"
         );
-        assert!(result.contains("{"));
-        assert!(result.contains("}"));
+        assert!(result.contains('{'));
+        assert!(result.contains('}'));
     }
 
     #[test]
@@ -1556,19 +1556,19 @@ mod tests {
     fn transform_update() {
         let result = fmt("|a|b|");
         assert!(
-            result.contains("|"),
+            result.contains('|'),
             "transform should use pipe syntax: {result}"
         );
-        assert!(result.contains("a"));
-        assert!(result.contains("b"));
+        assert!(result.contains('a'));
+        assert!(result.contains('b'));
     }
 
     #[test]
     fn transform_update_delete() {
         let result = fmt("|a|b, c|");
-        assert!(result.contains("a"));
-        assert!(result.contains("b"));
-        assert!(result.contains("c"));
+        assert!(result.contains('a'));
+        assert!(result.contains('b'));
+        assert!(result.contains('c'));
     }
 
     // ── Sort expressions ─────────────────────────────────────
@@ -1988,10 +1988,10 @@ mod tests {
     fn partial_application() {
         let result = fmt("$sum(?, 1)");
         assert!(
-            result.contains("?"),
+            result.contains('?'),
             "should preserve placeholder: {result}"
         );
-        assert!(result.contains("1"), "should preserve arg: {result}");
+        assert!(result.contains('1'), "should preserve arg: {result}");
     }
 
     // ── Keep-array modifier ──────────────────────────────────

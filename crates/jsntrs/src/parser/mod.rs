@@ -1118,7 +1118,7 @@ impl Parser {
 
 /// Convert flat [k0, v0, k1, v1, ...] pairs to [[k0, v0], [k1, v1], ...].
 fn pairs_to_group_pairs(flat: &[NodeId]) -> Vec<[NodeId; 2]> {
-    flat.chunks_exact(2).map(|c| [c[0], c[1]]).collect()
+    flat.as_chunks::<2>().0.to_vec()
 }
 
 /// Binding power table for the Pratt parser.
@@ -1242,7 +1242,7 @@ mod tests {
                 assert!(matches!(arena.get(*lhs), Expr::NumberLit { value, .. } if *value == 1.0));
                 assert!(matches!(arena.get(*rhs), Expr::NumberLit { value, .. } if *value == 2.0));
             }
-            other => panic!("expected Binary, got {:?}", other),
+            other => panic!("expected Binary, got {other:?}"),
         }
     }
 
@@ -1255,7 +1255,7 @@ mod tests {
                 assert_eq!(*op, BinaryOp::Add);
                 assert!(matches!(arena.get(*rhs), Expr::Binary { op, .. } if *op == BinaryOp::Mul));
             }
-            other => panic!("expected Binary, got {:?}", other),
+            other => panic!("expected Binary, got {other:?}"),
         }
     }
 
@@ -1266,7 +1266,7 @@ mod tests {
             Expr::Function { arguments, .. } => {
                 assert_eq!(arguments.len(), 2);
             }
-            other => panic!("expected Function, got {:?}", other),
+            other => panic!("expected Function, got {other:?}"),
         }
     }
 
@@ -1286,7 +1286,7 @@ mod tests {
                 assert_eq!(*op, UnaryOp::ArrayCons);
                 assert_eq!(expressions.len(), 3);
             }
-            other => panic!("expected Unary array, got {:?}", other),
+            other => panic!("expected Unary array, got {other:?}"),
         }
     }
 
@@ -1298,7 +1298,7 @@ mod tests {
                 assert_eq!(*op, UnaryOp::ObjCons);
                 assert_eq!(lhs.len(), 4); // flat [k0, v0, k1, v1]
             }
-            other => panic!("expected Unary object, got {:?}", other),
+            other => panic!("expected Unary object, got {other:?}"),
         }
     }
 
@@ -1351,7 +1351,7 @@ mod tests {
             Expr::Block { expressions, .. } => {
                 assert_eq!(expressions.len(), 3);
             }
-            other => panic!("expected Block, got {:?}", other),
+            other => panic!("expected Block, got {other:?}"),
         }
     }
 
@@ -1381,7 +1381,7 @@ mod tests {
                 assert_eq!(terms.len(), 1);
                 assert!(terms[0].descending);
             }
-            other => panic!("expected Sort, got {:?}", other),
+            other => panic!("expected Sort, got {other:?}"),
         }
     }
 
@@ -1428,7 +1428,7 @@ mod tests {
                     matches!(arena.get(expressions[0]), Expr::Binary { op, .. } if *op == BinaryOp::Range)
                 );
             }
-            other => panic!("expected array with range, got {:?}", other),
+            other => panic!("expected array with range, got {other:?}"),
         }
     }
 
@@ -1467,7 +1467,7 @@ mod tests {
                 assert!(signature.is_some());
                 assert!(signature.as_ref().unwrap().raw.starts_with('<'));
             }
-            other => panic!("expected Lambda, got {:?}", other),
+            other => panic!("expected Lambda, got {other:?}"),
         }
     }
 }

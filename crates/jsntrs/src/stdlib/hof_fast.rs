@@ -256,20 +256,18 @@ fn analyze_binary(
                 rhs: inner_rhs,
                 ..
             } = arena.get(unwrap_paren_block(rhs, arena))
+                && is_arithmetic(*inner_op)
+                && let (Some(field1), Some(field2)) = (
+                    extract_param_field(*inner_lhs, arena, param_curr),
+                    extract_param_field(*inner_rhs, arena, param_curr),
+                )
             {
-                if is_arithmetic(*inner_op) {
-                    if let (Some(field1), Some(field2)) = (
-                        extract_param_field(*inner_lhs, arena, param_curr),
-                        extract_param_field(*inner_rhs, arena, param_curr),
-                    ) {
-                        return Some(SimpleLambda::ReduceCompoundAccum {
-                            field1,
-                            field2,
-                            outer_op: op,
-                            inner_op: *inner_op,
-                        });
-                    }
-                }
+                return Some(SimpleLambda::ReduceCompoundAccum {
+                    field1,
+                    field2,
+                    outer_op: op,
+                    inner_op: *inner_op,
+                });
             }
         }
     }
@@ -353,11 +351,8 @@ fn analyze_concat_template(
 
     let mut pieces = Vec::with_capacity(operand_nodes.len());
     for &node in &operand_nodes {
-        if let Some(piece) = classify_template_operand(node, arena, param) {
-            pieces.push(piece);
-        } else {
-            return None; // unsupported operand, bail
-        }
+        // An unsupported operand bails out of the whole template.
+        pieces.push(classify_template_operand(node, arena, param)?);
     }
 
     Some(SimpleLambda::ConcatTemplate { pieces })
@@ -458,16 +453,16 @@ fn collect_predicate_clauses(
         }
         // Leaf: must be $param.field op literal (or literal op $param.field)
         Expr::Binary { op, lhs, rhs, .. } if is_relational(*op) || is_arithmetic(*op) => {
-            if let Some(field) = extract_param_field(*lhs, arena, param) {
-                if let Some(lit) = extract_literal(arena, *rhs) {
-                    out.push(PredicateClause {
-                        field,
-                        op: *op,
-                        literal: lit,
-                        written: *op,
-                    });
-                    return true;
-                }
+            if let Some(field) = extract_param_field(*lhs, arena, param)
+                && let Some(lit) = extract_literal(arena, *rhs)
+            {
+                out.push(PredicateClause {
+                    field,
+                    op: *op,
+                    literal: lit,
+                    written: *op,
+                });
+                return true;
             }
             // Reversed: literal op $param.field — relational only, since the
             // clause stores the field on the left and flip_relational cannot
@@ -726,7 +721,7 @@ pub fn eval_concat_template(item: &Value, pieces: &[TemplatePiece]) -> JsonataRe
                 }
                 push_piece(
                     &mut buf,
-                    super::string_funcs::fn_substring(&args, &Value::Undefined)
+                    &super::string_funcs::fn_substring(&args, &Value::Undefined)
                         .map_err(|e| e.or_token("substring"))?,
                 );
             }
@@ -734,7 +729,7 @@ pub fn eval_concat_template(item: &Value, pieces: &[TemplatePiece]) -> JsonataRe
                 let args = [get_field(item, field)];
                 push_piece(
                     &mut buf,
-                    super::string_funcs::fn_lowercase(&args, &Value::Undefined)
+                    &super::string_funcs::fn_lowercase(&args, &Value::Undefined)
                         .map_err(|e| e.or_token("lowercase"))?,
                 );
             }
@@ -742,7 +737,7 @@ pub fn eval_concat_template(item: &Value, pieces: &[TemplatePiece]) -> JsonataRe
                 let args = [get_field(item, field)];
                 push_piece(
                     &mut buf,
-                    super::string_funcs::fn_uppercase(&args, &Value::Undefined)
+                    &super::string_funcs::fn_uppercase(&args, &Value::Undefined)
                         .map_err(|e| e.or_token("uppercase"))?,
                 );
             }
@@ -758,8 +753,8 @@ fn concat_token(e: crate::error::JsonataError) -> crate::error::JsonataError {
 
 /// Append a builtin's result to the concat buffer (`&` semantics:
 /// undefined contributes nothing).
-fn push_piece(buf: &mut String, v: Value) {
-    if let Value::String(s) = &v {
+fn push_piece(buf: &mut String, v: &Value) {
+    if let Value::String(s) = v {
         buf.push_str(s);
     }
 }

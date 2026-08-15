@@ -585,7 +585,8 @@ mod tests {
     fn spans_are_in_bounds_and_cover_the_token_kinds() {
         let src = r#"$sum(items.price) + 42 - "x""#;
         let sp = spans(src);
-        assert!(!sp.is_empty());
+        // No emptiness check: the `types.contains` loop below already fails
+        // on an empty result, and it fails naming the kind that is missing.
         for (start, end, typ) in &sp {
             assert!(
                 start < end && *end <= src.len(),

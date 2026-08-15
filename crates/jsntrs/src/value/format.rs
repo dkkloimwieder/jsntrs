@@ -309,9 +309,9 @@ mod tests {
     #[test]
     fn format_decimal_range() {
         // Between 5e-7 and 1e21 should use decimal
-        assert_eq!(format_float(0.000001), "0.000001");
+        assert_eq!(format_float(0.000_001), "0.000001");
         assert_eq!(
-            format_float(999999999999999900000.0),
+            format_float(999_999_999_999_999_900_000.0),
             "999999999999999900000"
         );
     }

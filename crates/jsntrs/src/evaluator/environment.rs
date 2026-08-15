@@ -228,10 +228,7 @@ impl Environment {
             if let Some(v) = current.bindings.borrow().get(name) {
                 return Some((v.clone(), Rc::clone(current)));
             }
-            match &current.parent {
-                Some(parent) => current = parent,
-                None => return None,
-            }
+            current = current.parent.as_ref()?;
         }
     }
 

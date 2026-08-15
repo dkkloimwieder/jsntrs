@@ -439,7 +439,7 @@ mod tests {
         assert!(type_matches(&Value::Null, b'l'));
         assert!(type_matches(&Value::Array(Rc::from(vec![])), b'a'));
         assert!(type_matches(
-            &Value::Object(Rc::new(Default::default())),
+            &Value::Object(Rc::new(crate::value::ObjectMap::default())),
             b'o'
         ));
         assert!(type_matches(&Value::Number(1.0), b'x'));

@@ -88,17 +88,16 @@ pub fn fn_millis(_args: &[Value], _focus: &Value) -> JsonataResult {
 pub fn fn_from_millis(args: &[Value], focus: &Value) -> JsonataResult {
     // With no args, use focus as millis argument.
     let from_focus = args.is_empty();
-    let effective_args: &[Value];
     let tmp;
-    if args.is_empty() {
+    let effective_args: &[Value] = if args.is_empty() {
         if focus.is_undefined() {
             return Ok(Value::Undefined);
         }
         tmp = std::slice::from_ref(focus);
-        effective_args = tmp;
+        tmp
     } else {
-        effective_args = args;
-    }
+        args
+    };
 
     if effective_args[0].is_undefined() {
         return Ok(Value::Undefined);
@@ -249,14 +248,14 @@ mod tests {
     fn from_millis_1arg(ms: i64) -> String {
         match fn_from_millis(&[millis_val(ms)], &Value::Undefined) {
             Ok(Value::String(s)) => s.to_string(),
-            other => panic!("expected string, got {:?}", other),
+            other => panic!("expected string, got {other:?}"),
         }
     }
 
     fn from_millis_picture(ms: i64, picture: &str) -> String {
         match fn_from_millis(&[millis_val(ms), str_val(picture)], &Value::Undefined) {
             Ok(Value::String(s)) => s.to_string(),
-            other => panic!("expected string, got {:?}", other),
+            other => panic!("expected string, got {other:?}"),
         }
     }
 
@@ -266,14 +265,14 @@ mod tests {
             &Value::Undefined,
         ) {
             Ok(Value::String(s)) => s.to_string(),
-            other => panic!("expected string, got {:?}", other),
+            other => panic!("expected string, got {other:?}"),
         }
     }
 
     fn to_millis_1arg(s: &str) -> i64 {
         match fn_to_millis(&[str_val(s)], &Value::Undefined) {
             Ok(Value::Number(n)) => n as i64,
-            other => panic!("expected number, got {:?}", other),
+            other => panic!("expected number, got {other:?}"),
         }
     }
 
@@ -281,7 +280,7 @@ mod tests {
         match fn_to_millis(&[str_val(s), str_val(picture)], &Value::Undefined) {
             Ok(Value::Number(n)) => Some(n as i64),
             Ok(Value::Undefined) => None,
-            other => panic!("expected number or undefined, got {:?}", other),
+            other => panic!("expected number or undefined, got {other:?}"),
         }
     }
 
@@ -314,7 +313,10 @@ mod tests {
 
     #[test]
     fn test_from_millis_known_timestamp() {
-        assert_eq!(from_millis_1arg(1509380732935), "2017-10-30T16:25:32.935Z");
+        assert_eq!(
+            from_millis_1arg(1_509_380_732_935),
+            "2017-10-30T16:25:32.935Z"
+        );
     }
 
     /// Overflowing datetime arithmetic must not panic or wrap (gnata-emj.5).
@@ -363,7 +365,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_year() {
         assert_eq!(
-            from_millis_picture(1521801216617, "Year: [Y0001]"),
+            from_millis_picture(1_521_801_216_617, "Year: [Y0001]"),
             "Year: 2018"
         );
     }
@@ -371,7 +373,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_date() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[Y0001]-[M01]-[D01]"),
+            from_millis_picture(1_521_801_216_617, "[Y0001]-[M01]-[D01]"),
             "2018-03-23"
         );
     }
@@ -379,7 +381,10 @@ mod tests {
     #[test]
     fn test_from_millis_picture_datetime_us() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[M01]/[D01]/[Y0001] at [H01]:[m01]:[s01]"),
+            from_millis_picture(
+                1_521_801_216_617,
+                "[M01]/[D01]/[Y0001] at [H01]:[m01]:[s01]"
+            ),
             "03/23/2018 at 10:33:36"
         );
     }
@@ -388,7 +393,7 @@ mod tests {
     fn test_from_millis_picture_iso_with_frac_and_tz() {
         assert_eq!(
             from_millis_picture(
-                1521801216617,
+                1_521_801_216_617,
                 "[Y]-[M01]-[D01]T[H01]:[m]:[s].[f001][Z01:01t]"
             ),
             "2018-03-23T10:33:36.617Z"
@@ -399,7 +404,7 @@ mod tests {
     fn test_from_millis_picture_tz_bst() {
         assert_eq!(
             from_millis_picture_tz(
-                1521801216617,
+                1_521_801_216_617,
                 "[Y]-[M01]-[D01]T[H01]:[m]:[s].[f001][Z0101t]",
                 "+0100"
             ),
@@ -410,7 +415,11 @@ mod tests {
     #[test]
     fn test_from_millis_picture_tz_minus5() {
         assert_eq!(
-            from_millis_picture_tz(1531310400000, "[Y]-[M01]-[D01]T[H01]:[m]:[s][Z]", "-0500"),
+            from_millis_picture_tz(
+                1_531_310_400_000,
+                "[Y]-[M01]-[D01]T[H01]:[m]:[s][Z]",
+                "-0500"
+            ),
             "2018-07-11T07:00:00-05:00"
         );
     }
@@ -418,7 +427,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_tz_z_modifier() {
         assert_eq!(
-            from_millis_picture(1531310400000, "[Y]-[M01]-[D01]T[H01]:[m]:[s][Z01:01t]"),
+            from_millis_picture(1_531_310_400_000, "[Y]-[M01]-[D01]T[H01]:[m]:[s][Z01:01t]"),
             "2018-07-11T12:00:00Z"
         );
     }
@@ -426,7 +435,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_roman_year() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[D1] [M01] [YI]"),
+            from_millis_picture(1_521_801_216_617, "[D1] [M01] [YI]"),
             "23 03 MMXVIII"
         );
     }
@@ -434,7 +443,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_ordinal() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[D1o] [M01] [Y]"),
+            from_millis_picture(1_521_801_216_617, "[D1o] [M01] [Y]"),
             "23rd 03 2018"
         );
     }
@@ -442,7 +451,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_year_words() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[Yw]"),
+            from_millis_picture(1_521_801_216_617, "[Yw]"),
             "two thousand and eighteen"
         );
     }
@@ -450,7 +459,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_month_name() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[D1o] [MNn] [Y]"),
+            from_millis_picture(1_521_801_216_617, "[D1o] [MNn] [Y]"),
             "23rd March 2018"
         );
     }
@@ -458,7 +467,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_weekday_name() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[FNn], [D1o] [MNn] [Y]"),
+            from_millis_picture(1_521_801_216_617, "[FNn], [D1o] [MNn] [Y]"),
             "Friday, 23rd March 2018"
         );
     }
@@ -466,7 +475,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_default_modifiers() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[F], [D]/[M]/[Y] [h]:[m]:[s] [P]"),
+            from_millis_picture(1_521_801_216_617, "[F], [D]/[M]/[Y] [h]:[m]:[s] [P]"),
             "friday, 23/3/2018 10:33:36 am"
         );
     }
@@ -474,7 +483,7 @@ mod tests {
     #[test]
     fn test_from_millis_picture_ampm_uppercase() {
         assert_eq!(
-            from_millis_picture(1521801216617, "[F], [D]/[M]/[Y] [h]:[m]:[s] [PN]"),
+            from_millis_picture(1_521_801_216_617, "[F], [D]/[M]/[Y] [h]:[m]:[s] [PN]"),
             "friday, 23/3/2018 10:33:36 AM"
         );
     }
@@ -482,20 +491,23 @@ mod tests {
     #[test]
     fn test_from_millis_picture_day_of_year() {
         assert_eq!(
-            from_millis_picture(1514808000000, "[dwo] day of the year"),
+            from_millis_picture(1_514_808_000_000, "[dwo] day of the year"),
             "first day of the year"
         );
     }
 
     #[test]
     fn test_from_millis_picture_week_of_year() {
-        assert_eq!(from_millis_picture(1514808000000, "Week: [W]"), "Week: 1");
+        assert_eq!(
+            from_millis_picture(1_514_808_000_000, "Week: [W]"),
+            "Week: 1"
+        );
     }
 
     #[test]
     fn test_from_millis_picture_week_of_month() {
         assert_eq!(
-            from_millis_picture(1359460800000, "Week: [w] of [xNn]"),
+            from_millis_picture(1_359_460_800_000, "Week: [w] of [xNn]"),
             "Week: 5 of January"
         );
     }
@@ -503,26 +515,24 @@ mod tests {
     #[test]
     fn test_from_millis_error_unclosed_bracket() {
         let result = fn_from_millis(
-            &[millis_val(1419940800000), str_val("[YN]-[M")],
+            &[millis_val(1_419_940_800_000), str_val("[YN]-[M")],
             &Value::Undefined,
         );
         assert!(
             matches!(result, Err(ref e) if e.code == "D3135"),
-            "got {:?}",
-            result
+            "got {result:?}"
         );
     }
 
     #[test]
     fn test_from_millis_error_named_year() {
         let result = fn_from_millis(
-            &[millis_val(1419940800000), str_val("[YN]-[M]-[D]")],
+            &[millis_val(1_419_940_800_000), str_val("[YN]-[M]-[D]")],
             &Value::Undefined,
         );
         assert!(
             matches!(result, Err(ref e) if e.code == "D3133"),
-            "got {:?}",
-            result
+            "got {result:?}"
         );
     }
 
@@ -530,7 +540,7 @@ mod tests {
     fn test_from_millis_picture_tz_6digit_error() {
         let result = fn_from_millis(
             &[
-                millis_val(1230757500000),
+                millis_val(1_230_757_500_000),
                 str_val("[Y]-[M01]-[D01]T[H01]:[m]:[s].[f001][Z010101t]"),
                 str_val("+0530"),
             ],
@@ -538,8 +548,7 @@ mod tests {
         );
         assert!(
             matches!(result, Err(ref e) if e.code == "D3134"),
-            "got {:?}",
-            result
+            "got {result:?}"
         );
     }
 
@@ -619,7 +628,10 @@ mod tests {
 
     #[test]
     fn test_to_millis_known_timestamp() {
-        assert_eq!(to_millis_1arg("2017-10-30T16:25:32.935Z"), 1509380732935);
+        assert_eq!(
+            to_millis_1arg("2017-10-30T16:25:32.935Z"),
+            1_509_380_732_935
+        );
     }
 
     #[test]
@@ -630,14 +642,14 @@ mod tests {
 
     #[test]
     fn test_to_millis_picture_year() {
-        assert_eq!(to_millis_picture("2018", "[Y1]"), Some(1514764800000));
+        assert_eq!(to_millis_picture("2018", "[Y1]"), Some(1_514_764_800_000));
     }
 
     #[test]
     fn test_to_millis_picture_ymd() {
         assert_eq!(
             to_millis_picture("2018-03-27", "[Y1]-[M01]-[D01]"),
-            Some(1522108800000)
+            Some(1_522_108_800_000)
         );
     }
 
@@ -648,7 +660,7 @@ mod tests {
                 "2018-03-27T14:03:00.123Z",
                 "[Y0001]-[M01]-[D01]T[H01]:[m01]:[s01].[f001]Z"
             ),
-            Some(1522159380123)
+            Some(1_522_159_380_123)
         );
     }
 
@@ -656,20 +668,23 @@ mod tests {
     fn test_to_millis_picture_ordinal() {
         assert_eq!(
             to_millis_picture("27th 3 1976", "[D1o] [M#1] [Y0001]"),
-            Some(196732800000)
+            Some(196_732_800_000)
         );
     }
 
     #[test]
     fn test_to_millis_picture_roman_year() {
-        assert_eq!(to_millis_picture("MCMLXXXIV", "[YI]"), Some(441763200000));
+        assert_eq!(
+            to_millis_picture("MCMLXXXIV", "[YI]"),
+            Some(441_763_200_000)
+        );
     }
 
     #[test]
     fn test_to_millis_picture_month_name() {
         assert_eq!(
             to_millis_picture("27th April 2008", "[D1o] [MNn] [Y0001]"),
-            Some(1209254400000)
+            Some(1_209_254_400_000)
         );
     }
 
@@ -677,7 +692,7 @@ mod tests {
     fn test_to_millis_picture_words() {
         assert_eq!(
             to_millis_picture("one thousand, nine hundred and eighty-four", "[Yw]"),
-            Some(441763200000)
+            Some(441_763_200_000)
         );
     }
 
@@ -685,7 +700,7 @@ mod tests {
     fn test_to_millis_picture_12h_am() {
         assert_eq!(
             to_millis_picture("4/4/2018 12:06 am", "[D1]/[M1]/[Y0001] [h]:[m] [P]"),
-            Some(1522800360000)
+            Some(1_522_800_360_000)
         );
     }
 
@@ -693,7 +708,7 @@ mod tests {
     fn test_to_millis_picture_day_of_year() {
         assert_eq!(
             to_millis_picture("2018-094", "[Y0001]-[d001]"),
-            Some(1522800000000)
+            Some(1_522_800_000_000)
         );
     }
 
@@ -707,8 +722,7 @@ mod tests {
         let ts = fn_from_millis(&[Value::Number(result.unwrap() as f64)], &Value::Undefined);
         assert!(
             matches!(ts, Ok(Value::String(ref s)) if s.starts_with("2020-09-09T06:00:00")),
-            "got {:?}",
-            ts
+            "got {ts:?}"
         );
     }
 
@@ -720,8 +734,7 @@ mod tests {
         );
         assert!(
             matches!(result, Err(ref e) if e.code == "D3132"),
-            "got {:?}",
-            result
+            "got {result:?}"
         );
     }
 
@@ -733,8 +746,7 @@ mod tests {
         );
         assert!(
             matches!(result, Err(ref e) if e.code == "D3133"),
-            "got {:?}",
-            result
+            "got {result:?}"
         );
     }
 
@@ -743,8 +755,7 @@ mod tests {
         let result = fn_to_millis(&[str_val("2018-22"), str_val("[Y]-[D]")], &Value::Undefined);
         assert!(
             matches!(result, Err(ref e) if e.code == "D3136"),
-            "got {:?}",
-            result
+            "got {result:?}"
         );
     }
 
@@ -764,7 +775,7 @@ mod tests {
     #[test]
     fn test_secs_to_ymd_hms_known() {
         // 2018-03-23T10:33:36
-        assert_eq!(secs_to_ymd_hms(1521801216), (2018, 3, 23, 10, 33, 36));
+        assert_eq!(secs_to_ymd_hms(1_521_801_216), (2018, 3, 23, 10, 33, 36));
     }
 
     #[test]
@@ -845,7 +856,7 @@ mod tests {
         assert_eq!(format_default_iso(0, 0), "1970-01-01T00:00:00.000Z");
         assert_eq!(format_default_iso(1, 0), "1970-01-01T00:00:00.001Z");
         assert_eq!(
-            format_default_iso(1509380732935, 0),
+            format_default_iso(1_509_380_732_935, 0),
             "2017-10-30T16:25:32.935Z"
         );
     }

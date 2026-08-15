@@ -92,10 +92,7 @@ fn to_number_array(v: &Value) -> Option<Vec<f64>> {
         Value::Array(arr) => {
             let mut nums = Vec::with_capacity(arr.len());
             for item in arr.iter() {
-                match item.as_f64() {
-                    Some(n) => nums.push(n),
-                    None => return None,
-                }
+                nums.push(item.as_f64()?);
             }
             Some(nums)
         }

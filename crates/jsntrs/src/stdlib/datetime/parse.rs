@@ -60,19 +60,19 @@ pub(super) fn try_parse_iso_with_tz(s: &str) -> Option<i64> {
 
     // Parse fractional seconds and find where the tz suffix starts.
     let rest = &s[19..];
-    let (ms, tz_part) = if rest.starts_with('.') {
+    let (ms, tz_part) = if let Some(after_dot) = rest.strip_prefix('.') {
         // Find end of digits after dot.
-        let frac_end = 1 + rest[1..].bytes().take_while(|b| b.is_ascii_digit()).count();
-        let frac_str = &rest[1..frac_end];
+        let frac_end = after_dot.bytes().take_while(u8::is_ascii_digit).count();
+        let frac_str = &after_dot[..frac_end];
         let frac_val: i32 = frac_str.parse().ok()?;
         let ms_val = match frac_str.len() {
             1 => frac_val * 100,
             2 => frac_val * 10,
             3 => frac_val,
-            n if n > 3 => (frac_val as f64 / 10f64.powi(n as i32 - 3)) as i32,
+            n if n > 3 => (f64::from(frac_val) / 10f64.powi(n as i32 - 3)) as i32,
             _ => 0,
         };
-        (ms_val, &rest[frac_end..])
+        (ms_val, &after_dot[frac_end..])
     } else {
         (0, rest)
     };

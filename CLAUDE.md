@@ -18,8 +18,9 @@ case count (bump `EXPECTED_CASE_TOTAL` when adding cases).
 
 ```sh
 cargo test --workspace                             # all tests; conformance gate is strict
-cargo clippy --workspace --release --all-targets   # budget: ≤121 warnings, 0 errors — do not add any
-                                                   # (grep -cE '^warning: |^error' reads 3 higher: 3 summary lines)
+cargo clippy --workspace --release --all-targets   # budget: 0 warnings, 0 errors — do not add any
+                                                   # (`grep -cE '^warning: |^error'` prints 0; with warnings
+                                                   #  present it reads high by one per-target summary line)
 cargo fmt --all --check                            # must stay clean
 cargo bench -p jsntrs                              # criterion; skips missing bench/ fixtures
 cargo check -p jsntrs --target wasm32-unknown-unknown --no-default-features --features regex-lite
