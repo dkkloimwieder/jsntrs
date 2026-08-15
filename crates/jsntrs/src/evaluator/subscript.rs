@@ -111,7 +111,7 @@ pub(super) fn eval_subscript_binary(
 /// This is *only* the consumption of a number as a subscript. Arithmetic
 /// keeps propagating infinities unchanged — `1/0` is still `Infinity`, and
 /// `evaluateNumericExpression` only guards its own operands (jsntrs-c7l).
-fn numeric_index(value: &Value) -> JsonataResult<Option<f64>> {
+pub(super) fn numeric_index(value: &Value) -> JsonataResult<Option<f64>> {
     match value {
         Value::Number(n) if n.is_nan() => Ok(None),
         Value::Number(n) if !n.is_finite() => Err(JsonataError::new(
@@ -145,7 +145,7 @@ fn numeric_index(value: &Value) -> JsonataResult<Option<f64>> {
 ///
 /// `f64 as i64` saturates in Rust, so a huge index lands on `i64::MAX` /
 /// `i64::MIN` and is rejected as out of range rather than wrapping.
-fn floor_index(n: f64) -> i64 {
+pub(super) fn floor_index(n: f64) -> i64 {
     n.floor() as i64
 }
 
@@ -157,7 +157,7 @@ fn floor_index(n: f64) -> i64 {
 /// short-circuited away by an earlier non-numeric element — hence no early
 /// return here: `[1,2,3][[0/0,1/0]]` is `D1001`, not a fall-through to the
 /// truthiness test.
-fn all_numeric_indices(items: &[Value]) -> JsonataResult<bool> {
+pub(super) fn all_numeric_indices(items: &[Value]) -> JsonataResult<bool> {
     let mut all = true;
     for item in items {
         all &= numeric_index(item)?.is_some();

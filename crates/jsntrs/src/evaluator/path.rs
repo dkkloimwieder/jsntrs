@@ -13,10 +13,11 @@ use crate::value::{Sequence, Value};
 
 use super::environment::Environment;
 use super::group::eval_tuple_group;
+use super::subscript::{all_numeric_indices, floor_index, numeric_index};
 use super::{
     FunctionValue, JOIN_FLAG, PARENT_BINDING, PARENT_SHADOW, call_function, compare_sort_terms,
-    descendant_lookup, eval_name, eval_no_stack_check, eval_variable, mark_keep_singleton,
-    parent_out_of_context,
+    descendant_lookup, eval_name, eval_no_stack_check, eval_operand, eval_variable,
+    mark_keep_singleton, parent_out_of_context,
 };
 
 // ── Path evaluation (simplified for Phase 5) ────────────────────────
@@ -485,7 +486,7 @@ fn eval_tuple_parent_pred_step(
     rhs: NodeId,
     ctxs: &[TupleCtx],
 ) -> JsonataResult<Vec<TupleCtx>> {
-    let mut next_ctxs = Vec::new();
+    let mut parents: Vec<TupleCtx> = Vec::with_capacity(ctxs.len());
     for (_, ctx_env) in ctxs {
         let Some((parent_val, binding_env)) = Environment::lookup_with_env(ctx_env, PARENT_BINDING)
         else {
@@ -503,12 +504,69 @@ fn eval_tuple_parent_pred_step(
             .parent()
             .cloned()
             .unwrap_or_else(|| binding_env.clone());
-        let pred_result = eval_no_stack_check(arena, rhs, &parent_val, &parent_env)?;
-        if pred_result.to_boolean()? {
-            next_ctxs.push((parent_val, parent_env));
+        parents.push((parent_val, parent_env));
+    }
+    filter_tuple_ctxs(arena, rhs, parents)
+}
+
+/// Apply a filter predicate to a sequence of `(value, env)` contexts.
+///
+/// The parent step's result is a sequence like any other, so its predicate
+/// obeys the documented filter rules rather than a bare truthiness test:
+///
+/// > If the predicate expression is an integer, or an expression that
+/// > evaluates to an integer, then the item at that position (zero offset) in
+/// > the input sequence is the only item selected for the result sequence. If
+/// > the number is non-integer, then it is rounded down to the nearest
+/// > integer.
+/// >
+/// > If the predicate expression is an array of integers, … then the items at
+/// > those positions (zero offset) in the input sequence is the only item
+/// > selected …
+/// >
+/// > If the predicate expression evaluates to any other value, then it is
+/// > cast to a Boolean as if using the `$boolean()` function. If this
+/// > evaluates to true, then the item is retained in the result sequence.
+/// > Otherwise it is rejected.
+/// > — <https://docs.jsonata.org/path-operators> § `[ ... ]` (Filter)
+///
+/// `%[…]` used to coerce the predicate straight to a boolean, so the index
+/// base was inverted: `a.b.%[0]` selected nothing (`$boolean(0)` is false)
+/// and `a.b.%[1]` kept every parent (`$boolean(1)` is true), where the
+/// documentation makes `[0]` the first parent and `[1]` the second
+/// (jsntrs-vjs).
+fn filter_tuple_ctxs(
+    arena: &AstArena,
+    rhs: NodeId,
+    ctxs: Vec<TupleCtx>,
+) -> JsonataResult<Vec<TupleCtx>> {
+    let len = ctxs.len() as i64;
+    let mut kept: Vec<TupleCtx> = Vec::with_capacity(ctxs.len());
+    for (i, (val, env)) in ctxs.into_iter().enumerate() {
+        let test = eval_operand(arena, rhs, &val, &env)?;
+        // A number, or an array of numbers, selects by position.
+        let positions: Option<Vec<f64>> = match &test {
+            Value::Array(items) if !items.is_empty() && all_numeric_indices(items)? => Some(
+                items
+                    .iter()
+                    .filter_map(|v| numeric_index(v).ok().flatten())
+                    .collect(),
+            ),
+            other => numeric_index(other)?.map(|n| vec![n]),
+        };
+        let keep = match positions {
+            Some(positions) => positions.into_iter().any(|n| {
+                let idx = floor_index(n);
+                let actual = if idx < 0 { len + idx } else { idx };
+                actual == i as i64
+            }),
+            None => test.to_boolean()?,
+        };
+        if keep {
+            kept.push((val, env));
         }
     }
-    Ok(next_ctxs)
+    Ok(kept)
 }
 
 /// (block)[pred-with-%] step: the block would normally discard per-element

@@ -1024,6 +1024,26 @@ ancestor slot is simply never bound and the lookup returns undefined. The
 documentation says such a `%` is a static error, so jsntrs raises S0217 —
 statically where the position is unambiguous, at evaluation time otherwise.
 
+#### Deviation: a predicate on a parent step filters by position (jsntrs-vjs)
+
+`%[…]` coerced its predicate straight to a boolean, so the index base was
+inverted: `a.b.%[0]` selected nothing (`$boolean(0)` is false) and
+`a.b.%[1]` kept every parent. The parent step's result is a sequence like any
+other, and the documentation gives one rule for filtering a sequence:
+
+> If the predicate expression is an integer, or an expression that evaluates
+> to an integer, then the item at that position (zero offset) in the input
+> sequence is the only item selected for the result sequence. If the number is
+> non-integer, then it is rounded down to the nearest integer.
+>
+> — <https://docs.jsonata.org/path-operators> § `[ ... ]` (Filter)
+
+`filter_tuple_ctxs` in `evaluator/path.rs` now applies that rule — number,
+array of numbers, otherwise `$boolean` — to the sequence of parent contexts.
+Two shapes still miss because they never reach the parent-step special form
+at all: `a.b.%[0][0]` (a subscript of a subscript) and `a.b.(%)[0]` (a block
+around the `%`).
+
 **Interaction with S0213.** For an expression that is invalid twice over
 (`a.1 ? 2 : %` — a literal path step *and* an unresolvable parent), jsonata-js
 reports S0213 and jsntrs now reports S0217, because jsntrs's literal-step

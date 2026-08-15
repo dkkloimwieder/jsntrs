@@ -1,0 +1,206 @@
+[
+    {
+        "expr": "a.b.%[0]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": {
+            "b": 1
+        },
+        "divergence": "jsntrs answered undefined before jsntrs-vjs: the predicate on a parent step was coerced straight to a boolean, and $boolean(0) is false. docs.jsonata.org/path-operators, '[ ... ] (Filter)': 'If the predicate expression is an integer ... then the item at that position (zero offset) in the input sequence is the only item selected for the result sequence.'"
+    },
+    {
+        "expr": "a.b.%[1]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": {
+            "b": 2
+        },
+        "divergence": "The mirror image of [0]: jsntrs used to keep every parent here, because $boolean(1) is true."
+    },
+    {
+        "expr": "a.b.%[2]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "a.b.%[-1]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": {
+            "b": 2
+        }
+    },
+    {
+        "expr": "a.b.%[0.7]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": {
+            "b": 1
+        },
+        "divergence": "'If the number is non-integer, then it is rounded down to the nearest integer.' (same section)"
+    },
+    {
+        "expr": "a.b.%[0].b",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": 1
+    },
+    {
+        "expr": "a.%[0]",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "result": {
+            "a": {
+                "b": 1
+            }
+        },
+        "divergence": "A single parent is the one-item sequence it is equivalent to, so position 0 selects it."
+    },
+    {
+        "expr": "a.%[1]",
+        "data": {
+            "a": {
+                "b": 1
+            }
+        },
+        "bindings": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "a.b.%[b = 1]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": {
+            "b": 1
+        },
+        "divergence": "Control: a non-numeric predicate is still cast to a Boolean and filters."
+    },
+    {
+        "expr": "a.b.%[true]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": [
+            {
+                "b": 1
+            },
+            {
+                "b": 2
+            }
+        ]
+    },
+    {
+        "expr": "a.b.%[false]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "a.b.%[[0, 1]]",
+        "data": {
+            "a": [
+                {
+                    "b": 1
+                },
+                {
+                    "b": 2
+                }
+            ]
+        },
+        "bindings": {},
+        "result": [
+            {
+                "b": 1
+            },
+            {
+                "b": 2
+            }
+        ],
+        "divergence": "'If the predicate expression is an array of integers ... then the items at those positions (zero offset) in the input sequence is the only item selected' (same section)."
+    }
+]
