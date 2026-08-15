@@ -365,8 +365,12 @@ pub(super) fn eval_group_by(
                 pairs_env,
             )?;
 
+            // `[]` suppresses the singleton unwrap; it does not manufacture a
+            // value where nothing was selected. A pair whose value expression
+            // matched nothing is dropped whether or not it carries the suffix
+            // (see `apply_keep_array`; jsntrs-a1e).
             if val_keep_array {
-                val_result = apply_keep_array(val_result, Value::Array(Rc::from(vec![])));
+                val_result = apply_keep_array(val_result);
             }
 
             // Same boundary as in `eval_tuple_group`: `val_keep_array` only

@@ -378,9 +378,9 @@ fn apply_range(left: &Value, right: &Value) -> JsonataResult {
 /// way the tail of jsonata-js `evaluate()` does (`result.keepSingleton =
 /// true`): the value comes back as a flagged [`Value::Sequence`], and the
 /// singleton is only promoted to an array where something collapses it.
-/// Arrays pass through; `undefined` is what Undefined becomes — the suffix
-/// yields Undefined on function results but an empty array in
-/// subscript/group-value positions.
+/// Arrays pass through; `undefined` is what Undefined becomes — nothing
+/// stays nothing, because a flag that suppresses an unwrap has nothing to
+/// unwrap when no value was selected.
 ///
 /// Deferring the wrap is what lets an enclosing path drop the flag while
 /// re-sequencing, so `x.($keys(a)[])` answers `"k"` and not `["k"]`
@@ -396,8 +396,21 @@ pub(crate) fn flag_keep_array(result: Value, undefined: Value) -> Value {
 /// position whose result is user-visible on the spot and can never hold a
 /// sequence: a group-by pair's value, which is inserted straight into the
 /// output object.
-pub(crate) fn apply_keep_array(result: Value, undefined: Value) -> Value {
-    super::collapse_sequence(flag_keep_array(result, undefined))
+///
+/// A pair value that selected nothing stays nothing, so the caller drops the
+/// pair — the language documentation makes that the rule for *every* empty
+/// sequence, and says so about this position by name:
+///
+/// > An **empty sequence** is a sequence with no values and is considered to
+/// > be 'nothing' or 'no match'. It won't appear in the output of any
+/// > expression. If it is associated with an object property (key/value) pair
+/// > in a result object, then that object will not have that property.
+/// >
+/// > — <https://docs.jsonata.org/processing> § Sequences, rule 1
+///
+/// (jsntrs-a1e)
+pub(crate) fn apply_keep_array(result: Value) -> Value {
+    super::collapse_sequence(flag_keep_array(result, Value::Undefined))
 }
 
 /// Walk the left chain of a Binary "[" node to check if keep_array is set
