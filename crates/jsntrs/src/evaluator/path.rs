@@ -646,16 +646,23 @@ fn eval_tuple_general_step(
 }
 
 /// Collapse final tuple contexts into the path result value.
+///
+/// The `[]` flag is set on the sequence rather than on its collapsed value:
+/// collapsing first loses the difference between a one-member sequence whose
+/// member is an array and an array of that many values, and
+/// [`mark_keep_singleton`] then has nothing to keep. That is how
+/// `a^(%.k)[]` on `{"a": [[3, 1, 2]]}` came back as `[3,1,2]` while the
+/// otherwise identical `a^(b)[]` came back as `[[3,1,2]]` (jsntrs-09h).
 fn collect_tuple_results(ctxs: &[TupleCtx], keep_singleton_array: bool) -> Value {
     let mut seq = Sequence::new();
     for (val, _) in ctxs {
         seq.append(val.clone());
     }
-    let result = seq.into_value();
-    if keep_singleton_array {
-        return mark_keep_singleton(result);
+    if keep_singleton_array && !seq.values.is_empty() {
+        seq.keep_singleton = true;
+        return Value::Sequence(Box::new(seq));
     }
-    result
+    seq.into_value()
 }
 
 /// Expand a sequence of path steps in tuple mode, preserving parent bindings.

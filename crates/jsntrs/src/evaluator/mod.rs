@@ -924,12 +924,30 @@ fn eval_sort(
         _ => unreachable!("eval_sort is dispatched only for Expr::Sort nodes"),
     };
 
+    // A `[]` on a step of the sort's own operand (`a[]^(b)`), read off the
+    // operand's `Path` node. It survives a matched array, which the flag on
+    // an evaluated `Sequence` does not (see below).
+    let operand_keeps_singleton = matches!(
+        arena.get(sort_expr),
+        Expr::Path {
+            keep_singleton_array: true,
+            ..
+        }
+    );
+
     // If any sort term references % (parent), use parent-tracking sort.
     let needs_parent = terms
         .iter()
         .any(|t| node_has_parent_ref(arena, t.expression));
     if needs_parent {
-        return eval_sort_with_parent_tracking(arena, sort_expr, &terms, input, env);
+        return eval_sort_with_parent_tracking(
+            arena,
+            sort_expr,
+            &terms,
+            input,
+            env,
+            operand_keeps_singleton,
+        );
     }
 
     let mut items = eval_no_stack_check(arena, sort_expr, input, env)?;
@@ -948,13 +966,7 @@ fn eval_sort(
             seq.keep_singleton = false;
             true
         }
-        _ => matches!(
-            arena.get(sort_expr),
-            Expr::Path {
-                keep_singleton_array: true,
-                ..
-            }
-        ),
+        _ => operand_keeps_singleton,
     };
     let sorted = sort_evaluated_items(arena, items, &terms, env)?;
     Ok(if keep_singleton {
@@ -1066,12 +1078,20 @@ fn sorted_sequence(arr: Vec<Value>) -> Value {
 
 /// Sort with parent-tracking: when sort terms reference %, we need to build
 /// tuple contexts so each item has its parent environment for % evaluation.
+///
+/// There is one Sort stage in the language, not two, so this branch owes its
+/// operand's `[]` exactly what [`eval_sort`] owes it — the stage table gives
+/// the operator one behaviour and says nothing about what the sort key
+/// mentions. Rebuilding the sequence from tuple contexts used to drop the
+/// flag, so `a[]^(%.k)` answered `{"b": 1}` where `a[]^(b)` answered
+/// `[{"b": 1}]` (jsntrs-09h).
 fn eval_sort_with_parent_tracking(
     arena: &AstArena,
     sort_expr: NodeId,
     terms: &[crate::parser::SortTerm],
     input: &Value,
     env: &Rc<Environment>,
+    keep_singleton: bool,
 ) -> JsonataResult {
     // Build tuple contexts from the sort expression's inner path.
     let ctxs = build_sort_ctxs(arena, sort_expr, input, env)?;
@@ -1087,7 +1107,15 @@ fn eval_sort_with_parent_tracking(
     for (val, _) in &sorted {
         seq.append(val.clone());
     }
-    Ok(seq.into_value())
+    if seq.values.is_empty() {
+        return Ok(Value::Undefined);
+    }
+    let sorted = sorted_sequence(seq.values);
+    Ok(if keep_singleton {
+        mark_keep_singleton(sorted)
+    } else {
+        sorted
+    })
 }
 
 /// Build pathCtx tuples for a sort expression, splitting paths into prefix + lastStep
