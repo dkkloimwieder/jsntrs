@@ -1,0 +1,11 @@
+{
+    "expr": "x.-y{\"k\": $}.z.w",
+    "data": {
+        "x": {
+            "y": 2
+        }
+    },
+    "bindings": {},
+    "result": {},
+    "comment": "A mid-chain group is what ends a negated step's operand: `-` parses at binding power 70 and `{` is 70, so the group terminates it while a bare `.` (75) would not. The path therefore keeps all four steps. jsonata 2.2.2 ast() confirms the four-step path with the group hoisted to path level (jsntrs-qhh)."
+}

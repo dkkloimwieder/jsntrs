@@ -45,32 +45,31 @@
 //!   `\x0c`/`\u{a0}`/`\u{2028}` straight out of the last token — `$x\u{a0}`
 //!   formatted to `$x` — jsntrs-ecq.12.
 //!
-//! One gap is currently fenced off in `known_unstable_gap`, which is the
-//! authoritative list:
+//! Two more went the same way, and with them the last of the fences:
 //!
-//! - **path layout flips across passes.** The two disambiguation strategies
-//!   for numeric path steps — multi-line layout and the spaced dot
-//!   (jsntrs-ecq.11) — are chosen from context that the group hoist
-//!   (jsntrs-ecq.9) rewrites: `0.-0{0:0}.0.a` formats multi-line on the
-//!   first pass and single-line on the second — jsntrs-qhh.
+//! - the comment scan classified a quote next to a `$` token as a string
+//!   delimiter where the lexer reads it as ordinary name text, so it split
+//!   the source at the wrong places and the second pass dropped the
+//!   relocated comment (`a@$'//*'/**/a`, `a@$0'@$0'()?/**/0`) —
+//!   jsntrs-5xh;
+//! - a `-` folded into a number literal still absorbs the following
+//!   `.`-chain, but only the `Unary` spelling counted as dot-absorbing, so
+//!   the path group was written past a negative literal step and the output
+//!   re-read as a shorter path — with a different layout
+//!   (`0.-0{0:0}.0.a`) — jsntrs-qhh.
 //!
-//! A newly found gap is a bug in `format`, not in this target: fix the
-//! formatter — removing its fence from `known_unstable_gap` — or, if the fix
-//! has to wait, add a fence with its repro and file the issue.
+//! `known_unstable_gap` is therefore empty, and both assertions are
+//! unconditional. A newly found gap is a bug in `format`, not in this
+//! target: fix the formatter, or, if the fix has to wait, add a fence here
+//! with its repro and file the issue.
 
 use libfuzzer_sys::fuzz_target;
 
 /// `Some(reason)` when this input hits a known gap that makes the *second*
-/// pass differ from the first (see the header). No gap can still make the
-/// formatted text fail to *parse*: that assertion is unconditional.
-fn known_unstable_gap(src: &str) -> Option<&'static str> {
-    let bytes = src.as_bytes();
-    // A negated path step next to a group can flip the layout strategy
-    // between passes (jsntrs-qhh). Over-approximates — most such pairs are
-    // stable — which only costs a little corpus coverage.
-    if bytes.windows(2).any(|w| w == b".-") && bytes.contains(&b'{') {
-        return Some("negated path step with a group (jsntrs-qhh)");
-    }
+/// pass differ from the first (see the header). Empty today: every gap the
+/// target has found is fixed. No gap may ever make the formatted text fail
+/// to *parse* — that assertion is unconditional either way.
+fn known_unstable_gap(_src: &str) -> Option<&'static str> {
     None
 }
 

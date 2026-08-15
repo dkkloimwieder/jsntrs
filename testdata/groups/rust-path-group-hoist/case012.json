@@ -1,0 +1,7 @@
+{
+    "expr": "0\n  .-0{0: 0}\n  .0\n  .a",
+    "dataset": null,
+    "bindings": {},
+    "code": "S0213",
+    "comment": "The spelling format() produces for case011: still four steps, still a numeric one, still S0213. The pre-fix output moved the group to the end, which re-read as the two-step `0.-(0.0.a{0: 0})` — a different expression that happens to share the error code. jsonata 2.2.2 rejects this text with S0213 too (jsntrs-qhh)."
+}

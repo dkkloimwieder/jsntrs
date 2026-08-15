@@ -1,0 +1,11 @@
+{
+    "expr": "x\n  .-y{\"k\": $}\n  .z\n  .w",
+    "data": {
+        "x": {
+            "y": 2
+        }
+    },
+    "bindings": {},
+    "result": {},
+    "comment": "The broken-line spelling format() produces for case009. The newline before each `.` is not a terminator, so the group must stay on the negated step there too. jsonata 2.2.2 gives this text the same ast() as case009 (jsntrs-qhh)."
+}

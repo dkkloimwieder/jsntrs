@@ -1,0 +1,7 @@
+{
+    "expr": "0.-0{0:0}.0.a",
+    "dataset": null,
+    "bindings": {},
+    "code": "S0213",
+    "comment": "The same shape with a negated *number literal* step: `-0` is folded into the literal (jsonata 2.2.2 processAST, case unary), so the step's text still begins with `-` and still needs the group to end it. A numeric step is invalid either way — jsonata 2.2.2 rejects this at parse time with S0213, jsntrs reports S0213 when the step is evaluated (docs/spec.md) (jsntrs-qhh)."
+}

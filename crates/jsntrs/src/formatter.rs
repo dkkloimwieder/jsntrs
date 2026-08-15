@@ -657,17 +657,31 @@ impl<'a> Formatter<'a> {
     }
 
     /// True when re-reading this step followed by `.` would swallow the
-    /// rest of the path into the step. Only unary minus does: its operand
-    /// binds looser than `.`, unless its own `{…}` group already ends it.
+    /// rest of the path into the step. Only a leading `-` does: it parses
+    /// its operand at binding power 70, below the dot's 75, unless the
+    /// step's own `{…}` group already ends it.
+    ///
+    /// Both spellings of a leading `-` count. A `-` in front of a number
+    /// literal is *folded into the literal* — jsonata 2.2.2 `processAST`,
+    /// case `unary`: `if (expr.value === '-' && result.expression.type ===
+    /// 'number') { result = result.expression; result.value =
+    /// -result.value; }`, which jsntrs mirrors in `Parser::nud` — so the
+    /// step is an `Expr::NumberLit` whose text still begins with `-` and
+    /// still absorbs the dot. Missing that half printed `0.-0{0:0}.0.a` as
+    /// `0\n  .-0\n  .0\n  .a{0: 0}`, which re-reads as the two-step
+    /// `0.-(0.0.a{0: 0})` (jsntrs-qhh). A `NumberLit` never carries a group
+    /// of its own — `set_group` wraps such a node in `Grouped` — so, unlike
+    /// `Unary`, there is no self-terminating form to exempt.
     fn step_absorbs_dot(&self, step: NodeId) -> bool {
-        matches!(
-            self.arena.try_get(step),
+        match self.arena.try_get(step) {
             Some(Expr::Unary {
                 op: UnaryOp::Negate,
                 group: None,
                 ..
-            })
-        )
+            }) => true,
+            Some(Expr::NumberLit { raw, .. }) => raw.starts_with('-'),
+            _ => false,
+        }
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -2232,6 +2246,72 @@ mod tests {
                 "not idempotent: {src}"
             );
         }
+    }
+
+    /// The other spelling of a leading `-`: in front of a number literal it
+    /// is folded *into* the literal (jsonata 2.2.2 `processAST`, case
+    /// `unary`), so the step is a `NumberLit` whose text still starts with
+    /// `-` and still swallows the following `.`-chain. Treating only the
+    /// `Unary` node as dot-absorbing put the group at the end, and
+    /// `0.-0{0:0}.0.a` printed `0\n  .-0\n  .0\n  .a{0: 0}` — the two-step
+    /// `0.-(0.0.a{0: 0})`, which then re-formatted single-line, so the
+    /// layout flipped between passes as well (jsntrs-qhh).
+    #[test]
+    fn path_group_ends_a_negative_number_step() {
+        assert_eq!(fmt("0.-0{0:0}.0.a"), "0\n  .-0{0: 0}\n  .0\n  .a");
+        assert_eq!(fmt("0.-0{0:0}.a"), "0.-0{0: 0}.a");
+        assert_eq!(fmt("a.-0{0:0}.b"), "a.-0{0: 0}.b");
+        assert_eq!(fmt("0.-1e2{0:0}.a.b"), "0\n  .-1e2{0: 0}\n  .a\n  .b");
+        assert_eq!(fmt("0.-0{}.a"), "0.-0{}.a");
+        // Two folds cancel, leaving a positive literal that ends itself —
+        // the group goes back to the canonical trailing position, and the
+        // joining `.` still needs its padding (jsntrs-ecq.11).
+        assert_eq!(fmt("0.--0{0:0}.a"), "0 . 0.a{0: 0}");
+        // A negative literal as the *last* step needs no terminator.
+        assert_eq!(fmt("0 . -1"), "0.-1");
+        assert_eq!(fmt("0.-0{0: 0}.-1"), "0.-0{0: 0}.-1");
+        for src in [
+            "0.-0{0:0}.0.a",
+            "0.-0{0:0}.a",
+            "a.-0{0:0}.b",
+            "0.-1e2{0:0}.a.b",
+            "0.--0{0:0}.a",
+            "-1{0:0}.a.b.c.d",
+            r#"x.-1{"k": $}.y"#,
+        ] {
+            let once = fmt(src);
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src}"
+            );
+        }
+    }
+
+    /// And the printed path is the *same* path: the step count a re-parse
+    /// yields must match the one being printed, in both layouts. The
+    /// pre-fix output collapsed four steps into two.
+    #[test]
+    fn negated_number_step_keeps_the_step_count() {
+        let steps = |src: &str| {
+            let (mut arena, root) = Parser::parse(src).expect("parse");
+            let root = process_ast(&mut arena, root).expect("process");
+            match arena.get(root) {
+                Expr::Path { steps, .. } => steps.len(),
+                other => panic!("not a path: {other:?}"),
+            }
+        };
+        for src in ["0.-0{0:0}.0.a", "0.-0{0:0}.a", "0.-1e2{0:0}.a.b"] {
+            assert_eq!(
+                steps(&fmt(src)),
+                steps(src),
+                "step count changed: {src} -> {:?}",
+                fmt(src)
+            );
+        }
+        // The shape the old formatter produced, for contrast.
+        assert_eq!(steps("0.-0{0:0}.0.a"), 4);
+        assert_eq!(steps("0\n  .-0\n  .0\n  .a{0: 0}"), 2);
     }
 
     /// A `.` between two numeric steps was written bare, so `0 . 0` came
