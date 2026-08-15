@@ -2329,14 +2329,6 @@ mod tests {
     }
 
     #[test]
-    fn stdlib_trim() {
-        assert_eq!(
-            eval_simple(r#"$trim("  hello   world  ")"#),
-            Value::String("hello world".into())
-        );
-    }
-
-    #[test]
     fn stdlib_substring() {
         assert_eq!(
             eval_simple(r#"$substring("hello", 1, 3)"#),
@@ -2361,14 +2353,6 @@ mod tests {
                 Value::String("b".into()),
                 Value::String("c".into()),
             ]))
-        );
-    }
-
-    #[test]
-    fn stdlib_join() {
-        assert_eq!(
-            eval_simple(r#"$join(["a", "b", "c"], "-")"#),
-            Value::String("a-b-c".into())
         );
     }
 
@@ -2418,89 +2402,6 @@ mod tests {
     }
 
     #[test]
-    fn stdlib_count() {
-        assert_eq!(eval_simple("$count([1, 2, 3])"), Value::Number(3.0));
-    }
-
-    #[test]
-    fn stdlib_append() {
-        assert_eq!(
-            eval_simple("$append([1, 2], [3, 4])"),
-            Value::Array(Rc::from(vec![
-                Value::Number(1.0),
-                Value::Number(2.0),
-                Value::Number(3.0),
-                Value::Number(4.0),
-            ]))
-        );
-    }
-
-    #[test]
-    fn stdlib_reverse() {
-        assert_eq!(
-            eval_simple("$reverse([1, 2, 3])"),
-            Value::Array(Rc::from(vec![
-                Value::Number(3.0),
-                Value::Number(2.0),
-                Value::Number(1.0),
-            ]))
-        );
-    }
-
-    #[test]
-    fn stdlib_keys() {
-        let result = eval_with_data("$keys($)", r#"{"a": 1, "b": 2}"#);
-        assert_eq!(
-            result,
-            Value::Array(Rc::from(vec![
-                Value::String("a".into()),
-                Value::String("b".into()),
-            ]))
-        );
-    }
-
-    #[test]
-    fn stdlib_values() {
-        let result = eval_with_data("$values($)", r#"{"a": 1, "b": 2}"#);
-        assert_eq!(
-            result,
-            Value::Array(Rc::from(vec![Value::Number(1.0), Value::Number(2.0)]))
-        );
-    }
-
-    #[test]
-    fn stdlib_boolean() {
-        assert_eq!(eval_simple("$boolean(1)"), Value::Bool(true));
-        assert_eq!(eval_simple("$boolean(0)"), Value::Bool(false));
-        assert_eq!(eval_simple(r#"$boolean("")"#), Value::Bool(false));
-    }
-
-    #[test]
-    fn stdlib_not() {
-        assert_eq!(eval_simple("$not(true)"), Value::Bool(false));
-        assert_eq!(eval_simple("$not(false)"), Value::Bool(true));
-    }
-
-    #[test]
-    fn stdlib_exists() {
-        assert_eq!(eval_simple("$exists(42)"), Value::Bool(true));
-        assert_eq!(eval_simple("$exists($nothing)"), Value::Bool(false));
-    }
-
-    #[test]
-    fn stdlib_type() {
-        assert_eq!(eval_simple(r#"$type(42)"#), Value::String("number".into()));
-        assert_eq!(
-            eval_simple(r#"$type("hi")"#),
-            Value::String("string".into())
-        );
-        assert_eq!(
-            eval_simple(r#"$type(true)"#),
-            Value::String("boolean".into())
-        );
-    }
-
-    #[test]
     fn stdlib_map() {
         // $map returns a Sequence that collapses to Array for 3+ elements.
         let result = eval_simple("$map([1, 2, 3], function($v){$v * 2})");
@@ -2542,44 +2443,6 @@ mod tests {
                 Value::Number(1.0),
                 Value::Number(2.0),
                 Value::Number(3.0),
-            ]))
-        );
-    }
-
-    #[test]
-    fn stdlib_distinct() {
-        assert_eq!(
-            eval_simple("$distinct([1, 2, 2, 3, 1])"),
-            Value::Array(Rc::from(vec![
-                Value::Number(1.0),
-                Value::Number(2.0),
-                Value::Number(3.0),
-            ]))
-        );
-    }
-
-    #[test]
-    fn stdlib_merge() {
-        let result = eval_simple(r#"$merge([{"a": 1}, {"b": 2}])"#);
-        match result {
-            Value::Object(obj) => {
-                assert_eq!(obj.get("a"), Some(&Value::Number(1.0)));
-                assert_eq!(obj.get("b"), Some(&Value::Number(2.0)));
-            }
-            other => panic!("expected Object, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn stdlib_flatten() {
-        assert_eq!(
-            eval_simple("$flatten([[1, 2], [3, [4, 5]]])"),
-            Value::Array(Rc::from(vec![
-                Value::Number(1.0),
-                Value::Number(2.0),
-                Value::Number(3.0),
-                Value::Number(4.0),
-                Value::Number(5.0),
             ]))
         );
     }
@@ -2948,12 +2811,19 @@ mod tests {
 
     #[test]
     fn each_basic() {
-        let result = eval_with_data(
-            "$each($, function($v, $k){$k & '=' & $v})",
-            r#"{"a":"1","b":"2"}"#,
+        // Both arguments reach the callback, in (value, key) order, and the
+        // object's insertion order is the result's order. `is_array()` alone
+        // was true of every wrong answer as well.
+        assert_eq!(
+            eval_with_data(
+                "$each($, function($v, $k){$k & '=' & $v})",
+                r#"{"b":"1","a":"2"}"#,
+            ),
+            Value::Array(Rc::from(vec![
+                Value::String("b=1".into()),
+                Value::String("a=2".into()),
+            ]))
         );
-        // Result is a sequence collapsed to array
-        assert!(result.is_array());
     }
 
     #[test]
@@ -3213,6 +3083,16 @@ mod tests {
                 Value::Number(3.0)
             ]))
         );
+        // The trailing 1 is not adjacent to its twin, so a run-collapsing
+        // implementation would keep it — and first-seen order is preserved.
+        assert_eq!(
+            eval_simple("$distinct([1, 2, 2, 3, 1])"),
+            Value::Array(Rc::from(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ]))
+        );
     }
 
     #[test]
@@ -3240,16 +3120,24 @@ mod tests {
 
     #[test]
     fn keys_basic() {
-        let result = eval_with_data("$keys($)", r#"{"a":1,"b":2}"#);
-        let arr = result.as_array().expect("should be array");
-        assert_eq!(arr.len(), 2);
+        // Insertion order is preserved, and the keys are the keys — asserting
+        // only `arr.len() == 2` passed on an implementation that answered the
+        // values, or the right keys in the wrong order.
+        assert_eq!(
+            eval_with_data("$keys($)", r#"{"b":1,"a":2}"#),
+            Value::Array(Rc::from(vec![
+                Value::String("b".into()),
+                Value::String("a".into()),
+            ]))
+        );
     }
 
     #[test]
     fn values_basic() {
-        let result = eval_with_data("$values($)", r#"{"a":1,"b":2}"#);
-        let arr = result.as_array().expect("should be array");
-        assert_eq!(arr.len(), 2);
+        assert_eq!(
+            eval_with_data("$values($)", r#"{"b":1,"a":2}"#),
+            Value::Array(Rc::from(vec![Value::Number(1.0), Value::Number(2.0)]))
+        );
     }
 
     #[test]
@@ -3295,6 +3183,8 @@ mod tests {
     fn exists_function() {
         assert_eq!(eval_simple("$exists(42)"), Value::Bool(true));
         assert_eq!(eval_simple("$exists(nothing)"), Value::Bool(false));
+        // An unbound *variable* is undefined too, not an error.
+        assert_eq!(eval_simple("$exists($nothing)"), Value::Bool(false));
         assert_eq!(eval_simple("$exists(null)"), Value::Bool(true));
     }
 

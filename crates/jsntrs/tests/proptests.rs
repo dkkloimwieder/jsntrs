@@ -18,9 +18,16 @@ fn arb_value() -> impl Strategy<Value = Value> {
         Just(Value::Null),
         any::<bool>().prop_map(Value::Bool),
         // Finite f64 only — NaN/Inf serialize to null, breaking roundtrip.
+        //
+        // -0.0 is deliberately *included*. It used to be filtered out with
+        // no reason recorded, which silently disarmed the checked-in
+        // regression seed (`Object({"A": Object({"A": Number(-0.0)})})`) in
+        // proptests.proptest-regressions. jsntrs-p0v.5 settled the answer —
+        // `to_json` writes -0 as `0`, matching ECMAScript's `String(-0)` and
+        // `JSON.stringify(-0)` — so the seed passes now and the filter's
+        // only remaining effect was to stop it from ever checking again.
         any::<f64>()
-            .prop_filter("must be finite and not -0", |n| n.is_finite()
-                && !(*n == 0.0 && n.is_sign_negative()))
+            .prop_filter("must be finite", |n| n.is_finite())
             .prop_map(Value::Number),
         "[a-zA-Z0-9_ ]{0,50}".prop_map(|s| Value::String(CompactString::from(s))),
     ];
@@ -142,14 +149,45 @@ proptest! {
     #[test]
     fn coerce_to_array_returns_array(val in arb_value()) {
         let arr = val.coerce_to_array();
-        // Undefined coerces to empty array; everything else wraps or stays.
-        if val.is_undefined() {
-            prop_assert_eq!(arr.len(), 0);
-        } else if val.is_array() {
-            // Arrays stay as-is.
+        // The array branch used to assert nothing at all, and the Undefined
+        // branch was unreachable — `arb_value` never produces one.
+        if let Some(original) = val.as_array() {
+            prop_assert_eq!(arr.len(), original.len());
+            prop_assert!(arr.iter().zip(original.iter()).all(|(a, b)| a.deep_equal(b)));
         } else {
             prop_assert_eq!(arr.len(), 1);
+            prop_assert!(arr[0].deep_equal(&val));
         }
+    }
+}
+
+/// The Undefined case `coerce_to_array_returns_array` cannot reach, since
+/// `arb_value` only generates JSON-representable values.
+///
+/// It wraps, like any other non-array — the dead branch's comment claimed
+/// "Undefined coerces to empty array", which was never true. Nothing
+/// observes the difference: every caller (`$map`, `$filter`, `$reduce`,
+/// `$sort`, `$single`) returns undefined for an undefined first argument
+/// before it gets here, which is what the documentation asks for —
+/// "if `array` is not specified, then the context value is used" and an
+/// undefined input yields an undefined result.
+#[test]
+fn coerce_to_array_of_undefined_wraps_like_any_other_scalar() {
+    let arr = Value::Undefined.coerce_to_array();
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0].is_undefined());
+    for expr in [
+        "$map(nothing, function($v){$v})",
+        "$filter(nothing, function($v){true})",
+        "$reduce(nothing, function($a, $b){$a})",
+        "$sort(nothing)",
+        "$single(nothing)",
+    ] {
+        let out = Expression::compile(expr)
+            .unwrap_or_else(|e| panic!("{expr} does not compile: {e}"))
+            .evaluate("{}")
+            .unwrap_or_else(|e| panic!("{expr} failed: {e}"));
+        assert!(out.is_undefined(), "{expr} answered {out:?}");
     }
 }
 

@@ -1085,6 +1085,7 @@ fn push_parent_context_children(expr: &Expr, navigating: bool, stack: &mut Vec<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expression::Expression;
     use crate::parser::Parser;
 
     /// Helper: parse and process, return (arena, root).
@@ -1444,22 +1445,39 @@ mod tests {
         }
     }
 
+    /// A parenthesised path step stays a `Block`; it is *not* spliced into
+    /// the enclosing path's step list.
+    ///
+    /// The test used to be called `nested_path_spliced` and assert
+    /// `steps.len() >= 2`, which both the claimed shape (a flattened
+    /// `[a, b, c]`, 3 steps) and the real one (2 steps) satisfy — so it
+    /// could not tell the two apart and its comment described the wrong
+    /// one. The parentheses are load-bearing: `Block` evaluates in a child
+    /// frame, which is what gives `%` and `$` inside them their scope.
+    /// Flattening the steps would erase that frame.
     #[test]
-    fn nested_path_spliced() {
-        // (a.b).c should flatten to a single Path [a, b, c]
+    fn parenthesised_path_step_stays_a_block() {
         let (arena, root) = parse_and_process("(a.b).c");
-        match arena.get(root) {
-            Expr::Path { steps, .. } => {
-                // The parenthesized (a.b) becomes a Block containing a Path,
-                // which gets spliced into the outer path.
-                // Actual step count depends on how blocks in paths are handled.
-                assert!(
-                    steps.len() >= 2,
-                    "expected at least 2 steps, got {}",
-                    steps.len()
-                );
-            }
-            other => panic!("expected Path, got {:?}", other),
+        let Expr::Path { steps, .. } = arena.get(root) else {
+            panic!("expected Path, got {:?}", arena.get(root));
+        };
+        assert_eq!(steps.len(), 2, "steps: {steps:?}");
+        let Expr::Block { expressions, .. } = arena.get(steps[0]) else {
+            panic!("step 0 should be the parenthesised Block");
+        };
+        assert_eq!(expressions.len(), 1);
+        assert!(matches!(arena.get(expressions[0]), Expr::Path { .. }));
+        assert!(matches!(arena.get(steps[1]), Expr::Name { value, .. } if value == "c"));
+
+        // The shape differs from `a.b.c` but the meaning does not, on a
+        // scalar leaf and through the auto-mapping of an array step alike.
+        for data in [
+            r#"{"a":{"b":{"c":1}}}"#,
+            r#"{"a":[{"b":{"c":1}},{"b":{"c":2}}]}"#,
+        ] {
+            let bracketed = Expression::compile("(a.b).c").unwrap().evaluate(data);
+            let plain = Expression::compile("a.b.c").unwrap().evaluate(data);
+            assert_eq!(format!("{bracketed:?}"), format!("{plain:?}"), "on {data}");
         }
     }
 

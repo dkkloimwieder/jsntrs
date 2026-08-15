@@ -328,8 +328,16 @@ mod tests {
         assert_eq!(to_millis_picture("99999999999", "[Y]"), None);
         // Excess hours roll into days like JS Date.UTC / Go time.Date:
         // "250 pm" is hour 262 (previously wrapped through u8 to 06:00).
-        let base = to_millis_picture("0", "[H]").expect("today midnight parses");
-        let rolled = to_millis_picture("250 pm", "[h] [P]").expect("hour 262 parses");
+        //
+        // The date is spelled out rather than left to default to today: the
+        // two calls used to take the current UTC date implicitly, so a run
+        // that straddled midnight UTC put a day between them and the
+        // difference came out 24 hours wrong.
+        let base =
+            to_millis_picture("2020-01-01 0", "[Y0001]-[M01]-[D01] [H]").expect("midnight parses");
+        let rolled = to_millis_picture("2020-01-01 250 pm", "[Y0001]-[M01]-[D01] [h] [P]")
+            .expect("hour 262 parses");
+        assert_eq!(base, 1_577_836_800_000); // 2020-01-01T00:00:00Z
         assert_eq!(rolled - base, 262 * 3_600_000);
         // Saturated $fromMillis input formats (garbage-but-defined date,
         // like Go) instead of overflowing on the timezone adjustment.

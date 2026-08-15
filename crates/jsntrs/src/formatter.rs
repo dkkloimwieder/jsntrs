@@ -2038,16 +2038,22 @@ mod tests {
 
     #[test]
     fn roundtrip_complex() {
-        // A realistic complex expression
+        // A realistic complex expression. The `if let Ok(…)` this used to be
+        // guarded by meant the test passed by doing nothing the moment the
+        // expression stopped parsing — which is the regression it exists to
+        // catch. Unwrap instead.
         let expr = r#"Account.Order.Product{
   $."Product Name": $sum(Price)
 }"#;
-        // We can't assert exact output format for complex expressions since
-        // the formatter canonicalizes, but it must be idempotent
-        if let Ok(first) = format(expr) {
-            let second = fmt(&first);
-            assert_eq!(first, second, "complex expression not idempotent");
-        }
+        let first = format(expr).expect("complex expression must parse");
+        // Canonicalised: the double-quoted key becomes a backtick name and
+        // the single-pair group collapses onto one line.
+        assert_eq!(
+            first,
+            "Account.Order.Product{$.`Product Name`: $sum(Price)}"
+        );
+        let second = fmt(&first);
+        assert_eq!(first, second, "complex expression not idempotent");
     }
 
     // ── Focus / index bindings (@$var, #$var) ────────────────
