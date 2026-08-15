@@ -1,0 +1,21 @@
+{
+    "expr": "$reduce(items, function($acc, $v){$acc + (($v.x * $v.y))}, 0)",
+    "data": {
+        "items": [
+            {
+                "x": 3,
+                "y": 1.5
+            },
+            {
+                "x": 1,
+                "y": 2.5
+            },
+            {
+                "x": 2.5,
+                "y": 0
+            }
+        ]
+    },
+    "bindings": {},
+    "result": 7
+}

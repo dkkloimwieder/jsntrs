@@ -291,9 +291,8 @@ const CASES: &[(&str, &str)] = &[
     ("$reduce(items, function($acc, $v){$acc + $v.x}, 0)", NUMS),
     ("$reduce(items, function($acc, $v){$acc * $v.x}, 1)", CLEAN),
     ("$reduce(items, function($acc, $v){$acc - $v.x}, 100)", NUMS),
-    // ReduceCompoundAccum wants the bare `$acc op $v.f op $v.g` shape: the
-    // parenthesised twins in GENERAL_ONLY_CASES parse to a Block and never
-    // lifted, so this shape had no live coverage at all (jsntrs-6wr.8).
+    // ReduceCompoundAccum. The shape had no live coverage at all until
+    // jsntrs-6wr.8 added the bare `$acc op $v.f op $v.g` rows below.
     (
         "$reduce(items, function($acc, $v){$acc + $v.x * $v.y}, 0)",
         CLEAN,
@@ -309,6 +308,35 @@ const CASES: &[(&str, &str)] = &[
     (
         "$reduce(items, function($acc, $v){$acc + $v.x / $v.y}, 0)",
         NUMS,
+    ),
+    // Parenthesising the inner term wraps it in a single-expression Block.
+    // `*` and `/` bind tighter than `+`, so the parenthesised spelling is
+    // the same tree as its bare twin above once the (empty, unobservable)
+    // block frame is dropped — `unwrap_paren_block` drops it, so these lift
+    // too and must give the same answer and the same error code
+    // (jsntrs-5sj). 6wr.8 had pinned the first three as declines in
+    // GENERAL_ONLY_CASES; they moved here. The declines that survive the
+    // fix — a block that is more than its inner value — stayed there.
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)}, 0)",
+        CLEAN,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)}, 0)",
+        NUMS,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x / $v.y)}, 0)",
+        NUMS,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)}, 0)",
+        HOSTILE,
+    ),
+    // Nested parens peel all the way down to the same Binary.
+    (
+        "$reduce(items, function($acc, $v){$acc + (($v.x * $v.y))}, 0)",
+        CLEAN,
     ),
     // ── SimpleLambda::ConcatTemplate ──
     (
@@ -693,25 +721,42 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("$filter(items, function($v){10 - $v.x})", NUMS),
     ("$filter(items, function($v){10 % $v.x})", NUMS),
     ("$filter(items, function($v){1 < $v.x and 10 - $v.y})", NUMS),
-    // ── Declined: a parenthesised reduce body is a Block, which no
-    //    SimpleLambda shape matches. The bare-operator twins are in CASES. ──
-    (
-        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)}, 0)",
-        CLEAN,
-    ),
-    (
-        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)}, 0)",
-        NUMS,
-    ),
-    (
-        "$reduce(items, function($acc, $v){$acc + ($v.x / $v.y)}, 0)",
-        NUMS,
-    ),
     // ── Declined: ReduceCompoundAccum only recognises `$acc op $v.f op
     //    $v.g`; leading with the fields is a different tree. ──
     (
         "$reduce(items, function($acc, $v){$acc * $v.x + $v.y}, 1)",
         NUMS,
+    ),
+    // ── Declined: the block around a compound reduce's inner term is only
+    //    pure punctuation when it holds exactly one binding-free expression
+    //    and wears no postfix, so `unwrap_paren_block` keeps it here and
+    //    the general evaluator answers — as it must if the guard is ever
+    //    loosened (jsntrs-5sj). `[]` is the postfix `process_ast` hoists
+    //    onto an enclosing path; `;` makes the block several expressions;
+    //    `:=` is a binding the unwrap would leak into the lambda frame.
+    //    `(( … )[])` is the row that separates a per-level guard from a
+    //    top-level-only one: wrapping the `[]` block in a clean pair of
+    //    parentheses must not make it liftable. The spellings that lift
+    //    after the fix are in CASES, next to their bare twins. ──
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)[]}, 0)",
+        CLEAN,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x * $v.y)[]}, 0)",
+        HOSTILE,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + (($v.x * $v.y)[])}, 0)",
+        CLEAN,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + ($v.x; $v.x * $v.y)}, 0)",
+        CLEAN,
+    ),
+    (
+        "$reduce(items, function($acc, $v){$acc + ($z := $v.x * $v.y)}, 0)",
+        CLEAN,
     ),
     // ── Deferred: comparison LHS auto-maps to an array ──
     ("arr.v = 2", NESTED),

@@ -169,6 +169,47 @@ fn extract_literal(node: NodeId, arena: &AstArena) -> Option<Value> {
     }
 }
 
+/// See through a parenthesised single-expression block, e.g. `($c.x * $c.y)`.
+///
+/// A `Block` evaluates its expressions in a fresh child environment and
+/// yields the last one's value, so a block holding exactly one expression
+/// is value-equivalent to that expression — the child frame is unobservable
+/// with nothing bound into it. Every other block keeps its parentheses,
+/// because the node is then *not* just its inner value (jsntrs-5sj):
+///
+/// - `()` and `(a; b)` — zero or several expressions, so there is no single
+///   inner value to stand in for the block;
+/// - `($x := …)` — the lone binding would escape into the enclosing frame;
+/// - `(…)[]`, `(…)@$v`, `(…)#$i` — postfixes that `Expr::Block` carries and
+///   `process_ast` hoists onto an enclosing path.
+///
+/// Returns `node` unchanged when it is not such a block. Nesting
+/// (`(($c.x * $c.y))`) is peeled to the innermost expression, re-checking
+/// the guards at every level: `(($c.x * $c.y)[])` stops at the inner block,
+/// whose `[]` the outer parentheses do not make inert.
+fn unwrap_paren_block(node: NodeId, arena: &AstArena) -> NodeId {
+    let mut cur = node;
+    loop {
+        let Expr::Block {
+            expressions,
+            focus: None,
+            index: None,
+            keep_array: false,
+            ..
+        } = arena.get(cur)
+        else {
+            return cur;
+        };
+        let &[only] = expressions.as_slice() else {
+            return cur;
+        };
+        if matches!(arena.get(only), Expr::Bind { .. }) {
+            return cur;
+        }
+        cur = only;
+    }
+}
+
 /// Analyze a binary expression in a lambda body.
 fn analyze_binary(
     params: &[String],
@@ -204,13 +245,16 @@ fn analyze_binary(
             if let Some(field) = extract_param_field(rhs, arena, param_curr) {
                 return Some(SimpleLambda::ReduceAccum { field, op });
             }
-            // Compound: $prev op ($curr.field1 inner_op $curr.field2)
+            // Compound: $prev op ($curr.field1 inner_op $curr.field2).
+            // The parenthesised spelling wraps the inner term in a block;
+            // see through it, since the two spellings are the same tree
+            // once the (empty, unobservable) block frame is dropped.
             if let Expr::Binary {
                 op: inner_op,
                 lhs: inner_lhs,
                 rhs: inner_rhs,
                 ..
-            } = arena.get(rhs)
+            } = arena.get(unwrap_paren_block(rhs, arena))
             {
                 if is_arithmetic(*inner_op) {
                     if let (Some(field1), Some(field2)) = (
@@ -1145,6 +1189,53 @@ mod tests {
                 inner_op: BinaryOp::Mul,
             }) if field1 == "price" && field2 == "qty"
         ));
+    }
+
+    /// Parenthesising the inner term of a compound reduce body wraps it in
+    /// a single-expression `Block`. The block binds nothing, so it is pure
+    /// punctuation — the lift must see through it and recognise the same
+    /// shape as the bare spelling (jsntrs-5sj).
+    #[test]
+    fn analyzer_recognizes_parenthesised_compound_reduce() {
+        assert!(matches!(
+            analyze_src("function($p,$c){$p + ($c.price * $c.qty)}"),
+            Some(SimpleLambda::ReduceCompoundAccum {
+                ref field1,
+                ref field2,
+                outer_op: BinaryOp::Add,
+                inner_op: BinaryOp::Mul,
+            }) if field1 == "price" && field2 == "qty"
+        ));
+        // Nested parens peel all the way down.
+        assert!(matches!(
+            analyze_src("function($p,$c){$p + (($c.price * $c.qty))}"),
+            Some(SimpleLambda::ReduceCompoundAccum { .. })
+        ));
+        // And the inner field guards still apply through the block.
+        assert!(analyze_src("function($p,$c){$p + ($c.x[] * $c.y)}").is_none());
+        assert!(analyze_src("function($p,$c){$p + ($c.x{'k': $} * $c.y)}").is_none());
+        assert!(analyze_src("function($p,$c){$p + ($c.x & $c.y)}").is_none());
+    }
+
+    /// `unwrap_paren_block` must keep the block whenever the node is more
+    /// than its inner value: a `[]` postfix (which `process_ast` hoists onto
+    /// an enclosing path), a multi-expression body, an empty body, or a lone
+    /// binding whose frame the unwrap would leak (jsntrs-5sj). Only the
+    /// `[]` shapes are load-bearing at today's single call site — the rest
+    /// are not `Expr::Binary` underneath either — so this pins the outcome
+    /// the guards exist to keep true if the helper is ever reused.
+    ///
+    /// The two nested spellings are the reason the guards are re-checked on
+    /// every peel rather than once at the top: an inner `[]` is still an
+    /// inner `[]` when another pair of parentheses is wrapped around it.
+    #[test]
+    fn paren_block_unwrap_declines_load_bearing_blocks() {
+        assert!(analyze_src("function($p,$c){$p + ($c.x * $c.y)[]}").is_none());
+        assert!(analyze_src("function($p,$c){$p + (($c.x * $c.y)[])}").is_none());
+        assert!(analyze_src("function($p,$c){$p + (($c.x * $c.y))[]}").is_none());
+        assert!(analyze_src("function($p,$c){$p + ($c.x; $c.x * $c.y)}").is_none());
+        assert!(analyze_src("function($p,$c){$p + ($z := $c.x * $c.y)}").is_none());
+        assert!(analyze_src("function($p,$c){$p + ()}").is_none());
     }
 
     #[test]
