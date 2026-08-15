@@ -2,9 +2,15 @@
 """Summarize the tidy benchmark CSV produced by run_matrix.sh.
 
 Usage:
-    python3 bench/summarize.py bench/results/matrix.csv [--format table|markdown|wide-csv]
+    python3 bench/summarize.py bench/results/matrix.csv
+        [--run latest|all|ID] [--format table|markdown|wide-csv]
 
-The tidy CSV has one row per (preset, payload, variant, expression, engine).
+The tidy CSV has one row per (run_id, preset, payload, variant, expression,
+engine).  run_matrix.sh appends to the file, so one CSV usually holds several
+runs: --run defaults to the newest one, because silently folding runs
+together would show one run's numbers under another's key.  --run all keeps
+them all and adds a run column.
+
 Missing/skipped engines are absent or status=skipped rows — they render as
 "—" and never as 0, and no ratio is ever computed against a missing engine.
 Engines labelled method=parse_per_iter (jsonata-rs re-parses its input every
@@ -27,11 +33,36 @@ def load(path):
     return rows
 
 
+def run_ids(rows):
+    """Distinct run ids in file order (append order, so oldest first)."""
+    return list(OrderedDict.fromkeys(r.get("run_id", "") for r in rows))
+
+
+def select_run(rows, want):
+    """Filter rows to one run. Returns (rows, note) or raises SystemExit.
+
+    A CSV predating the run_id column has one empty id, and every row is
+    kept.
+    """
+    ids = run_ids(rows)
+    if want == "all":
+        return rows, None
+    target = ids[-1] if want == "latest" else want
+    if target not in ids:
+        raise SystemExit(f"no rows for run {target!r}; runs in this file: {', '.join(ids)}")
+    if len(ids) == 1:
+        return rows, None
+    kept = [r for r in rows if r.get("run_id", "") == target]
+    note = (f"showing run {target} of {len(ids)} in this file "
+            f"(--run all, or --run ID, for the others)")
+    return kept, note
+
+
 def pivot(rows):
-    """-> OrderedDict[(preset,payload,variant,expression)] = {engine: row}"""
+    """-> OrderedDict[(run,preset,payload,variant,expression)] = {engine: row}"""
     table = OrderedDict()
     for r in rows:
-        key = (r["preset"], r["payload"], r["variant"], r["expression"])
+        key = (r.get("run_id", ""), r["preset"], r["payload"], r["variant"], r["expression"])
         table.setdefault(key, {})[r["engine"]] = r
     return table
 
@@ -57,7 +88,9 @@ def render_table(rows, out=sys.stdout, markdown=False):
         {r["engine"] for r in rows if r.get("method") == "parse_per_iter"}
     )
     table = pivot(rows)
-    header = ["payload", "variant", "expression"] + engines
+    # Only worth a column when more than one run is on screen (--run all).
+    show_run = len({k[0] for k in table}) > 1
+    header = (["run"] if show_run else []) + ["payload", "variant", "expression"] + engines
     widths = [max(len(h), 10) for h in header]
 
     def line(cells):
@@ -71,8 +104,10 @@ def render_table(rows, out=sys.stdout, markdown=False):
         out.write("|" + "|".join("---" for _ in header) + "|\n")
     else:
         out.write("  ".join("-" * w for w in widths) + "\n")
-    for (_preset, payload, variant, expression), cells in table.items():
-        line([payload, variant, expression] + [fmt_cell(cells.get(e)) for e in engines])
+    for (run, _preset, payload, variant, expression), cells in table.items():
+        line(([run] if show_run else [])
+             + [payload, variant, expression]
+             + [fmt_cell(cells.get(e)) for e in engines])
     skipped = [
         (k, e, c.get("note", ""))
         for k, cells in table.items()
@@ -81,8 +116,9 @@ def render_table(rows, out=sys.stdout, markdown=False):
     ]
     if skipped:
         out.write("\nskipped cells:\n")
-        for (_, payload, variant, expression), engine, note in skipped:
-            out.write(f"  {payload}/{variant}/{expression} {engine}: {note}\n")
+        for (run, _preset, payload, variant, expression), engine, note in skipped:
+            prefix = f"{run} " if show_run else ""
+            out.write(f"  {prefix}{payload}/{variant}/{expression} {engine}: {note}\n")
     for e in per_iter:
         out.write(f"\nnote: {e} re-parses the input document on every evaluation "
                   f"(no pre-parsed-input API); its timings include per-iteration JSON parsing.\n")
@@ -92,13 +128,13 @@ def render_wide_csv(rows, out=sys.stdout):
     engines = engines_present(rows)
     table = pivot(rows)
     w = csv.writer(out)
-    header = ["preset", "payload", "variant", "expression", "iters"]
+    header = ["run_id", "preset", "payload", "variant", "expression", "iters"]
     for e in engines:
         header += [f"{e}_mean_s", f"{e}_stddev_s"]
     w.writerow(header)
-    for (preset, payload, variant, expression), cells in table.items():
+    for (run, preset, payload, variant, expression), cells in table.items():
         iters = next((c["iters"] for c in cells.values() if c.get("iters")), "")
-        row = [preset, payload, variant, expression, iters]
+        row = [run, preset, payload, variant, expression, iters]
         for e in engines:
             c = cells.get(e)
             if c is None or c.get("status") != "ok" or not c.get("mean_s"):
@@ -111,12 +147,21 @@ def render_wide_csv(rows, out=sys.stdout):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv_path")
+    ap.add_argument("--run", default="latest",
+                    metavar="latest|all|ID",
+                    help="which run_id to summarize (default: the newest in the file)")
     ap.add_argument("--format", choices=["table", "markdown", "wide-csv"], default="table")
     args = ap.parse_args()
     rows = load(args.csv_path)
     if not rows:
         print("no rows", file=sys.stderr)
         return 1
+    rows, note = select_run(rows, args.run)
+    if not rows:
+        print("no rows", file=sys.stderr)
+        return 1
+    if note:
+        print(f"note: {note}", file=sys.stderr)
     if args.format == "wide-csv":
         render_wide_csv(rows)
     else:

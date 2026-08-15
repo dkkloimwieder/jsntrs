@@ -17,7 +17,8 @@
 #                         (parsed as JSON) instead of timing
 #   --strict              abort on the first hyperfine failure
 #   --no-autogen          never regenerate missing fixtures
-#   --csv PATH            tidy CSV output (default bench/results/matrix.csv)
+#   --csv PATH            tidy CSV output (default bench/results/matrix.csv);
+#                         rows are appended, each tagged with this run's id
 #   --list-engines        print the availability banner and exit
 #
 # Engines: jsntrs jsntrs-wasi go-gnata jsonata-js jsonata-core jsonata-rs
@@ -28,6 +29,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
+
+# Expression files and hyperfine wrappers are mktemp'd per row; an interrupted
+# run (Ctrl-C, SIGPIPE from a pager) must not leave them behind — a benchmark
+# run is long enough that being interrupted is the normal case, not the rare
+# one.  run_bench.sh traps identically.
+CLEANUP_FILES=()
+cleanup() { [[ ${#CLEANUP_FILES[@]} -eq 0 ]] || rm -f "${CLEANUP_FILES[@]}"; }
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+
+# Every row this run appends to the tidy CSV carries this id.  The CSV
+# accumulates across runs, and without it repeated
+# (preset,payload,variant,expression,engine) keys are indistinguishable
+# between runs and silently collapse to last-wins in summarize.py.
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
 PRESET=tiny
 ENGINES_ARG="" EXCLUDE_ARG="" PAYLOADS_ARG="" VARIANTS_ARG=""
@@ -144,12 +161,21 @@ ensure_fixture() {
 # ── CSV ──────────────────────────────────────────────────────────────────────
 
 mkdir -p "$RESULTS_DIR/json"
-CSV_HEADER="preset,payload,variant,expression,engine,iters,status,mean_s,stddev_s,median_s,min_s,max_s,method,note"
-[[ -f "$CSV" ]] || echo "$CSV_HEADER" >"$CSV"
-grep -q "^preset," "$CSV" || sed -i "1i $CSV_HEADER" "$CSV"
+CSV_HEADER="run_id,preset,payload,variant,expression,engine,iters,status,mean_s,stddev_s,median_s,min_s,max_s,method,note"
+if [[ -s "$CSV" ]]; then
+  # A CSV written before the run_id column existed cannot be appended to
+  # without corrupting the schema; keep it, start a fresh file.
+  if [[ "$(head -1 "$CSV")" != "$CSV_HEADER" ]]; then
+    mv "$CSV" "$CSV.$RUN_ID.bak"
+    echo "note: $(basename "$CSV") had a different schema — kept as $(basename "$CSV").$RUN_ID.bak"
+    echo "$CSV_HEADER" >"$CSV"
+  fi
+else
+  echo "$CSV_HEADER" >"$CSV"
+fi
 
 csv_row() { # payload variant expr engine iters status mean stddev median min max note
-  echo "$PRESET,$1,$2,$3,$4,$5,$6,$7,$8,$9,${10},${11},$(engine_method "$4"),\"${12}\"" >>"$CSV"
+  echo "$RUN_ID,$PRESET,$1,$2,$3,$4,$5,$6,$7,$8,$9,${10},${11},$(engine_method "$4"),\"${12}\"" >>"$CSV"
 }
 
 # ── Main loop ────────────────────────────────────────────────────────────────
@@ -159,20 +185,23 @@ for ROW in "${ROWS[@]}"; do
   [[ -n "$PAYLOADS_ARG" && ",$PAYLOADS_ARG," != *",$PAYLOAD,"* ]] && continue
   [[ -n "$VARIANTS_ARG" && ",$VARIANTS_ARG," != *",$VARIANT,"* ]] && continue
 
+  # Resolve the row's expression set before the fixture check: the skip rows
+  # below must name the expressions this row would have run (the tiny preset
+  # has its own eight, not the four of GRID_ORDER).
+  case "$EXPRSET" in
+    TINY) NAMES=("${TINY_ORDER[@]}") ;;
+    *) NAMES=("${GRID_ORDER[@]}") ;;
+  esac
+
   if ! ensure_fixture "$DATAFILE"; then
     echo "── $PAYLOAD/$VARIANT: fixture $(basename "$DATAFILE") missing — rows skipped"
     for e in "${DETECTED_ENGINES[@]}"; do
-      for NAME in "${GRID_ORDER[@]}"; do
+      for NAME in "${NAMES[@]}"; do
         csv_row "$PAYLOAD" "$VARIANT" "$NAME" "$e" "$ITERS" skipped "" "" "" "" "" "fixture missing"
       done
     done
     continue
   fi
-
-  case "$EXPRSET" in
-    TINY) NAMES=("${TINY_ORDER[@]}") ;;
-    *) NAMES=("${GRID_ORDER[@]}") ;;
-  esac
 
   for NAME in "${NAMES[@]}"; do
     case "$EXPRSET" in
@@ -183,6 +212,7 @@ for ROW in "${ROWS[@]}"; do
     TAG="${PAYLOAD}_${VARIANT}"
     echo "── $TAG / $NAME ($(wc -c <"$DATAFILE" | tr -d ' ') bytes, $ITERS iters) ──"
     EF="$(write_expr_file "$EXPR")"
+    CLEANUP_FILES+=("$EF")
 
     # Gate 4: per-row probe. Engines that fail or exceed the budget are
     # dropped for this row only, with the reason recorded in the CSV.
@@ -207,6 +237,7 @@ for ROW in "${ROWS[@]}"; do
       REF="" REF_ENGINE=""
       for e in "${ROW_ENGINES[@]}"; do
         w="$(engine_wrapper "$e" "$EF" "$DATAFILE" 1)"
+        CLEANUP_FILES+=("$w")
         out="$("$w" 2>/dev/null || echo "__ENGINE_ERROR__")"
         rm -f "$w"
         if [[ -z "$REF_ENGINE" ]]; then
@@ -240,6 +271,7 @@ PYEOF
     for e in "${ROW_ENGINES[@]}"; do
       w="$(engine_wrapper "$e" "$EF" "$DATAFILE" "$ITERS")"
       WRAPPERS+=("$w")
+      CLEANUP_FILES+=("$w")
       HF_ARGS+=(-n "$e" "$w")
     done
     if hyperfine "${HF_ARGS[@]}"; then
@@ -247,14 +279,14 @@ PYEOF
       for e in "${ROW_ENGINES[@]}"; do
         METHODS+="$e=$(engine_method "$e") "
       done
-      python3 - "$RESULT_FILE" "$PRESET" "$PAYLOAD" "$VARIANT" "$NAME" "$ITERS" "$METHODS" <<'PYEOF' >>"$CSV"
+      python3 - "$RESULT_FILE" "$RUN_ID" "$PRESET" "$PAYLOAD" "$VARIANT" "$NAME" "$ITERS" "$METHODS" <<'PYEOF' >>"$CSV"
 import json, sys
-path, preset, payload, variant, name, iters, methods_str = sys.argv[1:8]
+path, run_id, preset, payload, variant, name, iters, methods_str = sys.argv[1:9]
 data = json.load(open(path))
 methods = dict(item.split("=", 1) for item in methods_str.split())
 for r in data["results"]:
     e = r["command"]
-    print(f'{preset},{payload},{variant},{name},{e},{iters},ok,'
+    print(f'{run_id},{preset},{payload},{variant},{name},{e},{iters},ok,'
           f'{r["mean"]:.6f},{r.get("stddev") or 0:.6f},{r["median"]:.6f},'
           f'{r["min"]:.6f},{r["max"]:.6f},{methods.get(e, "parse_once")},""')
 PYEOF
@@ -272,7 +304,9 @@ done
 
 if [[ $SMOKE -eq 0 ]]; then
   echo "════════════════════════════════════════════════════════════"
-  echo "  tidy CSV: $CSV"
+  echo "  tidy CSV: $CSV   (run id $RUN_ID)"
   echo "════════════════════════════════════════════════════════════"
-  python3 "$SCRIPT_DIR/summarize.py" "$CSV" --format table || true
+  # Summarize this run only; the file keeps every earlier run's rows too
+  # (summarize.py --run all | --run ID).
+  python3 "$SCRIPT_DIR/summarize.py" "$CSV" --run "$RUN_ID" --format table || true
 fi

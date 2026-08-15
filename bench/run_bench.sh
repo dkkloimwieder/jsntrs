@@ -18,7 +18,9 @@
 #                --runner --probe-budget (default 5s) --csv PATH
 #                --quick --full --dry-run
 # Per-row hyperfine JSON lands in bench/results/json/<id>_<size>.json; --csv
-# aggregates those into one wide row per (id, size).
+# aggregates the rows THIS run timed into one wide row per (id, size).  That
+# directory outlives the run and is shared with run_matrix.sh, so it is never
+# globbed: a stale file must not become a row of the current run's CSV.
 #
 # Engines: with no --runner the registry auto-detects the whole set (gates
 # 1-3: tool presence, build, handshake).  --runner takes the engine ids
@@ -102,30 +104,35 @@ if [[ -n "$RUNNERS" ]]; then
 fi
 
 # ── Fixture resolution ───────────────────────────────────────────────────────
-# Returns the fixture file path for a given fixture type and size.
-# Falls back to smallest available if requested size doesn't exist.
+# Prints "<size>\t<path>" for a fixture type and requested size, or nothing
+# when no fixture exists at all.
+#
+# The printed size is the one actually resolved, which is not always the one
+# asked for: when the requested size is missing (a dangling fixtures/account
+# symlink is the common case) the fallback chain picks the smallest fixture
+# present.  Callers must label the row with the returned size — labelling it
+# with the requested size made the run report a payload it never benchmarked.
 # The 21 MB inventory payload lives outside the repo: JSNTRS_INV_JSON points
 # at it.
 resolve_fixture() {
     local fixture_type="$1" size="$2"
     if [[ "$fixture_type" == "inventory" && -n "${JSNTRS_INV_JSON:-}" && -r "${JSNTRS_INV_JSON}" ]]; then
-        echo "$JSNTRS_INV_JSON"
+        printf '%s\t%s\n' "$size" "$JSNTRS_INV_JSON"
         return
     fi
     local candidate="$FIXTURES_DIR/$fixture_type/$size.json"
     if [[ -e "$candidate" ]]; then
-        echo "$candidate"
+        printf '%s\t%s\n' "$size" "$candidate"
         return
     fi
     # Fallback: smallest available
     for fallback in tiny 1k 10k 100k full; do
         local f="$FIXTURES_DIR/$fixture_type/$fallback.json"
         if [[ -e "$f" ]]; then
-            echo "$f"
+            printf '%s\t%s\n' "$fallback" "$f"
             return
         fi
     done
-    echo ""
 }
 
 # ── Benchmark catalog ────────────────────────────────────────────────────────
@@ -274,10 +281,8 @@ bench "inv.address"       inventory inventory "full" "" 'data.inventory.edges.no
 
 # ── Filter + count ───────────────────────────────────────────────────────────
 FILTERED=()
-ALL_IDS=()
 for entry in "${BENCHMARKS[@]}"; do
     IFS='|' read -r id cat fixture sizes tags expr <<< "$entry"
-    ALL_IDS+=("$id")
 
     # Filter by --section
     if [[ -n "$SECTIONS" ]]; then
@@ -346,6 +351,15 @@ fi
 run_count=0
 total_filtered=${#FILTERED[@]}
 
+# Rows this invocation actually timed, as "id|size|hyperfine-json".  results/
+# json is a persistent cache shared with run_matrix.sh and with earlier,
+# differently scoped runs of this script, so --csv aggregates this list rather
+# than globbing the directory.
+RUN_ROWS=()
+# id/size pairs already benchmarked, so a fallback that maps two requested
+# sizes onto the same fixture does not run (and export) the same row twice.
+declare -A ROW_DONE=()
+
 for entry in "${FILTERED[@]}"; do
     IFS='|' read -r id cat fixture bench_sizes tags expr <<< "$entry"
     run_count=$((run_count + 1))
@@ -365,14 +379,25 @@ for entry in "${FILTERED[@]}"; do
     fi
 
     for size in "${run_sizes[@]}"; do
-        datafile=$(resolve_fixture "$fixture" "$size")
-        if [[ -z "$datafile" ]]; then
+        resolved=$(resolve_fixture "$fixture" "$size")
+        if [[ -z "$resolved" ]]; then
             echo "  [$run_count/$total_filtered] $id ($size) — SKIPPED: no fixture" >&2
             continue
         fi
+        # row_size is what was actually benchmarked; every label, the exported
+        # JSON filename and the CSV all use it, never the requested size.
+        IFS=$'\t' read -r row_size datafile <<< "$resolved"
+        if [[ "$row_size" != "$size" ]]; then
+            echo "  [$run_count/$total_filtered] $id: no $fixture/$size.json fixture — falling back to $row_size (row reported as $row_size)" >&2
+        fi
+        if [[ -n "${ROW_DONE[$id/$row_size]:-}" ]]; then
+            echo "  [$run_count/$total_filtered] $id ($size) — SKIPPED: already benchmarked as $row_size" >&2
+            continue
+        fi
+        ROW_DONE["$id/$row_size"]=1
         iters=$ITERS
 
-        echo "── [$run_count/$total_filtered] $id ($size, $iters iters) ──"
+        echo "── [$run_count/$total_filtered] $id ($row_size, $iters iters) ──"
 
         if $DRY_RUN; then
             for runner in "${DETECTED_ENGINES[@]}"; do
@@ -406,8 +431,9 @@ for entry in "${FILTERED[@]}"; do
 
         # Gate 5: hyperfine.  NOTE: --ignore-failure removed intentionally,
         # see the header comment.
+        ROW_JSON="$JSON_DIR/${id}_${row_size}.json"
         HF_ARGS=(--warmup "$WARMUP" --min-runs "$MIN_RUNS" --shell=none)
-        HF_ARGS+=(--export-json "$JSON_DIR/${id}_${size}.json")
+        HF_ARGS+=(--export-json "$ROW_JSON")
         for runner in "${ROW_ENGINES[@]}"; do
             WRAPPER="$(engine_wrapper "$runner" "$EXPR_FILE" "$datafile" "$iters")"
             WRAPPERS+=("$WRAPPER")
@@ -416,6 +442,7 @@ for entry in "${FILTERED[@]}"; do
         done
 
         hyperfine "${HF_ARGS[@]}"
+        RUN_ROWS+=("$id|$row_size|$ROW_JSON")
         echo ""
 
         rm -f "$EXPR_FILE" "${WRAPPERS[@]}"
@@ -427,34 +454,30 @@ echo "=== Done: ${#FILTERED[@]} expressions benchmarked ==="
 # ── CSV export ──────────────────────────────────────────────────────────────
 # Wide format: one row per (benchmark id, size), three columns per engine.
 # An engine dropped by the probe for that row has EMPTY cells, never 0.
-if [[ -n "$EXPORT_CSV" && -d "$JSON_DIR" ]]; then
+#
+# Only the rows THIS invocation timed are exported.  results/json persists
+# between runs and is shared with run_matrix.sh, so globbing it folded stale
+# JSON — earlier sizes, earlier engine sets, earlier code — into a CSV that
+# claimed to describe the current run.
+if [[ -n "$EXPORT_CSV" ]]; then
     echo ""
-    echo "=== Generating CSV: $EXPORT_CSV ==="
-    python3 - "$JSON_DIR" "$EXPORT_CSV" "$ITERS" "${ALL_ENGINES[*]}" "${ALL_IDS[*]}" <<'PYEOF'
-import json, glob, os, csv, sys
+    if [[ ${#RUN_ROWS[@]} -eq 0 ]]; then
+        echo "=== No rows were timed in this run — $EXPORT_CSV left untouched ===" >&2
+    else
+        echo "=== Generating CSV: $EXPORT_CSV (${#RUN_ROWS[@]} rows from this run) ==="
+        python3 - "$EXPORT_CSV" "$ITERS" "${ALL_ENGINES[*]}" "${RUN_ROWS[@]}" <<'PYEOF'
+import json, csv, sys
 
-results_dir, csv_path, iters, engines_str, ids_str = sys.argv[1:6]
+csv_path, iters, engines_str = sys.argv[1:4]
 engine_order = engines_str.split()
-known_ids = set(ids_str.split())
-
-files = sorted(glob.glob(os.path.join(results_dir, '*.json')))
-if not files:
-    print('No result files found', file=sys.stderr)
-    sys.exit(0)
 
 rows = []
-for f in files:
-    base = os.path.basename(f).replace('.json', '')
-    # Parse id_size from filename: e.g. 'path.simple_1k' -> id='path.simple', size='1k'
-    parts = base.rsplit('_', 1)
-    bench_id = parts[0]
-    size = parts[1] if len(parts) > 1 else 'unknown'
-    # results/json is shared with run_matrix.sh; ignore anything that is not
-    # a catalog benchmark of this script.
-    if bench_id not in known_ids:
-        continue
-
-    data = json.load(open(f))
+for entry in sys.argv[4:]:
+    # "id|size|path", assembled by the run loop: no filename re-parsing, and
+    # no chance of picking up a file this run did not write.
+    bench_id, size, path = entry.split('|', 2)
+    with open(path) as fh:
+        data = json.load(fh)
     row = {'id': bench_id, 'size': size, 'iters': iters}
     for r in data['results']:
         name = r['command']
@@ -462,10 +485,6 @@ for f in files:
         row[f'{name}_stddev_s'] = f"{(r.get('stddev') or 0):.6f}"
         row[f'{name}_median_s'] = f"{r['median']:.6f}"
     rows.append(row)
-
-if not rows:
-    print('No catalog result files found', file=sys.stderr)
-    sys.exit(0)
 
 # Collect all engine columns actually present
 engines = [n for n in engine_order if any(f'{n}_mean_s' in r for r in rows)]
@@ -483,7 +502,8 @@ with open(csv_path, 'w', newline='') as csvfile:
 
 print(f'Wrote {len(rows)} rows to {csv_path}')
 PYEOF
-    echo ""
-    head -5 "$EXPORT_CSV"
-    echo "..."
+        echo ""
+        head -5 "$EXPORT_CSV"
+        echo "..."
+    fi
 fi

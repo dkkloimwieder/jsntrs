@@ -26,7 +26,7 @@ let result = expr.evaluate(r#"{"Order": [{"Product": [{"Price": 34.5, "Quantity"
 | `testdata/` | Conformance suite: 112 groups, 1,733 cases (derived from jsonata-js; see `testdata/NOTICE`) |
 | `docs/` | Behavioral spec and reference docs distilled from the Go reference implementation |
 | `bench/` | Optional cross-engine benchmark harness (jsonata-js, Go gnata, jsonata-core, jsonata-rs) — see `bench/README.md` |
-| `scripts/build-wasm.sh` | Optimized WASM build (wasm-pack + wasm-opt → `pkg/`) |
+| `scripts/build-wasm.sh` | Optimized WASM build (wasm-pack + wasm-opt → `pkg/`); wasm-opt is required |
 | `playground.html` | Browser playground running the WASM build |
 
 ## WASM + playground
@@ -35,6 +35,10 @@ let result = expr.evaluate(r#"{"Order": [{"Product": [{"Price": 34.5, "Quantity"
 ./scripts/build-wasm.sh          # → pkg/jsntrs_bg.wasm (~830 KB), pkg/jsntrs.js
 python3 -m http.server 8000      # then open http://localhost:8000/playground.html
 ```
+
+The ~830 KB is the post-`wasm-opt` size, so a missing wasm-opt (binaryen) is
+an error rather than a silently larger module. `--allow-unoptimized` builds
+one anyway: it warns, says `UNOPTIMIZED` in the final line, and exits 3.
 
 ## Development
 

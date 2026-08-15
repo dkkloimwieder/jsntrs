@@ -37,8 +37,8 @@ bench/mem_profile.sh                        # peak RSS + Go MEMSTATS + DHAT
 ```
 
 Orchestrator requirements (hard, not per-engine): `hyperfine`, `python3`,
-GNU coreutils. `bench/summarize.py results/matrix.csv --format
-table|markdown|wide-csv` renders the tidy CSV.
+GNU coreutils. `bench/summarize.py results/matrix.csv [--run latest|all|ID]
+--format table|markdown|wide-csv` renders the tidy CSV.
 
 ## Protocol
 
@@ -60,6 +60,23 @@ presence → build → handshake probe → per-row probe (wall-clock capped by
 ~2 ms result. Anything that may legitimately fail is filtered by the probes;
 a hyperfine failure is a real regression. Skipped or failed cells appear in
 the tidy CSV as `status=skipped|error` with a reason — never as `0.000000`.
+
+## Results files
+
+`results/json/<row>.json` is a persistent cache of raw hyperfine exports,
+written by both orchestrators and never cleaned between runs; the two CSVs
+are what a run reports, and each keeps runs apart:
+
+- `run_matrix.sh` **appends** to the tidy CSV and stamps every row with a
+  `run_id` (UTC timestamp + pid), so one file holds many runs without
+  repeated (payload, variant, expression, engine) keys colliding.
+  `summarize.py` shows the newest run and says so; `--run all` adds a run
+  column, `--run ID` picks one. A CSV in the older, `run_id`-less schema is
+  moved aside as `<csv>.<run_id>.bak` instead of being appended to.
+- `run_bench.sh --csv` writes a fresh wide CSV from the rows *that
+  invocation* timed. It does not glob `results/json/`, so stale rows from an
+  earlier or differently scoped run never appear in it; a run that timed
+  nothing leaves the file untouched.
 
 ## Known methodology asymmetries
 
@@ -88,9 +105,12 @@ python3 bench/generate_fixtures.py --check       # verify against fixtures.sha25
 The orchestrators auto-generate a missing fixture on demand (disable with
 `--no-autogen`). `fixtures/account/*.json` are symlinks into the `data_*`
 files; a dangling symlink simply makes the size-fallback chain pick a
-smaller fixture. There is no committed inventory fixture: point
-`JSNTRS_INV_JSON=/path/to/inv.json` at one to enable the `inv.*` catalog
-rows.
+smaller fixture. `run_bench.sh` then says so and labels the row — on screen,
+in `results/json/`, and in the CSV — with the size it actually benchmarked,
+never the one that was asked for; a second requested size that falls back to
+the same fixture is skipped rather than re-run. There is no committed
+inventory fixture: point `JSNTRS_INV_JSON=/path/to/inv.json` at one to
+enable the `inv.*` catalog rows.
 
 ## History
 
