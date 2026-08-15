@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(7, \"-\")",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3085",
+    "authority": "XPath 3.1 F&O 4.7.3: \"The mantissa part of a sub-picture (defined below) must contain at least one character that is either an optional digit character or a member of the decimal digit family.\" With no exponent-separator-sign the mantissa is the whole sub-picture, and \"-\" holds neither — D3085. jsonata-js 2.2.2 answers D3086, whose rule is \"A sub-picture must not contain a passive character that is preceded by an active character and that is followed by another active character\": a sub-picture with no active character at all cannot violate it (jsntrs-g0f)."
+}

@@ -233,12 +233,25 @@ impl FmtChars {
     }
 
     /// Narrower notion of "active", used only when locating the picture's
-    /// first and last active character. jsonata-js excludes the exponent
-    /// separator there (`ch !== properties['exponent-separator']`), so a
-    /// separator outside the mantissa is passive text: `"e0.0"` has prefix
-    /// `"e"`, and the trailing `e` of `"0.0e"` lands in the suffix. The
-    /// separator stays active everywhere else — splitting the sub-picture
-    /// and emitting the exponent both rely on it.
+    /// first and last active character — the prefix and suffix boundaries of
+    /// F&O 4.7.4, "The prefix is set to contain all passive characters in the
+    /// sub-picture to the left of the leftmost active character" and "The
+    /// suffix is set to contain all passive characters to the right of the
+    /// rightmost active character in the sub-picture".
+    ///
+    /// The exponent separator is excluded because 4.7.3 says a character
+    /// matching that property "is treated as an exponent-separator-sign if it
+    /// is both preceded and followed within the sub-picture by an active
+    /// character. **Otherwise, it is treated as a passive character**" — so
+    /// every exponent separator that is not the sign is passive, and belongs
+    /// in the prefix or the suffix: `"e0.0"` has prefix `"e"`, and the
+    /// trailing `e` of `"0.0e"` lands in the suffix. The one that *is* the
+    /// sign is active, and this scan wrongly excludes it — but a sign outside
+    /// the region it delimits means every character before it (or after it)
+    /// is passive or another separator, so the mantissa carries no digit
+    /// (D3085) or the exponent part carries none (D3093) and the picture is
+    /// an error whichever way the region was cut. `locate_exponent` finds the
+    /// sign in the whole sub-picture and does not depend on this scan.
     fn is_region_edge_char(&self, c: char) -> bool {
         self.is_active_char(c) && self.exponent_char != Some(c)
     }
@@ -358,10 +371,23 @@ fn scan_sub_picture_region<'a>(
         end_i -= 1;
     }
     if start as isize > end_i {
-        // A picture made only of exponent separators and passive characters
-        // ("e") leaves jsonata-js dereferencing an undefined prefix and
-        // throwing a TypeError; D3085 is the honest diagnosis and is what
-        // jsntrs has always answered here.
+        // No active character anywhere, so the sub-picture holds neither an
+        // optional digit character nor a member of the decimal digit family —
+        // and the mantissa is the whole sub-picture, an exponent separator
+        // needing an active character on each side to be a sign (F&O 4.7.3).
+        // That is exactly the rule D3085 names: "The mantissa part of a
+        // sub-picture ... must contain at least one character that is either
+        // an ·optional digit character· or a member of the ·decimal digit
+        // family·".
+        //
+        // jsonata-js 2.2.2 answers D3086 for `"-"`, `"%"` and `"00"` with
+        // `{"zero-digit": "ab"}`, and D3093 for `"e"`. D3086's rule is "A
+        // sub-picture must not contain a passive character that is preceded
+        // by an active character and that is followed by another active
+        // character", which a sub-picture with no active character cannot
+        // violate; D3093's is about the exponent part of a sub-picture that
+        // has an exponent-separator-sign, which this one has not. Declining
+        // to port those is jsntrs-g0f.
         return Err(JsonataError::new(
             "D3085",
             "$formatNumber: picture has no digit or separator characters",
@@ -374,44 +400,72 @@ fn scan_sub_picture_region<'a>(
     Ok((&runes[start..=end], start))
 }
 
-/// Locate the exponent separator, as an index into the active slice.
+/// Locate the exponent-separator-sign, as an index into the whole sub-picture.
 ///
-/// The search starts at the prefix boundary, so a separator the prefix scan
-/// stepped over ("e0.0") is not picked up again. A separator sitting
-/// immediately *after* the active region (index `active.len()`, i.e. the
-/// first character of the suffix) still introduces an exponent part — an
-/// empty one, which `validate_sub_picture` rejects. That is what makes
-/// `"0.0e"` a D3093 rather than a literal `e` suffix.
+/// F&O 4.7.3 classifies the picture's characters once, unconditionally: "the
+/// characters assigned to the properties decimal-separator, exponent-separator,
+/// grouping-separator, and digit, and pattern-separator, and the members of the
+/// ·decimal digit family·, are classified as active characters, and all other
+/// characters ... are classified as passive characters". Then it singles one
+/// character out: "A character that matches the exponent-separator property is
+/// treated as an exponent-separator-sign if it is both preceded and followed
+/// within the sub-picture by an active character. Otherwise, it is treated as a
+/// passive character." And the reading of "preceded"/"followed" is spelled out:
+/// "Note that in these rules the words 'preceded' and 'followed' refer to
+/// characters anywhere in the string, they are not to be read as 'immediately
+/// preceded' and 'immediately followed'."
 ///
-/// The index is relative to the active region, which is where the mantissa
-/// and exponent split. jsonata-js instead keeps the separator's index in the
-/// whole sub-picture and then slices the *active part* with it, so every
-/// picture with both a prefix and an exponent splits at the wrong offset
-/// there: `"$0.0e0"` is a spurious D3093 (its exponent part comes out empty),
-/// and `"-0E.0"` with `exponent-separator` `E` is accepted, the `.` having
-/// been swallowed into the mantissa. jsntrs stays XPath-correct and does not
-/// replicate the off-by-prefix bug — a deliberate deviation, like the D3085
-/// answer above (jsntrs-p0v.23).
+/// So the test here is literal — *any* active character strictly before the
+/// candidate and *any* active character strictly after it, under the first
+/// classification, which makes exponent separators themselves active. Reading
+/// it any other way is circular: whether a separator counts as active for the
+/// test would depend on whether some other separator is the sign. The
+/// reclassification ("otherwise ... passive") applies afterwards, to the rules
+/// that consume the settled picture — which is why the passive separator of
+/// `"0.0e0e"` is suffix text rather than an active non-digit in the exponent
+/// part.
 ///
-/// An *empty* `exponent-separator` matches at the very start of the search,
-/// as `String.prototype.indexOf("")` does, so the mantissa comes out empty
-/// and every picture is a D3085 or a D3093 — the reference answers the same
-/// way, and only the picture-relative offset differs (jsntrs-2px). A
+/// The consequences, and where each is pinned:
+///   - `"0.0e"`, `"0e"`, `"9.9999eDog"` — nothing active after the separator,
+///     so it is passive suffix text: "1234.6e", "1235e", "12345.6780eDog"
+///     (the last is W3C QT3 fn/format-number.xml numberformat113). jsonata-js
+///     takes a separator sitting immediately after the active region as
+///     opening an empty — and therefore invalid — exponent part and answers
+///     D3093 for all three.
+///   - `"0.0ee"`, `"0ee"` — the *second* separator is an active character, so
+///     the first is a sign, and its exponent part `"e"` breaks "If a
+///     sub-picture contains a character treated as an exponent-separator-sign
+///     then this must be followed by one or more characters that are members
+///     of the ·decimal digit family·": D3093.
+///   - `"ee0.0"` — symmetrically, the *first* separator is the active
+///     character that precedes the second, so the second is a sign; the
+///     mantissa `"e"` has no digit (D3085) and the exponent part `"0.0"`
+///     holds an active non-digit (D3093), and D3093 is the higher rule.
+///
+/// jsonata-js keeps the separator's index in the whole sub-picture and then
+/// slices the *active part* with it, so every picture with both a prefix and
+/// an exponent splits at the wrong offset there: `"$0.0e0"` is a spurious
+/// D3093 (its exponent part comes out empty), and `"-0E.0"` with
+/// `exponent-separator` `E` is accepted, the `.` having been swallowed into
+/// the mantissa. jsntrs stays XPath-correct and does not replicate the
+/// off-by-prefix bug (jsntrs-p0v.23).
+///
+/// An *empty* `exponent-separator` matches at the very start of the search, as
+/// `String.prototype.indexOf("")` does, so the mantissa comes out empty and
+/// every picture is a D3085 or a D3093 — the reference answers the same way,
+/// and only the picture-relative offset differs (jsntrs-2px). A
 /// multi-character value matches nothing: jsonata-js substring-searches it,
 /// jsntrs deliberately does not (jsntrs-p0v.27).
-fn locate_exponent(
-    runes: &[char],
-    start: usize,
-    active_len: usize,
-    fc: &FmtChars,
-) -> Option<usize> {
-    let rel = if fc.exponent_sep.is_empty() {
-        0
-    } else {
-        let sep = fc.exponent_char?;
-        runes[start..].iter().position(|&c| c == sep)?
-    };
-    (rel <= active_len).then_some(rel)
+fn locate_exponent(runes: &[char], start: usize, fc: &FmtChars) -> Option<usize> {
+    if fc.exponent_sep.is_empty() {
+        return Some(start);
+    }
+    let sep = fc.exponent_char?;
+    (0..runes.len()).find(|&i| {
+        runes[i] == sep
+            && runes[..i].iter().any(|&c| fc.is_active_char(c))
+            && runes[i + 1..].iter().any(|&c| fc.is_active_char(c))
+    })
 }
 
 /// A sub-picture cut into the regions the F&O 4.7.3 rules are phrased over.
@@ -699,12 +753,25 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
     let mut sp = SubPicture::default();
 
     let (active, start) = scan_sub_picture_region(&runes, fc, &mut sp)?;
-    let exp_pos = locate_exponent(&runes, start, active.len(), fc);
-    // `exp_pos` may sit one past the active region (a separator that opens the
-    // suffix), which leaves the whole region as the mantissa and the exponent
-    // part empty.
-    let mantissa = exp_pos.map_or(active, |e| &active[..e.min(active.len())]);
-    let exponent = exp_pos.map(|e| active.get(e + 1..).unwrap_or(&[]));
+    let sign = locate_exponent(&runes, start, fc);
+    // F&O 4.7.3: "The mantissa part of the sub-picture is defined as the part
+    // that appears to the left of the exponent-separator-sign if there is one,
+    // or the entire sub-picture otherwise. The exponent part of the subpicture
+    // is defined as the part that appears to the right of the
+    // exponent-separator-sign". Both are clipped to the active region, which
+    // drops only prefix and suffix characters — passive, so they carry no
+    // digit place and no grouping separator, and every rule below reads the
+    // clipped part exactly as it reads the full one. A sign in the prefix
+    // leaves the mantissa empty and one in the suffix leaves the exponent part
+    // empty, which is precisely the rule each of those pictures violates.
+    let (mantissa, exponent) = match sign {
+        None => (active, None),
+        Some(s) => {
+            let mantissa_end = s.saturating_sub(start).min(active.len());
+            let exponent_start = (s + 1).saturating_sub(start).min(active.len());
+            (&active[..mantissa_end], Some(&active[exponent_start..]))
+        }
+    };
     // The decimal separator is looked for in the mantissa alone: one in the
     // exponent part is a D3093, not a mantissa split. When a single character
     // is configured as both separators the exponent wins, exactly as in
@@ -1495,34 +1562,53 @@ mod tests {
         );
     }
 
-    /// Expected values verified against jsonata-js 2.x (jsntrs-p0v.14): the
-    /// prefix/suffix scan ignores the exponent separator, so a separator
-    /// before the mantissa is passive text and one after it introduces an
-    /// empty — and therefore invalid — exponent part. Before the fix the
-    /// scan treated it as active: `"e0.0"` was D3085 and `"0.0e"` formatted
-    /// as "1234.6".
+    /// F&O 4.7.3: an exponent separator "is treated as an
+    /// exponent-separator-sign if it is both preceded and followed within the
+    /// sub-picture by an active character. Otherwise, it is treated as a
+    /// passive character" — and exponent separators are themselves active
+    /// characters, so the test is answered by scanning the sub-picture for one
+    /// on each side, separators included. jsonata-js reads a separator sitting
+    /// immediately after the active region as opening an (empty, and therefore
+    /// invalid) exponent part and answers D3093 for `"0.0e"`, `"0e"`,
+    /// `"e0.0e"` and `"9.9999eDog"`; the W3C QT3 suite pins the last of those
+    /// as "12345.6780eDog" (fn/format-number.xml numberformat113)
+    /// — jsntrs-g0f.
     #[test]
-    fn exponent_separator_is_passive_in_the_prefix_suffix_scan() {
+    fn a_separator_with_no_active_character_after_it_is_passive() {
         assert_eq!(fmt(1234.5678, "e0.0"), "e1234.6");
         assert_eq!(fmt(0.234, "e0.0"), "e0.2");
-        assert_eq!(fmt(1234.5678, "ee0.0"), "ee1234.6");
-        // Still active inside the mantissa, and still emitted.
+        // Still a sign inside the mantissa, and still emitted.
         assert_eq!(fmt(1234.5678, "0.0e0"), "1.2e3");
+        // The trailing separator is followed by nothing active, so it is
+        // suffix text and the sign is the first one.
         assert_eq!(fmt(1234.5678, "0.0e0e"), "1.2e3e");
-        // A trailing separator leaves the exponent part empty.
+        // A trailing separator is suffix text, with or without more after it.
+        assert_eq!(fmt(12_345.678, "9.9999eDog"), "12345.6780eDog");
+        assert_eq!(fmt(1234.5678, "0.0e"), "1234.6e");
+        assert_eq!(fmt(1234.5678, "e0.0e"), "e1234.6e");
+        assert_eq!(fmt(1234.5678, "0e"), "1235e");
+        // Two separators in a row: each is the other's active neighbour, so
+        // the first is the sign and its exponent part holds no digit-family
+        // character. Reading the "followed by" test against the active region
+        // instead — whose edges exclude exponent separators — made these two
+        // format as "1234.6ee" and "1235ee", the regression that kept the
+        // wave-6 attempt at this fix out of the tree.
         assert_eq!(
-            fmt_args(&[Value::Number(1234.5678), Value::String("0.0e".into())]),
+            fmt_args(&[Value::Number(1234.5678), Value::String("0.0ee".into())]),
             Err("D3093")
         );
         assert_eq!(
-            fmt_args(&[Value::Number(1234.5678), Value::String("e0.0e".into())]),
+            fmt_args(&[Value::Number(1234.5678), Value::String("0ee".into())]),
             Err("D3093")
         );
+        // Symmetrically at the front: the second separator is preceded by the
+        // first, so it is the sign; the mantissa "e" has no digit (D3085) and
+        // the exponent part "0.0" an active non-digit (D3093).
         assert_eq!(
-            fmt_args(&[Value::Number(1234.5678), Value::String("0e".into())]),
+            fmt_args(&[Value::Number(1234.5678), Value::String("ee0.0".into())]),
             Err("D3093")
         );
-        // A picture of nothing but separators has no mantissa at all.
+        // A picture of nothing but separators has no mantissa digit at all.
         assert_eq!(
             fmt_args(&[Value::Number(1234.5678), Value::String("e".into())]),
             Err("D3085")
@@ -1535,11 +1621,41 @@ mod tests {
             fmt_opts(1234.5678, "E0.0", e_sep),
             Ok("E1234.6".to_string())
         );
-        assert_eq!(fmt_opts(1234.5678, "0.0E", e_sep), Err("D3093"));
+        assert_eq!(
+            fmt_opts(1234.5678, "0.0E", e_sep),
+            Ok("1234.6E".to_string())
+        );
         assert_eq!(
             fmt_opts(1234.5678, "e0.0", e_sep),
             Ok("e1234.6".to_string())
         );
+    }
+
+    /// A sub-picture with no active character at all is a D3085: its mantissa
+    /// is the whole sub-picture — an exponent separator needs an active
+    /// character on each side to be a sign — and it holds neither an optional
+    /// digit character nor a member of the decimal digit family, which is the
+    /// rule D3085 names. jsonata-js 2.2.2 reports D3086, whose rule is about a
+    /// passive character *between* two active ones and cannot be violated by a
+    /// picture with no active character, and D3093 for `"e"`, whose rule is
+    /// about the exponent part of a sub-picture that has an
+    /// exponent-separator-sign. Deliberately not ported (jsntrs-g0f).
+    #[test]
+    fn a_picture_with_no_active_character_is_d3085() {
+        for picture in ["", "-", "-$", "%", "e"] {
+            assert_eq!(
+                fmt_args(&[Value::Number(7.0), Value::String(picture.into())]),
+                Err("D3085"),
+                "{picture:?}"
+            );
+        }
+        // `e` is passive here too: the option moved the separator to `.`.
+        assert_eq!(
+            fmt_opts(7.0, "e", r#"{"exponent-separator": "."}"#),
+            Err("D3085")
+        );
+        // No character of "00" is in the `ab…` digit family, so none is active.
+        assert_eq!(fmt_opts(7.0, "00", r#"{"zero-digit": "ab"}"#), Err("D3085"));
     }
 
     /// One character configured as both the decimal and the exponent

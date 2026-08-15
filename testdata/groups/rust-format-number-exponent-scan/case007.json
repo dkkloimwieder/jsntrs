@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"0e\")",
     "dataset": null,
     "bindings": {},
-    "code": "D3093"
+    "result": "1235e",
+    "divergence": "XPath 3.1 F&O 4.7.3: an exponent separator \"is treated as an exponent-separator-sign if it is both preceded and followed within the sub-picture by an active character. Otherwise, it is treated as a passive character.\" Nothing active follows this one, so it is suffix text. jsonata-js takes a separator immediately after the active region as opening an empty exponent part and answers D3093; the W3C QT3 suite pins the passive reading in fn/format-number.xml numberformat113 (jsntrs-g0f)"
 }

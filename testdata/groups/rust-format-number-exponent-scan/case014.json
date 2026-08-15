@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(12345.678, \"9.9999eDog\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "12345.6780eDog",
+    "authority": "XPath 3.1 F&O 4.7.3 (exponent-separator-sign): \"D\", \"o\" and \"g\" are passive, so no active character follows the separator and it is passive suffix text. Expectation taken from the W3C QT3 test suite, fn/format-number.xml numberformat113, whose stated purpose is \"test format-number() with pattern in which exponent-separator is followed by passive character\". jsonata-js answers D3093."
+}

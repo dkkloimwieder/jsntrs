@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(99.5, \"%\")",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3085",
+    "authority": "XPath 3.1 F&O 4.7.3 classifies \"the values of the properties percent and per-mille\" as passive, so this sub-picture has no active character and its mantissa \"must contain at least one character that is either an optional digit character or a member of the decimal digit family\" is violated — D3085. jsonata-js 2.2.2 answers D3086, which needs an active character on both sides of a passive one (jsntrs-g0f)."
+}

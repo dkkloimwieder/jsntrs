@@ -1615,11 +1615,56 @@ jsntrs-p0v.18 for the audit.
     "0.0,0,0")` is `"1234.5,68"` there and **`"1234.5,6,8"`** here (QT3
     numberformat157: `format-number(12345.6789012345, '#.#,##,#')` is
     `"12345.6,78,9"`).
-- **Rust port deviation (jsntrs-p0v.23)**: jsonata-js indexes the *active
-  part* with the exponent separator's position in the whole sub-picture, so
-  any picture carrying both a prefix and an exponent splits at the wrong
-  offset there. jsntrs is XPath-correct: `"$0.0e0"` is `"$1.2e3"` (a spurious
-  **D3093** in the reference) and `"e1e.0"` is **D3093** (`"e7e0"` there).
+- **Validation stage (jsntrs-g0f, re-derived from XPath 3.1 F&O 2026-08-15)**:
+  the D3080-D3093 messages are the F&O 4.7.3 rules verbatim, one code per
+  bullet, so each code is only correct for pictures that violate *its* rule:
+  - **A picture with no active character is D3085.** "The mantissa part of a
+    sub-picture (defined below) must contain at least one character that is
+    either an ·optional digit character· or a member of the ·decimal digit
+    family·" — and the mantissa is the whole sub-picture, an exponent
+    separator being a sign only when it has an active character on each side.
+    jsonata-js answers **D3086** for `"-"`, `"-$"`, `"%"` and `"00"` with
+    `{"zero-digit": "ab"}`, whose rule is "A sub-picture must not contain a
+    passive character that is preceded by an active character and that is
+    followed by another active character" — impossible without an active
+    character — and **D3093** for `"e"`, whose rule is about the exponent part
+    of a sub-picture that *has* an exponent-separator-sign. Deliberately not
+    ported; D3085 also outranks D3081-D3084 in the "highest-numbered violated
+    rule" order, so the early answer agrees with the general validator.
+  - **An exponent separator is a sign only when an active character stands on
+    each side of it.** 4.7.3: "A character that matches the
+    exponent-separator property is treated as an exponent-separator-sign if it
+    is both preceded and followed within the sub-picture by an active
+    character. Otherwise, it is treated as a passive character", where
+    "preceded" and "followed" "refer to characters anywhere in the string" and
+    the exponent-separator character is itself one of the *active* ones. So:
+    - Nothing active after it — `"0e"` is `"1235e"`, `"0.0e"` is `"1234.6e"`,
+      `"9.9999eDog"` is `"12345.6780eDog"` (W3C QT3 numberformat113, purpose:
+      "test format-number() with pattern in which exponent-separator is
+      followed by passive character"). jsonata-js reads a separator
+      immediately after the active region as opening an empty exponent part
+      and answers **D3093** for all three.
+    - Another separator after it — `"0.0ee"` and `"0ee"` are **D3093**: the
+      second `e` is the active character that makes the first one a sign, and
+      the sign "must be followed by one or more characters that are members of
+      the ·decimal digit family·".
+    - Another separator before it — `"ee0.0"` is **D3093**: the second `e` is
+      the sign, its mantissa `"e"` has no digit (D3085) and its exponent part
+      `"0.0"` an active non-digit (D3093), the higher rule. jsonata-js
+      formats this as `"ee1234.6"`.
+
+    The reclassification the same sentence performs ("Otherwise, it is treated
+    as a passive character") applies to the rules that read the settled
+    picture, not to the test itself — reading it into the test would be
+    circular. That is why the trailing separator of `"0.0e0e"` is suffix text
+    rather than "an active character that is not a member of the ·decimal
+    digit family·" inside the exponent part, and `"0.0e0e"` is `"1.2e3e"`.
+  - **The exponent split is not offset by the prefix** (jsntrs-p0v.23):
+    jsonata-js indexes the *active part* with the exponent separator's
+    position in the whole sub-picture, so any picture carrying both a prefix
+    and an exponent splits at the wrong offset there. jsntrs is XPath-correct:
+    `"$0.0e0"` is `"$1.2e3"` (a spurious **D3093** in the reference) and
+    `"e1e.0"` is **D3093** (`"e7e0"` there).
 
 ### 5.2.21 `$formatBase` (`string_format_integer.go:16`)
 

@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(1234.5678, \"0.0ee\")",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3093",
+    "authority": "XPath 3.1 F&O 4.7.3 classifies the exponent-separator character as active, so the second 'e' is an active character following the first, which is therefore \"both preceded and followed within the sub-picture by an active character\" and is the exponent-separator-sign. Its exponent part is \"e\", breaking \"If a sub-picture contains a character treated as an exponent-separator-sign then this must be followed by one or more characters that are members of the decimal digit family\" — D3093. jsonata-js agrees on the code."
+}

@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"ee0.0\")",
     "dataset": null,
     "bindings": {},
-    "result": "ee1234.6"
+    "code": "D3093",
+    "divergence": "re-derived from XPath 3.1 F&O 4.7.3, which classifies \"the characters assigned to the properties decimal-separator, exponent-separator, grouping-separator, and digit, and pattern-separator, and the members of the decimal digit family\" as active. The second 'e' is therefore preceded by an active character (the first 'e') and followed by one, so it \"is treated as an exponent-separator-sign\"; the mantissa \"e\" holds no digit (D3085) and the exponent part \"0.0\" holds an active non-digit (D3093), the higher rule. The case used to pin \"ee1234.6\", which read the \"followed by\" test against an active region whose edges exclude exponent separators (jsntrs-g0f)"
 }
