@@ -10,7 +10,7 @@ Guidance for Claude Code sessions in this repo.
 repo — it lives in the original combined repository
 (github.com/dkkloimwieder/gnata), which also retains the full development
 history. `docs/spec.md` is the behavioral contract distilled from it. The
-port is feature-complete: all 2,453 conformance cases pass, and
+port is feature-complete: all 2,775 conformance cases pass, and
 `tests/conformance.rs` asserts zero failures, zero skips, and the exact
 case count (bump `EXPECTED_CASE_TOTAL` when adding cases).
 
@@ -19,6 +19,7 @@ case count (bump `EXPECTED_CASE_TOTAL` when adding cases).
 ```sh
 cargo test --workspace                             # all tests; conformance gate is strict
 cargo clippy --workspace --release --all-targets   # budget: ≤121 warnings, 0 errors — do not add any
+                                                   # (grep -cE '^warning: |^error' reads 3 higher: 3 summary lines)
 cargo fmt --all --check                            # must stay clean
 cargo bench -p jsntrs                              # criterion; skips missing bench/ fixtures
 cargo check -p jsntrs --target wasm32-unknown-unknown --no-default-features --features regex-lite
@@ -89,6 +90,29 @@ cd crates/jsntrs && cargo fuzz build               # nightly; fuzz/ is its own w
   the `internals` feature, enabled only by the self-referential
   dev-dependency, the fuzz crate, and `dhat-heap`.
 
+## The target is the specification, not jsonata-js
+
+jsntrs implements **JSONata as specified**. jsonata-js is evidence of what
+a behavior is meant to be — never the authority. It has real bugs, and
+reproducing one is a defect, not conformance. Authority, in order:
+
+1. The JSONata language documentation (jsonata.org), including its error
+   codes.
+2. XPath 3.1 F&O for the picture-string builtins — §4.7.3 picture rules,
+   §4.7.4 `analyse`, §4.7.5 formatting for `$formatNumber`, plus
+   `format-integer` and `format-dateTime`.
+3. ECMAScript for number → string.
+4. `docs/spec.md` — a distillation of the *Go implementation*, so it
+   describes an implementation, not independent authority.
+
+When a probe shows jsonata-js doing something indefensible (a raw JS
+`TypeError`, mutated shared state, `String.slice` wrap-around, an
+index-base error), the default is to **decline to port it** and record a
+deviation note in `docs/spec.md`. `testdata/` was seeded from jsonata-js's
+own suite, so a green run does **not** prove spec-correctness: where an
+inherited case pins an implementation artifact, re-derive the expectation
+from the spec and change the case.
+
 ## Behavioral invariants (DO NOT VIOLATE)
 
 1. `undefined = undefined` → `false`; `null = null` → `true`
@@ -125,7 +149,9 @@ combined repo's tracker — do not rename them.
 - `docs/*.md` cite the Go reference implementation by filename (`gnata.go`,
   `internal/…`) and sometimes by absolute path; those files live in the
   original gnata repo, not here.
-- Test suite: `testdata/groups/` (153 groups) + `testdata/datasets/`
+- Test suite: `testdata/groups/` (162 groups) + `testdata/datasets/`
+- `testdata/oracles/` holds recorded answers from another engine as
+  evidence for a builtin; the harness does not read it
 - Benchmarks: `bench/README.md` (engines, methodology, fixture regeneration)
 - JSONata language: https://jsonata.org
 

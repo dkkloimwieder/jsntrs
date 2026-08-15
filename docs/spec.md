@@ -1,6 +1,16 @@
 # Gnata Behavioral Specification
 
-This is the authoritative behavioral reference for the gnata JSONata 2.x engine, written to guide the Rust port. Every behavior is documented with exact Go source file paths and line numbers.
+> **What this document is, and is not.** It describes the behavior of an
+> *implementation* — the Go engine gnata — distilled to guide the Rust
+> port. It is not the JSONata specification and does not outrank one.
+> jsntrs targets JSONata as specified: the language documentation at
+> jsonata.org, XPath 3.1 F&O for the picture-string builtins, and
+> ECMAScript for number → string. Where this document (or jsonata-js,
+> which is evidence and never authority) disagrees with those, they win
+> and the divergence gets a deviation note here. See CLAUDE.md, "The
+> target is the specification, not jsonata-js".
+
+This is the behavioral reference for the gnata JSONata 2.x engine, written to guide the Rust port. Every behavior is documented with exact Go source file paths and line numbers.
 
 **Source repository:** github.com/recolabs/gnata
 **Language:** Go 1.25.6
