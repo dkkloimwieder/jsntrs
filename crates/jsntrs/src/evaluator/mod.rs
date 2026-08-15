@@ -1137,7 +1137,20 @@ fn build_sort_ctxs(
         return expand_last_step(arena, steps[steps.len() - 1], &prefix_ctxs);
     }
 
-    // Non-path expression: evaluate normally and wrap results.
+    // A single navigating step is a one-step path: its values are properties
+    // of the input, so the input is their parent and `%` resolves. The
+    // parser leaves an undecorated `a` as a bare `Name` rather than wrapping
+    // it in a `Path`, and routing that through the branch below instead left
+    // `%` unbound — so `a^(%.k)` raised S0217 while `x.a^(%.k)` worked.
+    if sort_operand_navigates(arena, sort_expr) {
+        return expand_last_step(arena, sort_expr, &[(input.clone(), Rc::clone(env))]);
+    }
+
+    // Non-path expression: evaluate normally and wrap results. `%` stays
+    // unresolvable here — values a function call or an array constructor
+    // produced were not reached by navigating a property of anything, so
+    // there is no "enclosing object which has the property representing the
+    // context value" to find.
     let result = eval_no_stack_check(arena, sort_expr, input, env)?;
     if result.is_undefined() {
         return Ok(vec![]);
@@ -1145,6 +1158,33 @@ fn build_sort_ctxs(
     match result {
         Value::Array(arr) => Ok(arr.iter().cloned().map(|v| (v, env.clone())).collect()),
         other => Ok(vec![(other, env.clone())]),
+    }
+}
+
+/// Does this sort operand select values *from* its input, so that the input
+/// is the parent of every value it produces?
+///
+/// > This will select the 'parent' of the current context value. Here, we
+/// > define 'parent' to be the enclosing object which has the property
+/// > representing the context value.
+/// >
+/// > — <https://docs.jsonata.org/path-operators> § `%` (Parent)
+///
+/// A field reference and a wildcard select properties of the input; a filter
+/// over either keeps the same values, so it navigates too. Anything else —
+/// a function call, a constructed array, a block that hands back a bound
+/// variable — produces values that are nobody's property, and `%` over them
+/// stays the S0217 the same page prescribes.
+fn sort_operand_navigates(arena: &AstArena, node: NodeId) -> bool {
+    if node.is_empty() {
+        return false;
+    }
+    match arena.get(node) {
+        Expr::Name { .. } | Expr::Wildcard { .. } => true,
+        Expr::Binary { op, lhs, .. } if *op == BinaryOp::Subscript && !lhs.is_empty() => {
+            sort_operand_navigates(arena, *lhs)
+        }
+        _ => false,
     }
 }
 
