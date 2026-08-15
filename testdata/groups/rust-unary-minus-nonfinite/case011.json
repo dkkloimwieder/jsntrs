@@ -1,0 +1,9 @@
+{
+    "expr": "-null",
+    "data": null,
+    "bindings": {},
+    "error": {
+        "code": "D1002",
+        "token": "-"
+    }
+}

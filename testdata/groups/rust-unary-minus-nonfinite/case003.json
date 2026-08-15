@@ -1,0 +1,9 @@
+{
+    "expr": "[1,2,3][-(0/0)]",
+    "data": null,
+    "bindings": {},
+    "error": {
+        "code": "D1002",
+        "token": "-"
+    }
+}

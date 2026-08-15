@@ -768,11 +768,45 @@ fn eval_unary(
             if val.is_undefined() {
                 return Ok(Value::Undefined);
             }
+            // > It is an error if either operand is not a number. It can also
+            // > be used in its unary form to negate a number.
+            // >   — https://docs.jsonata.org/numeric-operators, `-`
+            //
+            // A NaN is *not* a number: the JSONata type system has string,
+            // number, Boolean, null, object, array and function, and JSON has
+            // no NaN literal, so a NaN reaching this operand is the
+            // "not a number" case the sentence above makes an error — the
+            // same case as a string or a boolean, hence the same D1002.
+            // `as_f64` alone accepted it and answered NaN, which then went on
+            // to be swallowed as a non-numeric subscript: `[1,2,3][-(0/0)]`
+            // silently selected nothing (jsntrs-mwq).
+            //
+            // An infinity is not a number either, but it is the one jsntrs
+            // already reports as out of range wherever it is consumed —
+            // arithmetic results (`eval_arithmetic`), subscripts
+            // (`numeric_index`) and `check_numeric` all raise D1001 — so the
+            // operand of a unary minus raises it too rather than being the
+            // single place an infinity passes through an operator unchecked.
+            //
             // The reference attaches the operator itself (`token: expr.value`,
             // jsonata 2.2.2 jsonata.js:3991).
-            let n = val.as_f64().ok_or_else(|| {
-                JsonataError::new("D1002", "cannot negate a non-numeric value").with_token("-")
-            })?;
+            let n = match val {
+                Value::Number(n) if !n.is_nan() => n,
+                _ => {
+                    return Err(
+                        JsonataError::new("D1002", "cannot negate a non-numeric value")
+                            .with_token("-"),
+                    );
+                }
+            };
+            if !n.is_finite() {
+                return Err(JsonataError::new(
+                    "D1001",
+                    format!("Number out of range: {}", crate::value::format_float(n)),
+                )
+                .with_token("-")
+                .with_value(crate::value::format_float(n)));
+            }
             Ok(Value::Number(-n))
         }
         UnaryOp::ArrayCons => {

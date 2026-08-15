@@ -1,0 +1,9 @@
+{
+    "expr": "$map([0/0], function($v){-$v})",
+    "data": null,
+    "bindings": {},
+    "error": {
+        "code": "D1002",
+        "token": "-"
+    }
+}

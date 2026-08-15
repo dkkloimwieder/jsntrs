@@ -1,0 +1,6 @@
+{
+    "expr": "-$foo",
+    "data": null,
+    "bindings": {},
+    "undefinedResult": true
+}
