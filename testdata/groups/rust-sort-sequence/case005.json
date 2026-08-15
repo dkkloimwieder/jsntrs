@@ -1,0 +1,12 @@
+{
+    "expr": "a^(b) = a",
+    "data": {
+        "a": [
+            {
+                "b": 1
+            }
+        ]
+    },
+    "bindings": {},
+    "result": false
+}

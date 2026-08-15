@@ -48,11 +48,21 @@ fn step_has_keep_array(arena: &AstArena, step: NodeId) -> bool {
             }
             _ => {}
         }
-        // Walk into the LHS of Binary nodes (e.g. A[][filter] pattern).
-        if let Expr::Binary { lhs, .. } = arena.get(current) {
-            current = *lhs;
-        } else {
-            break;
+        // Walk into the LHS of Binary nodes (e.g. A[][filter] pattern), and
+        // into a sort's operand: the `[]` in `a[]^(b).b` is written on a step
+        // of the path this sort re-orders, and the documentation puts the
+        // suffix "on any step in the path expression"
+        // (https://docs.jsonata.org/predicate § Singleton array and value
+        // equivalence), honoured once at the end. Stopping at the sort left
+        // `a[]^(b).b` unflagged while `a[].b` was flagged (jsntrs-by0).
+        match arena.get(current) {
+            Expr::Binary { lhs, .. } => current = *lhs,
+            Expr::Sort { expr, .. } => current = *expr,
+            Expr::Path {
+                keep_singleton_array,
+                ..
+            } => return *keep_singleton_array,
+            _ => break,
         }
     }
     false

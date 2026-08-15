@@ -1,0 +1,9 @@
+{
+    "expr": "a^($)",
+    "data": {
+        "a": []
+    },
+    "bindings": {},
+    "result": [],
+    "divergence": "UNRESOLVED, and deliberately different from jsonata-js, which answers undefined here. The operand is an EMPTY MATCHED ARRAY from the input, and the two documented rules point opposite ways: under processing.md's sequence rule 1 an empty sequence is 'nothing' and 'won't appear in the output of any expression' (undefined), while under the matched-array rule the operand is the VALUE [] and a sort 'sorts (re-orders) the input sequence' without changing membership (so []). jsntrs answers []. Pinned to catch an accidental change, NOT as a settled reading \u2014 see jsntrs-jys."
+}

@@ -432,10 +432,20 @@ pub(super) fn has_keep_array(arena: &AstArena, node: NodeId) -> bool {
             }
             _ => {}
         }
-        // Walk into the LHS of Binary nodes or the expr of Sort nodes.
+        // Walk into the LHS of Binary nodes or the expr of Sort nodes. A
+        // sort's operand is a path of its own, and a `[]` on one of *its*
+        // steps still belongs to the path expression this filter is a stage
+        // of — the suffix goes "on any step in the path expression"
+        // (https://docs.jsonata.org/predicate § Singleton array and value
+        // equivalence). Without the `Path` arm, `a[]^(b)[0]` lost the wrap
+        // that `a[][0]` keeps (jsntrs-by0).
         match arena.get(current) {
             Expr::Binary { lhs, .. } => current = *lhs,
             Expr::Sort { expr, .. } => current = *expr,
+            Expr::Path {
+                keep_singleton_array,
+                ..
+            } => return *keep_singleton_array,
             _ => break,
         }
     }

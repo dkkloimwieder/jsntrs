@@ -1,0 +1,12 @@
+{
+    "expr": "$string(a^(b))",
+    "data": {
+        "a": [
+            {
+                "b": 1
+            }
+        ]
+    },
+    "bindings": {},
+    "result": "{\"b\":1}"
+}

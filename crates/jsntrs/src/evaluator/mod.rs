@@ -937,17 +937,24 @@ fn eval_sort(
         return Ok(Value::Undefined);
     }
 
-    // jsonata-js sorts through `fn.sort`, which hands back the *same* array
-    // when it holds fewer than two items — so a keep-singleton flag on the
-    // sorted sequence survives the sort, and `x.(a[]^(b))` still lets the
-    // enclosing path drop it. Longer inputs come back as a fresh plain array
-    // there, which is what the un-flagged result already is (jsntrs-p0v.19).
+    // A `[]` written on a step of the sort's own operand (`a[]^(b)`) belongs
+    // to the path this stage re-orders, and a re-ordering does not change it
+    // (see `sort_evaluated_items`). It arrives either as a flag on a
+    // `Sequence` — `a[]` on `{"a": {"b": 1}}` — or, when the step matched an
+    // array from the input, only on the operand's `Path` node, because
+    // `mark_keep_singleton` leaves a matched array alone (jsntrs-by0).
     let keep_singleton = match &mut items {
         Value::Sequence(seq) if seq.keep_singleton => {
             seq.keep_singleton = false;
             true
         }
-        _ => false,
+        _ => matches!(
+            arena.get(sort_expr),
+            Expr::Path {
+                keep_singleton_array: true,
+                ..
+            }
+        ),
     };
     let sorted = sort_evaluated_items(arena, items, &terms, env)?;
     Ok(if keep_singleton {
@@ -957,36 +964,55 @@ fn eval_sort(
     })
 }
 
-/// Order the values a `^(…)` sort expression produced, applying JSONata's
-/// singleton rules: a non-array input of one item stays unwrapped, anything
-/// array-shaped comes back as an array.
+/// Order the values a `^(…)` sort expression produced.
+///
+/// A sort stage re-orders its input sequence and does nothing else:
+///
+/// > **Sort** | seq`^(`expr`)` | Sorts (re-orders) the input sequence
+/// > according to the criteria in parentheses.
+/// >
+/// > — <https://docs.jsonata.org/processing> § JSONata path processing
+///
+/// and the same page adds that "the full path to the left of it will be
+/// evaluated, and its result sequence will be sorted". A permutation changes
+/// neither the membership of that sequence nor how many values it holds, so
+/// the ordinary collapse applies to the output exactly as it would have to
+/// the input: one value comes back as that value, "without any surrounding
+/// structure" (§ Sequences, rule 2). Returning an *uncollapsed* sequence for
+/// the one-value case leaves a following `[]` — on the sort node, on the
+/// enclosing path — something to flag, so `a^(b)` on `{"a": [{"b": 1}]}` is
+/// `{"b": 1}` while `a[]^(b)` is still `[{"b": 1}]` (jsntrs-by0).
+///
+/// An operand that matched an *empty array* from the input is deliberately
+/// left alone: whether that is a one-value sequence holding `[]` or an empty
+/// sequence is the open question in docs/sequence-and-keep-array.md § Q2, so
+/// `a^($)` on `{"a": []}` keeps answering `[]`.
+///
+/// The values to order are the members of the operand's sequence, or — when
+/// the operand handed back a matched array instead — that array's elements,
+/// which is rule 3's "if this array becomes the context of a subsequent
+/// expression, then the result of that *will* be a sequence". The two are
+/// only distinguishable for a one-member sequence holding an array, and
+/// there the sequence's own membership wins: collapsing first and re-reading
+/// the collapsed array as the item list would let a `[]` change how many
+/// values the *next* stage sorts.
 fn sort_evaluated_items(
     arena: &AstArena,
     items: Value,
     terms: &[crate::parser::SortTerm],
     env: &Rc<Environment>,
 ) -> JsonataResult {
-    let (mut arr, was_array) = match items {
-        Value::Array(a) => (a.to_vec(), true),
-        Value::Sequence(seq) => {
-            let collapsed = seq.into_value();
-            match collapsed {
-                Value::Undefined => return Ok(Value::Undefined),
-                Value::Array(a) => (a.to_vec(), true),
-                other => (vec![other], false),
-            }
-        }
-        other => (vec![other], false),
+    let mut arr = match items {
+        // Q2: an empty matched array is left exactly as it was found.
+        Value::Array(a) if a.is_empty() => return Ok(Value::Array(a)),
+        Value::Array(a) => a.to_vec(),
+        Value::Sequence(seq) if seq.values.is_empty() => return Ok(Value::Undefined),
+        Value::Sequence(seq) => seq.values,
+        other => vec![other],
     };
 
     if terms.is_empty() {
-        if !was_array && arr.len() == 1 {
-            return arr
-                .into_iter()
-                .next()
-                .ok_or_else(|| JsonataError::new("D0000", "len is 1 but next() returned None"));
-        }
-        return Ok(Value::Array(Rc::from(arr)));
+        return Ok(sorted_sequence(arr));
     }
 
     // Fast path: if every sort term is a simple Name node, extract field names
@@ -1022,13 +1048,20 @@ fn sort_evaluated_items(
         })?;
     }
 
-    if !was_array && arr.len() == 1 {
-        return arr
-            .into_iter()
-            .next()
-            .ok_or_else(|| JsonataError::new("D0000", "len is 1 but next() returned None"));
+    Ok(sorted_sequence(arr))
+}
+
+/// Wrap the ordered values back up as the stage's result sequence.
+///
+/// One value stays a *sequence* rather than collapsing on the spot: the
+/// collapse is the same whoever performs it, but leaving it un-collapsed is
+/// what lets a `[]` on the sort node or on the enclosing path still find a
+/// singleton to keep. More than one value is already an array either way.
+fn sorted_sequence(arr: Vec<Value>) -> Value {
+    if arr.len() == 1 {
+        return Value::Sequence(Box::new(Sequence::with_items(arr)));
     }
-    Ok(Value::Array(Rc::from(arr)))
+    Value::Array(Rc::from(arr))
 }
 
 /// Sort with parent-tracking: when sort terms reference %, we need to build
