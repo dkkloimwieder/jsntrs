@@ -1174,24 +1174,55 @@ fn eval_transform(arena: &AstArena, node: NodeId, _input: &Value, env: &Rc<Envir
     };
 
     // Return a function value that performs the transform when called.
-    // Go equivalent: if len(args) > 0 { doc = args[0] } else { doc = focus }
-    // When called via the pipe operator (~>), piped is args[0].
-    // If piped is undefined (e.g. `foo ~> |...|` where foo is missing), we pass
-    // undefined to apply_transform which immediately returns undefined.
-    // When called standalone (no args), we use focus (the current input context).
+    // When called via the pipe operator (~>), the piped value is args[0].
     let env_for_fn = Rc::clone(env);
     let transform_fn: Rc<crate::evaluator::EnvAwareBuiltinFn> = Rc::new(
-        move |args: &[Value], focus: &Value, _env: &Rc<Environment>, arena: &AstArena| {
-            let doc = if args.is_empty() {
-                focus.clone()
-            } else {
-                args[0].clone()
-            };
+        move |args: &[Value], _focus: &Value, _env: &Rc<Environment>, arena: &AstArena| {
+            let doc = transform_document(args)?;
             apply_transform(arena, pattern, update, delete, &doc, &env_for_fn)
         },
     );
 
     Value::Function(Box::new(FunctionValue::EnvAwareBuiltin(transform_fn)))
+}
+
+/// Type-check a transform's document argument the way its signature does.
+///
+/// `evaluateTransformExpression` ends with
+/// `return defineFunction(transformer, '<(oa):o>')`, so `apply()` validates
+/// the document *before* the transformer body runs: an object or an array
+/// passes, everything else — a number, a string, a boolean, `null`, a
+/// function, or no argument at all — is `T0410` on argument 1. Being a
+/// signature check, it also beats the clauses' own errors: `5 ~> |$|5|` is
+/// T0410, not the update clause's T2011.
+///
+/// `undefined` is the one value that passes: the reference's `getSymbol`
+/// maps it to the wildcard `'m'`, and the transformer's first line returns
+/// undefined for it, which is what `nope ~> |$|{"z": 1}|` answers.
+///
+/// jsntrs used to hand every value straight to [`apply_transform`], which
+/// returned a non-object unchanged, and to substitute the context node when
+/// the call supplied no argument at all — a Go-reference habit the JS
+/// signature has no room for (jsntrs-2bc).
+fn transform_document(args: &[Value]) -> JsonataResult {
+    let Some(arg) = args.first() else {
+        return Err(transform_signature_error());
+    };
+    let doc = collapse_sequence(arg.clone());
+    match doc {
+        Value::Undefined | Value::Object(_) | Value::Array(_) => Ok(doc),
+        _ => Err(transform_signature_error()),
+    }
+}
+
+/// The `T0410` a transform raises for a document that is not an object or an
+/// array — jsonata-js's `throwValidationError` reports the first argument.
+fn transform_signature_error() -> JsonataError {
+    JsonataError::new(
+        "T0410",
+        "argument 1 does not match function signature: the transform operator \
+         needs an object or an array",
+    )
 }
 
 fn apply_transform(
