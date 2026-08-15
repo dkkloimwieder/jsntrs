@@ -2,6 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"00,0.0,0\")",
     "dataset": null,
     "bindings": {},
-    "result": "1,2,3,4.5,7",
-    "divergence": "jsonata-js getGroupingPositions walks the integer part when handed the fraction, so the integer part's separator is counted a second time against the fraction and a duplicate position is emitted (\"1,2,3,4.5,,7\"); F&O 4.7.4 records one position per separator in the fractional part (jsntrs-0kg)"
+    "result": "123,4.5,7",
+    "divergence": "jsonata-js getGroupingPositions walks the integer part when handed the fraction, so the integer part's separator is counted a second time against the fraction and a duplicate position is emitted (\"1,2,3,4.5,,7\"); F&O 4.7.4 records one position per separator in the fractional part (jsntrs-0kg) ALSO: F&O 4.7.4 calls the grouping regular only when \"every position in the integer part of the sub-picture that is a positive integer multiple of G is occupied by a grouping-separator\" — here it is not, so the recorded positions are applied literally instead of being extrapolated. jsonata-js asks only for the first positions.length multiples of the gcd and extrapolates; the W3C QT3 suite pins both directions in numberformat310/312 and numberformat318/319 (jsntrs-4fr follow-up, wave-6 spec audit)"
 }

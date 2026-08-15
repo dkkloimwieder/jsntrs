@@ -1580,6 +1580,20 @@ jsntrs-p0v.18 for the audit.
     is `",,7"` there and **`"7"`** here (QT3 numberformat320:
     `format-number(897, ',##0')` is `"897"`). A position of 0 still places a
     separator immediately before the decimal separator — that digit exists.
+  - **Dropped: the GCD test for regular grouping** (found in the same audit;
+    needs its own issue). 4.7.4 calls the grouping regular when "There is a
+    positive integer G (the grouping size) such that the position of every
+    grouping-separator … is a positive integer multiple of G" *and* "Every
+    position in the integer part of the sub-picture that is a positive integer
+    multiple of G is occupied by a grouping-separator", and only then
+    extrapolates "all integer multiples of G as far as necessary". jsonata-js
+    asks for the first `positions.length` multiples of the gcd instead, which
+    ignores the sub-picture's own unoccupied positions:
+    `$formatNumber(642120, "####,##")` is `"64,21,20"` there and **`"6421,20"`**
+    here, while `"##,##"` is `"64,21,20"` in both (QT3 numberformat310/312, and
+    numberformat318/319 for `"#,#,#"` against `"##,#,#"`). The leading position
+    — one separator further left than the sub-picture's digit places — is
+    allowed but not required, which is what keeps `",##0"` regular.
   - **Dropped: the fractional grouping walk.** 4.7.4 records one position per
     grouping separator *in the fractional part*; jsonata-js
     `getGroupingPositions` closes over the integer part for its "next

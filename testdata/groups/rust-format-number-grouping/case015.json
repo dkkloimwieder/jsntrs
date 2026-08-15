@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(3000000, \",##0\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "3,000,000",
+    "authority": "XPath 3.1 F&O 4.7.4 (regular grouping); expectation from the W3C QT3 test suite, fn/format-number.xml numberformat320"
+}

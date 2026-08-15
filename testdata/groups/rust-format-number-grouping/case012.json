@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(642120, \"##,##\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "64,21,20",
+    "authority": "XPath 3.1 F&O 4.7.4 (regular grouping); expectation from the W3C QT3 test suite, fn/format-number.xml numberformat312"
+}

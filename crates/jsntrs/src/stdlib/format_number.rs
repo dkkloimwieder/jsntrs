@@ -620,20 +620,38 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
 
 /// The regular grouping interval, or 0 when the positions are irregular.
 ///
-/// jsonata-js takes the GCD of the positions and demands that every multiple
-/// of it up to `positions.len()` is present. The two conditions together
-/// force the set to be exactly `{f, 2f, …, nf}`, which is why this is the
-/// same function as the "every gap equals the smallest position" rule jsntrs
-/// carried before the port — proof and exhaustive check on
-/// `regular_grouping_matches_equal_gap_rule` (jsntrs-4fr).
-fn regular_grouping(positions: &[usize]) -> usize {
+/// F&O 4.7.4: "The grouping is defined to be regular if the following
+/// conditions apply: There is an least one grouping-separator in the integer
+/// part of the sub-picture. There is a positive integer G (the grouping size)
+/// such that the position of every grouping-separator in the integer part of
+/// the sub-picture is a positive integer multiple of G. Every position in the
+/// integer part of the sub-picture that is a positive integer multiple of G is
+/// occupied by a grouping-separator." Only `G = gcd(positions)` can satisfy the
+/// second condition and leave the third one satisfiable — a smaller divisor
+/// would itself be an unoccupied position — so the gcd is the one candidate.
+///
+/// The third condition is what makes `places` load-bearing: the positions that
+/// *exist* in the sub-picture run from 1 to one short of its digit-place count,
+/// a separator further left than that being the leading position and outside
+/// the sequence. jsonata-js asks instead for the first `positions.len()`
+/// multiples, which forces the set to be exactly `{f, 2f, …, nf}` and calls
+/// `"####,##"` regular; the W3C QT3 suite pins both directions —
+/// `format-number(642120, '####,##')` is "6421,20" (numberformat310) while
+/// `format-number(642120, '##,##')` is "64,21,20" (numberformat312), and
+/// `'#,#,#'` and `'##,#,#'` differ the same way (numberformat318/319).
+fn regular_grouping(positions: &[usize], places: usize) -> usize {
     let Some(factor) = positions.iter().copied().reduce(gcd) else {
         return 0;
     };
-    for index in 1..=positions.len() {
-        if !positions.contains(&index.saturating_mul(factor)) {
+    if factor == 0 {
+        return 0;
+    }
+    let mut position = factor;
+    while position < places {
+        if !positions.contains(&position) {
             return 0;
         }
+        position += factor;
     }
     factor
 }
@@ -650,7 +668,7 @@ fn analyse(
 ) {
     sp.scale = scaling_factor(picture, fc);
     sp.int_grp_pos = grouping_positions(integer, false, fc);
-    sp.regular_grouping = regular_grouping(&sp.int_grp_pos);
+    sp.regular_grouping = regular_grouping(&sp.int_grp_pos, count_places(integer, fc));
     sp.frac_grp_pos = grouping_positions(fraction, true, fc);
 
     sp.min_int = count_mandatory(integer, fc);
@@ -1578,92 +1596,80 @@ mod tests {
         assert_eq!(fmt_opts(1.3, "#9,%. ", dot), Ok("130,%. ".to_string()));
     }
 
-    /// The GCD rule jsonata-js uses to decide whether the integer part's
-    /// grouping is regular, and the "every gap equals the smallest position"
-    /// rule jsntrs carried before the port, are the same function
-    /// (jsntrs-4fr). Proof, over the positions `P = {p₁ … pₙ}` a valid
-    /// picture can produce:
+    /// The three 4.7.4 conditions, on the position sets a picture can
+    /// produce. The third one — "Every position in the integer part of the
+    /// sub-picture that is a positive integer multiple of G is occupied by a
+    /// grouping-separator" — is why the digit-place count is an argument: the
+    /// positions that exist in a sub-picture with `places` digit places run
+    /// from 1 to `places - 1`, the leading position `places` being allowed but
+    /// not required (`",##0"` is regular with G = 3).
     ///
-    /// - *The positions are distinct.* Two grouping separators in the integer
-    ///   part are either adjacent — D3089 rejects that anywhere in the
-    ///   sub-picture — or separated by at least one character, and inside the
-    ///   integer part the only characters validation leaves are digit-family,
-    ///   the digit placeholder and the grouping separator itself (D3086
-    ///   rejects passive characters in the active region, a second decimal
-    ///   separator is D3081, the exponent separator ends the mantissa, and
-    ///   the pattern separator has already split the picture). So any two
-    ///   separators have a different number of digit places to their right.
-    /// - *GCD-regular ⟹ equal-gap-regular, same interval.* If the reference
-    ///   returns `f > 0` then `{f, 2f, …, nf} ⊆ P`; those are n distinct
-    ///   values and `|P| = n`, so `P = {f, 2f, …, nf}` and `min P = f`. Sorted
-    ///   ascending every gap is `f`, which is the first element.
-    /// - *Equal-gap-regular ⟹ GCD-regular, same interval.* If the ascending
-    ///   list has every gap equal to `q₁` then `qᵢ = i·q₁`, so `gcd(P) = q₁`
-    ///   and every multiple up to `n·q₁` is present.
-    /// - *The degenerate cases agree.* Empty: both 0. `0 ∈ P` with `n ≥ 2`:
-    ///   the GCD is that of the non-zero elements, so the n multiples the
-    ///   loop wants are all non-zero and `P` has at most n−1 non-zero
-    ///   elements — irregular; the equal-gap rule guards `primary == 0`
-    ///   out. `P = {0}`: gcd 0, and the reference returns the factor 0.
-    ///   Duplicates (unreachable, but both functions are total): fewer than n
-    ///   distinct values cannot cover n distinct multiples, and a repeat
-    ///   makes a gap of 0 ≠ primary.
-    ///
-    /// Exhaustively checked below over every position set drawn from 0..=8,
-    /// plus the duplicate cases the picture grammar cannot reach.
+    /// The positions are distinct, so a set is all the function needs: two
+    /// grouping separators in the integer part are either adjacent — D3089
+    /// rejects that anywhere in the sub-picture — or separated by at least one
+    /// character, and inside the integer part the only characters validation
+    /// leaves are digit-family, the digit placeholder and the grouping
+    /// separator itself (D3086 rejects passive characters in the active
+    /// region, a second decimal separator is D3081, the exponent separator
+    /// ends the mantissa, and the pattern separator has already split the
+    /// picture). So any two separators have a different number of digit places
+    /// to their right.
     #[test]
-    fn regular_grouping_matches_equal_gap_rule() {
-        /// The pre-port rule: sorted ascending, regular when the smallest
-        /// position is non-zero and every gap equals it.
-        fn equal_gap_rule(positions: &[usize]) -> usize {
-            let mut sorted = positions.to_vec();
-            sorted.sort_unstable();
-            let Some(&primary) = sorted.first() else {
-                return 0;
-            };
-            if primary == 0 {
-                return 0;
-            }
-            if sorted.windows(2).all(|w| w[1] - w[0] == primary) {
-                primary
-            } else {
-                0
-            }
-        }
-
-        for mask in 0u32..512 {
-            let positions: Vec<usize> = (0..9).filter(|i| mask & (1 << i) != 0).collect();
-            assert_eq!(
-                regular_grouping(&positions),
-                equal_gap_rule(&positions),
-                "{positions:?}"
-            );
-        }
-        for positions in [
-            vec![],
-            vec![2, 2],
-            vec![1, 1],
-            vec![2, 2, 4],
-            vec![1, 2, 2],
-            vec![0, 0],
-            vec![3, 3, 3],
-        ] {
-            assert_eq!(
-                regular_grouping(&positions),
-                equal_gap_rule(&positions),
-                "{positions:?}"
-            );
-        }
+    fn regular_grouping_follows_the_three_conditions() {
+        // No separator at all: condition 1 fails.
+        assert_eq!(regular_grouping(&[], 4), 0);
+        // A separator with no digit place to its right gives position 0, which
+        // is not a positive multiple of anything.
+        assert_eq!(regular_grouping(&[0], 3), 0);
+        // Every interior multiple of the gcd is occupied.
+        assert_eq!(regular_grouping(&[2], 4), 2); // "##,##"
+        assert_eq!(regular_grouping(&[3], 4), 3); // "#,###"
+        assert_eq!(regular_grouping(&[4, 2], 6), 2); // "##,##,##"
+        assert_eq!(regular_grouping(&[2, 1], 3), 1); // "#,#,#"
+        assert_eq!(regular_grouping(&[3], 3), 3); // ",##0" — leading position
+        // Interior multiples that no separator occupies.
+        assert_eq!(regular_grouping(&[2], 6), 0); // "####,##"
+        assert_eq!(regular_grouping(&[2], 5), 0); // "###,##"
+        assert_eq!(regular_grouping(&[2, 1], 4), 0); // "##,#,#"
+        assert_eq!(regular_grouping(&[4, 2], 8), 0); // "####,##,##"
+        assert_eq!(regular_grouping(&[3, 2], 4), 0); // "9,9,99"
     }
 
-    /// The two rules answering the same on the pictures that separate the
-    /// candidate implementations, end to end. Positions {4,2} are regular,
-    /// {2,4,8} — the set the issue proposed as a separator — is not, under
-    /// both rules; expected values verified against jsonata 2.2.2
-    /// (jsntrs-4fr).
+    /// The same rule end to end, on the W3C QT3 suite's own regularity
+    /// pictures (`fn/format-number.xml` numberformat310-320, "Single grouping
+    /// separator in pattern: regular or not?"). jsonata-js asks only for the
+    /// first `positions.len()` multiples of the gcd, so it calls "####,##" and
+    /// "##,#,#" regular and answers "64,21,20" and "6,4,2,1,2,0" for the first
+    /// two of these.
+    #[test]
+    fn grouping_regularity_matches_the_w3c_suite() {
+        for (picture, expected) in [
+            ("####,##", "6421,20"),   // numberformat310
+            ("###,##", "6421,20"),    // numberformat311
+            ("##,##", "64,21,20"),    // numberformat312
+            ("#,##", "64,21,20"),     // numberformat313
+            ("0000,00", "6421,20"),   // numberformat314
+            ("000,00", "6421,20"),    // numberformat315
+            ("00,00", "64,21,20"),    // numberformat316
+            ("0,00", "64,21,20"),     // numberformat317
+            ("#,#,#", "6,4,2,1,2,0"), // numberformat318
+            ("##,#,#", "6421,2,0"),   // numberformat319
+        ] {
+            assert_eq!(fmt(642_120.0, picture), expected, "{picture}");
+        }
+        // numberformat320: a leading grouping separator is a position like any
+        // other, and extrapolates.
+        assert_eq!(fmt(3_000_000.0, ",##0"), "3,000,000");
+    }
+
+    /// End to end on the pictures that separated the candidate implementations
+    /// of the *old* rule (jsntrs-4fr). Only "####,##,##" moves: its positions
+    /// {4,2} leave the interior position 6 of an eight-place integer part
+    /// unoccupied, so 4.7.4's third condition fails and the two positions are
+    /// applied literally.
     #[test]
     fn grouping_regularity_agrees_on_the_candidate_separators() {
-        assert_eq!(fmt(1_234_567_890.0, "####,##,##"), "12,34,56,78,90");
+        assert_eq!(fmt(1_234_567_890.0, "####,##,##"), "123456,78,90");
         assert_eq!(fmt(1_234_567_890.0, "#,####,##,##"), "12,3456,78,90");
         assert_eq!(fmt(1_234_567_890.0, "##,####,##"), "1234,5678,90");
         assert_eq!(fmt(1_234_567_890.0, "#,##,####"), "1234,56,7890");
