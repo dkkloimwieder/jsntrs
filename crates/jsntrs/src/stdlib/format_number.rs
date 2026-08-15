@@ -529,8 +529,10 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
 ///
 /// jsonata-js takes the GCD of the positions and demands that every multiple
 /// of it up to `positions.len()` is present. The two conditions together
-/// force the set to be exactly `{f, 2f, …, nf}` — see the equivalence proof
-/// on `regular_grouping_matches_equal_gap_rule` (jsntrs-4fr).
+/// force the set to be exactly `{f, 2f, …, nf}`, which is why this is the
+/// same function as the "every gap equals the smallest position" rule jsntrs
+/// carried before the port — proof and exhaustive check on
+/// `regular_grouping_matches_equal_gap_rule` (jsntrs-4fr).
 fn regular_grouping(positions: &[usize]) -> usize {
     let Some(factor) = positions.iter().copied().reduce(gcd) else {
         return 0;
@@ -1296,6 +1298,99 @@ mod tests {
     fn zero_grouping_position_is_emitted() {
         let dot = r#"{"exponent-separator": "."}"#;
         assert_eq!(fmt_opts(1.3, "#9,%. ", dot), Ok("130,%. ".to_string()));
+    }
+
+    /// The GCD rule jsonata-js uses to decide whether the integer part's
+    /// grouping is regular, and the "every gap equals the smallest position"
+    /// rule jsntrs carried before the port, are the same function
+    /// (jsntrs-4fr). Proof, over the positions `P = {p₁ … pₙ}` a valid
+    /// picture can produce:
+    ///
+    /// - *The positions are distinct.* Two grouping separators in the integer
+    ///   part are either adjacent — D3089 rejects that anywhere in the
+    ///   sub-picture — or separated by at least one character, and inside the
+    ///   integer part the only characters validation leaves are digit-family,
+    ///   the digit placeholder and the grouping separator itself (D3086
+    ///   rejects passive characters in the active region, a second decimal
+    ///   separator is D3081, the exponent separator ends the mantissa, and
+    ///   the pattern separator has already split the picture). So any two
+    ///   separators have a different number of digit places to their right.
+    /// - *GCD-regular ⟹ equal-gap-regular, same interval.* If the reference
+    ///   returns `f > 0` then `{f, 2f, …, nf} ⊆ P`; those are n distinct
+    ///   values and `|P| = n`, so `P = {f, 2f, …, nf}` and `min P = f`. Sorted
+    ///   ascending every gap is `f`, which is the first element.
+    /// - *Equal-gap-regular ⟹ GCD-regular, same interval.* If the ascending
+    ///   list has every gap equal to `q₁` then `qᵢ = i·q₁`, so `gcd(P) = q₁`
+    ///   and every multiple up to `n·q₁` is present.
+    /// - *The degenerate cases agree.* Empty: both 0. `0 ∈ P` with `n ≥ 2`:
+    ///   the GCD is that of the non-zero elements, so the n multiples the
+    ///   loop wants are all non-zero and `P` has at most n−1 non-zero
+    ///   elements — irregular; the equal-gap rule guards `primary == 0`
+    ///   out. `P = {0}`: gcd 0, and the reference returns the factor 0.
+    ///   Duplicates (unreachable, but both functions are total): fewer than n
+    ///   distinct values cannot cover n distinct multiples, and a repeat
+    ///   makes a gap of 0 ≠ primary.
+    ///
+    /// Exhaustively checked below over every position set drawn from 0..=8,
+    /// plus the duplicate cases the picture grammar cannot reach.
+    #[test]
+    fn regular_grouping_matches_equal_gap_rule() {
+        /// The pre-port rule: sorted ascending, regular when the smallest
+        /// position is non-zero and every gap equals it.
+        fn equal_gap_rule(positions: &[usize]) -> usize {
+            let mut sorted = positions.to_vec();
+            sorted.sort_unstable();
+            let Some(&primary) = sorted.first() else {
+                return 0;
+            };
+            if primary == 0 {
+                return 0;
+            }
+            if sorted.windows(2).all(|w| w[1] - w[0] == primary) {
+                primary
+            } else {
+                0
+            }
+        }
+
+        for mask in 0u32..512 {
+            let positions: Vec<usize> = (0..9).filter(|i| mask & (1 << i) != 0).collect();
+            assert_eq!(
+                regular_grouping(&positions),
+                equal_gap_rule(&positions),
+                "{positions:?}"
+            );
+        }
+        for positions in [
+            vec![],
+            vec![2, 2],
+            vec![1, 1],
+            vec![2, 2, 4],
+            vec![1, 2, 2],
+            vec![0, 0],
+            vec![3, 3, 3],
+        ] {
+            assert_eq!(
+                regular_grouping(&positions),
+                equal_gap_rule(&positions),
+                "{positions:?}"
+            );
+        }
+    }
+
+    /// The two rules answering the same on the pictures that separate the
+    /// candidate implementations, end to end. Positions {4,2} are regular,
+    /// {2,4,8} — the set the issue proposed as a separator — is not, under
+    /// both rules; expected values verified against jsonata 2.2.2
+    /// (jsntrs-4fr).
+    #[test]
+    fn grouping_regularity_agrees_on_the_candidate_separators() {
+        assert_eq!(fmt(1_234_567_890.0, "####,##,##"), "12,34,56,78,90");
+        assert_eq!(fmt(1_234_567_890.0, "#,####,##,##"), "12,3456,78,90");
+        assert_eq!(fmt(1_234_567_890.0, "##,####,##"), "1234,5678,90");
+        assert_eq!(fmt(1_234_567_890.0, "#,##,####"), "1234,56,7890");
+        assert_eq!(fmt(1_234_567.0, "##,##,##"), "1,23,45,67");
+        assert_eq!(fmt(123_456.0, "#,##,#"), "123,45,6");
     }
 
     /// Irregular grouping positions are applied literally and wrap around the
