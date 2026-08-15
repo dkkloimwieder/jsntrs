@@ -1014,6 +1014,43 @@ to port jsonata-js's `seekParent` answer set instead (wave 5, jsntrs-03p)
 each regressed shapes the reference accepts. Tracked as jsntrs-03p /
 jsntrs-vjs / jsntrs-nd9.
 
+**What the definition says about a step that is not a property
+(jsntrs-03p, jsntrs-nd9).** The documentation defines the parent by the shape
+of the data, not by the shape of the expression:
+
+> This will select the 'parent' of the current context value. Here, we define
+> 'parent' to be the enclosing object which has the property representing the
+> context value.
+
+So when the context value is *not* a property of anything — a computed block
+result, a literal, a variable's value — there is no enclosing object to name
+and the parent location cannot be determined, which by the next sentence is
+S0217. jsntrs does not implement that. It treats every step alike and answers
+the input of the preceding step:
+
+| expression | jsntrs | jsonata 2.2.2 | what the definition gives |
+|---|---|---|---|
+| `x.(y).%` on `{"x":{"y":{"z":3}}}` | `{"y":{"z":3}}` | `{"y":{"z":3}}` | `{"y":{"z":3}}` — `y` *is* a property of `x`'s value |
+| `x.(1).%` | `{"y":{"z":3}}` | S0217 (static) | S0217 — `1` is nobody's property |
+| `x.($keys(y)[]).%` | `{"y":{"z":3}}` | S0217 (static) | S0217 |
+| `($v := a.b; $v.%)` on `{"a":{"b":{"c":1}},"top":1}` | the whole document | S0217 (static) | `{"b":{"c":1}}` — the object with the `b` property |
+
+The last row is the reason this is recorded rather than patched to match the
+reference: on a variable step **neither** engine gives the documented answer.
+jsntrs answers the step's *input* (the path root) where the definition names
+the object holding the property, and jsonata-js refuses the expression on a
+rule — `seekParent`'s default arm rejecting a variable — that the
+documentation nowhere states.
+
+Deciding these statically means classifying every step kind by whether its
+result is a property of the previous context, which is what `seekParent` is.
+Two attempts to port that answer set (wave 5, jsntrs-03p rounds 1 and 2) each
+passed conformance and then failed an attributed sweep, statically refusing
+shapes the reference accepts: a string-literal step under a `[]`/`{}`/`@`
+wrapper, a `#`-decorated array or object constructor, and a `#`-wrapped block
+in predicate or sort position. The documentation gives the principle but not
+the analysis, so the analysis stays out.
+
 **Where jsonata-js differs, and why it is not followed.** jsonata 2.2.2
 yields `undefined` rather than S0217 for an unresolvable `%` in several
 positions (`%#$i`, `% ~> $string`, `%^(a)`, a `%` in a lambda body, `a[%.%.x
