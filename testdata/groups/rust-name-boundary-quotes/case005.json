@@ -1,0 +1,10 @@
+{
+    "expr": "a@$'?a'*/**/0-0",
+    "data": {
+        "a": 6,
+        "a'": 3
+    },
+    "bindings": {},
+    "result": 0,
+    "comment": "The whole boundary rule in one expression: `$'` is the focus variable, `a'` is a field name that also carries a quote, and `/**/` between them is a comment. jsonata 2.2.2 evaluates this to 0 (jsntrs-5xh)."
+}

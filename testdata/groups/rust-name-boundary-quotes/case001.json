@@ -1,0 +1,7 @@
+{
+    "expr": "($\"x\" := 5; $\"x\")",
+    "dataset": null,
+    "bindings": {},
+    "result": 5,
+    "comment": "Same rule for a double quote inside a variable name: `$\"x\"` is a variable named `\"x\"`, not `$` applied to a string. Verified against jsonata 2.2.2 (jsntrs-5xh)."
+}

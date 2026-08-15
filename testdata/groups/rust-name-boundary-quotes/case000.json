@@ -1,0 +1,7 @@
+{
+    "expr": "($' := 5; $')",
+    "dataset": null,
+    "bindings": {},
+    "result": 5,
+    "comment": "A quote is not a name boundary: the lexer runs an identifier to the next stop character, so `$'` is a variable literally named `'`. jsonata 2.2.2 tokenizer: the name scan stops only on `' \\t\\n\\r\\v'` or a single-character key of `operators`, and its ast() for `$'` is {value: \"'\", type: \"variable\"} (jsntrs-5xh)."
+}

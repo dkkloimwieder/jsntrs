@@ -73,6 +73,17 @@ fn token_spans(src: &str, arena: &AstArena) -> Vec<(usize, usize)> {
 /// Extract all block comments from source with their positions, skipping
 /// the token spans from [`token_spans`].
 ///
+/// The scan walks token by token, so every position it tests is a token
+/// *start* — which is what makes the quote test sound. A quote only opens a
+/// string literal there; anywhere else it is ordinary identifier text, since
+/// [`crate::lexer::is_stop_char`] (the lexer's only name boundary) does not
+/// stop a run at `'`, `"` or `` ` ``. Testing the quote without that
+/// distinction read `$'…'` as a quoted name and lifted the `/*` inside it
+/// out as a comment, or — the other way round — swallowed a later real
+/// comment into a "string" that was really the tail of a `$name`
+/// (jsntrs-5xh). Stepping over the whole run instead cannot hide a comment:
+/// `/` and `*` are both stop characters, so no run contains `/*`.
+///
 /// This is a byte-level scan, so char-boundary safety is a precondition of
 /// every slice below. Each delimiter it looks for (`/`, `*`, `"`, `'`) is
 /// ASCII and every byte of a multi-byte UTF-8 character is `>= 0x80`, so a
@@ -119,8 +130,9 @@ fn extract_comments(src: &str, spans: &[(usize, usize)]) -> Vec<Comment> {
                 pos: start,
             });
         } else if bytes[i] == b'"' || bytes[i] == b'\'' {
-            // Belt and braces: a string literal always has a `StringLit`
-            // span, but skipping it here too costs nothing.
+            // A quote *at a token start* opens a string literal. Belt and
+            // braces: such a literal always has a `StringLit` span, but
+            // skipping it here too costs nothing.
             let quote = bytes[i];
             i += 1;
             while i < bytes.len() {
@@ -132,6 +144,13 @@ fn extract_comments(src: &str, spans: &[(usize, usize)]) -> Vec<Comment> {
                     i += 1;
                     break;
                 }
+                i += 1;
+            }
+        } else if !crate::lexer::is_stop_char(bytes[i]) {
+            // A name, `$variable` or number token: opaque up to the next
+            // stop character, quotes and backticks included. Every stop
+            // character is ASCII, so the run also ends on a char boundary.
+            while i < bytes.len() && !crate::lexer::is_stop_char(bytes[i]) {
                 i += 1;
             }
         } else {
@@ -1847,6 +1866,67 @@ mod tests {
                 "not idempotent: {src}"
             );
         }
+    }
+
+    /// A quote is only a string delimiter at a *token start*. Everywhere
+    /// else it is ordinary name text, because [`crate::lexer::is_stop_char`]
+    /// — the lexer's only identifier boundary — does not stop a run at `'`,
+    /// `"` or `` ` ``. Testing the byte without that distinction made the
+    /// scan disagree with the lexer in both directions: it lifted the `/*`
+    /// *inside* `$'//*'` out as a comment, and it read the `'` that ends
+    /// `$0'` as opening a string that then swallowed a real comment. Either
+    /// way the second pass lost the comment (jsntrs-5xh).
+    ///
+    /// jsonata 2.2.2 draws the boundary in the same place (`tokenizer`: the
+    /// name scan stops only on `' \t\n\r\v'` or a single-character key of
+    /// `operators`) and gives each source and its formatted output below the
+    /// same `ast()` — `$'` is `{value: "'", type: "variable"}` in both.
+    #[test]
+    fn a_quote_next_to_a_dollar_token_is_name_text() {
+        for (src, want) in [
+            // The scan used to rip a comment out of the variable name …
+            ("a@$'//*'/**/a", "a@$' / \n/*'/**/\na"),
+            ("a@$\"//*\"/**/a", "a@$\" / \n/*\"/**/\na"),
+            // … and, the other way round, to read the quote that *ends* a
+            // name as opening a string over the real comment.
+            ("a@$'?a'*/**/0-0", "a@$'\n  ?   /**/\n  `a'` * 0 - 0"),
+            ("a@$0'@$0'()?/**/0", "a@$0'()\n  ?   /**/\n  0"),
+        ] {
+            let once = fmt(src);
+            assert_eq!(once, want, "unexpected formatting of {src:?}");
+            assert!(
+                once.contains("/*"),
+                "comment dropped from {src:?}: {once:?}"
+            );
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src:?}"
+            );
+        }
+        // The `/*` after `$'` opens a comment for the lexer too, so an
+        // unclosed one is its S0106 and not a token to step over; and a
+        // quote that really is at a token start still opens a string.
+        assert_eq!(format("$'//****'").unwrap_err().code, "S0106");
+        assert_eq!(format("$'/**/'").unwrap_err().code, "S0101");
+    }
+
+    /// And the relocated comment leaves the meaning alone: the canonical
+    /// spelling evaluates to what the source did (0, as in jsonata 2.2.2).
+    #[test]
+    fn quoted_variable_round_trip_keeps_its_meaning() {
+        use crate::Expression;
+        let data = r#"{"a": 6, "a'": 3}"#;
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate(data)
+                .unwrap_or_else(|e| panic!("eval `{src}`: {e}"))
+                .to_string()
+        };
+        let src = "a@$'?a'*/**/0-0";
+        assert_eq!(eval(src), "0", "unexpected source result");
+        assert_eq!(eval(&fmt(src)), "0", "formatted output changed semantics");
     }
 
     /// Regex literals are opaque to the scan for the same reason, and the

@@ -1,0 +1,7 @@
+{
+    "expr": "($`y` := 7; $`y`)",
+    "dataset": null,
+    "bindings": {},
+    "result": 7,
+    "comment": "A backtick is not a name boundary either — it only quotes a name when it *starts* a token — so `$`y`` is a variable named `` `y` ``. Verified against jsonata 2.2.2 (jsntrs-5xh)."
+}

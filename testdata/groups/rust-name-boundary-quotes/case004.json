@@ -1,0 +1,7 @@
+{
+    "expr": "$'/**/'",
+    "dataset": null,
+    "bindings": {},
+    "code": "S0101",
+    "comment": "The other side of the same rule: `$'` is the variable, `/**/` is a closed comment, and the trailing quote then opens a string literal that never ends. jsonata 2.2.2 rejects this text with S0101 (jsntrs-5xh)."
+}

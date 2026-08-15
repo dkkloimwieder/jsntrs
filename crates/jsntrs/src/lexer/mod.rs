@@ -387,7 +387,20 @@ impl Lexer {
     }
 }
 
-fn is_stop_char(ch: u8) -> bool {
+/// The bytes that end an identifier run — the whitespace the lexer skips
+/// plus every single-character operator.
+///
+/// This is the *only* boundary a name or `$variable` token has: a quote, a
+/// backtick or a digit in the middle of a run is ordinary name text, so
+/// `$'` is a variable called `'` and `` a`b `` is one name. jsonata 2.2.2
+/// spells the same rule as `' \t\n\r\v'.indexOf(ch) > -1 ||
+/// operators.hasOwnProperty(ch)` in its `tokenizer`, over the identical
+/// character set.
+///
+/// `pub(crate)` because the formatter's comment scan has to agree with it
+/// byte for byte: approximating the boundary let a `/*` inside a quoted
+/// name be lifted out as a comment (jsntrs-5xh).
+pub(crate) fn is_stop_char(ch: u8) -> bool {
     matches!(
         ch,
         b' ' | b'\t'
