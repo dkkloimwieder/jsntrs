@@ -1,0 +1,122 @@
+[
+    {
+        "expr": "?",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "jsntrs answered undefined before jsntrs-9un: it parsed a placeholder wherever a value could stand and evaluated it to nothing. docs.jsonata.org/programming, 'Partial function application': 'Functions can partially applied by invoking the function with one or more (but not all) arguments replaced by a question mark ? placeholder.' That is the only role the documentation gives ?, so a ? anywhere else denotes nothing and is not JSONata."
+    },
+    {
+        "expr": "a.?",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "a[?]",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "? & 'z'",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "jsntrs answered \"z\" before jsntrs-9un — the placeholder concatenated as undefined."
+    },
+    {
+        "expr": "[?]",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "{'k': ?}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "$sum(1 + ?)",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "Only a *whole* argument may be left out; a fragment of one may not."
+    },
+    {
+        "expr": "function($x){?}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "1.?",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "Ordering: jsntrs reported its evaluation-time S0213 (literal path step) here. The placeholder check is a compile-time one, so it now precedes anything the evaluator would have said — which is also the order jsonata 2.2.2 reports."
+    },
+    {
+        "expr": "(%).?",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "Ordering: this expression is invalid twice over — a stray ? and an unresolvable %. The placeholder check runs before the parent check, matching the order jsonata 2.2.2 reports (S0211, not S0217)."
+    },
+    {
+        "expr": "($f := $substring(?, 0, 5); $f('Hello'))",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "result": "Hello",
+        "divergence": "Control: the documentation's own partial-application example."
+    },
+    {
+        "expr": "($f := $substring(?, 0, ?); $g := $f(?, 5); $g('Hello'))",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "result": "Hello",
+        "divergence": "Control: 'Partially applied function can be further partially applied' (same page)."
+    },
+    {
+        "expr": "'abc' ~> $substring(?, 0, 2)",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "result": "ab",
+        "divergence": "Control: a placeholder in a chained invocation."
+    },
+    {
+        "expr": "$substring(?, 0, 5)('Hello')",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "result": "Hello"
+    }
+]

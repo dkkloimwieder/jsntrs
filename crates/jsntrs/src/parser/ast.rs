@@ -131,6 +131,9 @@ pub(crate) mod static_flags {
     pub(crate) const INDEX_BINDING: u8 = 1 << 2;
     /// Subtree references the `$index`/`$key` group-by bindings.
     pub(crate) const GROUP_BINDINGS: u8 = 1 << 3;
+    /// Subtree contains a `?` partial-application placeholder
+    /// (full-subtree property, like [`PARENT_REF`]).
+    pub(crate) const PLACEHOLDER: u8 = 1 << 4;
 }
 
 /// Arena-based AST storage. All nodes live in a contiguous Vec.

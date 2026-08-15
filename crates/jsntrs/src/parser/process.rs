@@ -93,10 +93,14 @@ thread_local! {
 pub fn process_ast(arena: &mut AstArena, node: NodeId) -> Result<NodeId, JsonataError> {
     let root = process_node(arena, node)?;
     compute_static_flags(arena, root);
-    if arena
-        .node_static_flags(root)
-        .is_some_and(|f| f & super::ast::static_flags::PARENT_REF != 0)
-    {
+    let root_flags = arena.node_static_flags(root).unwrap_or(0);
+    // The placeholder check runs first: a step that is neither a `%` nor a
+    // legal `?` is rejected for being a `?` before its `%` is resolved, which
+    // is the order the reference reports `(%).?` in (jsntrs-9un).
+    if root_flags & super::ast::static_flags::PLACEHOLDER != 0 {
+        check_placeholder_position(arena, root)?;
+    }
+    if root_flags & super::ast::static_flags::PARENT_REF != 0 {
         check_parent_context(arena, root)?;
     }
     Ok(root)
@@ -738,6 +742,7 @@ fn compute_static_flags(arena: &mut AstArena, root: NodeId) {
         let mut flags = f::COMPUTED;
         match expr {
             Expr::Parent { .. } => flags |= f::PARENT_REF,
+            Expr::Placeholder { .. } => flags |= f::PLACEHOLDER,
             Expr::Variable { name, .. } if name == "index" || name == "key" => {
                 flags |= f::GROUP_BINDINGS;
             }
@@ -767,7 +772,7 @@ fn compute_static_flags(arena: &mut AstArena, root: NodeId) {
         kids.clear();
         push_children(expr, &mut kids);
         for &k in &kids {
-            flags |= child_flag(k) & (f::PARENT_REF | f::GROUP_BINDINGS);
+            flags |= child_flag(k) & (f::PARENT_REF | f::GROUP_BINDINGS | f::PLACEHOLDER);
         }
 
         // Path-local index-binding propagation.
@@ -793,6 +798,73 @@ fn compute_static_flags(arena: &mut AstArena, root: NodeId) {
 
         arena.set_node_static_flags(id, flags);
     }
+}
+
+/// Static rejection of a `?` that is not an argument being left out.
+///
+/// The documentation gives the placeholder exactly one role
+/// (<https://docs.jsonata.org/programming>, "Partial function application"):
+///
+/// > Functions can partially applied by invoking the function with one or
+/// > more (but not all) arguments replaced by a question mark `?`
+/// > placeholder. The result of this is another function whose arity (number
+/// > of parameters) is reduced by the number of arguments supplied to the
+/// > original function.
+///
+/// A `?` anywhere else denotes nothing at all, so it is not JSONata. jsntrs
+/// used to parse one wherever a value could stand and evaluate it to
+/// undefined, which made `?`, `a.?` and `a[?]` silently answer nothing and
+/// `? & 'z'` answer `"z"` (jsntrs-9un). S0211 is the code jsntrs already
+/// gives every other token that cannot open an expression.
+fn check_placeholder_position(arena: &AstArena, root: NodeId) -> Result<(), JsonataError> {
+    // (node, is this node an argument slot of a function invocation?)
+    let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
+    let mut kids: Vec<NodeId> = Vec::new();
+    while let Some((id, argument)) = stack.pop() {
+        if id.is_empty() {
+            continue;
+        }
+        let Some(expr) = arena.try_get(id) else {
+            continue;
+        };
+        if arena
+            .node_static_flags(id)
+            .is_some_and(|f| f & super::ast::static_flags::PLACEHOLDER == 0)
+        {
+            continue;
+        }
+        match expr {
+            Expr::Placeholder { pos } if !argument => {
+                return Err(JsonataError::new(
+                    "S0211",
+                    "the ? placeholder can only replace an argument of a function invocation",
+                )
+                .with_position(*pos)
+                .with_token("?"));
+            }
+            // Only a whole argument may be left out; the callee cannot be,
+            // and neither can a fragment of an argument (`$f(1 + ?)`).
+            Expr::Function {
+                procedure,
+                arguments,
+                ..
+            }
+            | Expr::Partial {
+                procedure,
+                arguments,
+                ..
+            } => {
+                stack.push((*procedure, false));
+                stack.extend(arguments.iter().map(|&a| (a, true)));
+            }
+            other => {
+                kids.clear();
+                push_children(other, &mut kids);
+                stack.extend(kids.iter().map(|&k| (k, false)));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Static rejection of a parent operator (`%`) that navigates through nothing.

@@ -2628,20 +2628,26 @@ mod tests {
     }
 
     /// A placeholder is a complete operand, so the token after it is lexed
-    /// in infix context: `-?{}/0` formats to `-?{} / 0`, whose `/` is a
-    /// division and not the start of a regex (jsntrs-ecq.9).
+    /// in infix context: the `/` in `?/2` is a division and not the start of
+    /// a regex (jsntrs-ecq.9).
+    ///
+    /// Since jsntrs-9un a `?` may only stand for a whole argument, so these
+    /// spellings are rejected — but with **S0211**, not the S0302
+    /// "unterminated regex" a prefix-context `/` would have produced, which
+    /// is exactly the lexer property this guards.
     #[test]
     fn placeholder_is_an_operand_for_the_lexer() {
-        assert_eq!(fmt("-?{}/0"), "-?{} / 0");
-        assert_eq!(fmt("o#$>?#$i/x"), "o#$ > ? / x");
         for src in ["-?{}/0", "o#$>?#$i/x", "?/2", "$f(?/2)"] {
-            let once = fmt(src);
-            assert_eq!(
-                format(&once).expect("re-parse"),
-                once,
-                "not idempotent: {src}"
-            );
+            let err = format(src).expect_err("a stray ? is not an expression");
+            assert_eq!(err.code, "S0211", "{src}");
         }
+        // The one position the documentation gives `?` still round-trips.
+        let once = fmt("$substring(?,0,5)");
+        assert_eq!(
+            format(&once).expect("re-parse"),
+            once,
+            "not idempotent: {once}"
+        );
     }
 
     // ── Trailing whitespace ──────────────────────────────────

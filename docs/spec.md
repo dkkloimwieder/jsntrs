@@ -1052,6 +1052,49 @@ wins. Making S0213 static is jsntrs-9un; the language documentation neither
 lists these codes nor forbids a literal as a step, so the ordering is not
 settled by anything above jsonata-js.
 
+### 4.7.10 The `?` placeholder is only an omitted argument (jsntrs-9un)
+
+> Functions can partially applied by invoking the function with one or more
+> (but not all) arguments replaced by a question mark `?` placeholder. The
+> result of this is another function whose arity (number of parameters) is
+> reduced by the number of arguments supplied to the original function.
+>
+> — <https://docs.jsonata.org/programming>, "Partial function application"
+
+That is the only role the documentation gives `?`. jsntrs parsed one wherever
+a value could stand and evaluated it to undefined, so `?`, `a.?`, `a[?]` and
+`[?]` all answered silently and `? & 'z'` answered `"z"`.
+`check_placeholder_position` in `parser/process.rs` now rejects, at compile
+time, any `?` that is not a whole argument of a function invocation — a
+fragment of an argument (`$f(1 + ?)`) is not one either. The code is S0211,
+which is what jsntrs already gives every other token that cannot open an
+expression, and what the reference gives here.
+
+It runs *before* the parent check, so `(%).?` — invalid twice over — reports
+the `?`, matching the reference. `1.?` likewise reports S0211 rather than the
+evaluation-time S0213 it used to reach.
+
+**Open, and left alone.** The rest of jsntrs-9un has no support above
+jsonata-js and is not implemented:
+
+- **S0213, the literal path step.** The documentation says only that the RHS
+  of `.` "is evaluated to produce a value or array of values (or nothing)"
+  (<https://docs.jsonata.org/path-operators>, "`.` (Map)") — it does not
+  forbid a literal there, and there is no error-code page to appeal to.
+  jsonata-js rejects `a.b.true`, `a.b.null`, `a.1` and `1.2.3` at parse time;
+  jsntrs answers `true` and `null` for the first two and raises an
+  evaluation-time S0213 for the numeric ones, which is not self-consistent
+  either. Deciding it needs a rule the documentation does not state.
+- **S0209 / S0210, predicates and groupings on a step.** The one relevant
+  sentence is "The reduce operator can be used as the last step in a path
+  expression to group and aggregate its input sequence into a single object"
+  (<https://docs.jsonata.org/path-operators>, "`{ ... }` (Reduce)"). It says
+  nothing about a predicate *after* a grouping, which jsntrs rejects with
+  S0209 (`a{'k':b}[c]`) and the reference accepts; and while it does imply
+  that a grouping on a non-final step is wrong (`a{'k':b}.c`), neither engine
+  errors there — they disagree on the *value* — and the sentence names no
+  code.
+
 ---
 
 ## 4.8 Sort (`eval_sort.go`)
