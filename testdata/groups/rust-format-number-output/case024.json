@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"00,0.0,0\")",
     "dataset": null,
     "bindings": {},
-    "result": "1,2,3,4.5,,7"
+    "result": "1,2,3,4.5,7",
+    "divergence": "jsonata-js getGroupingPositions walks the integer part when handed the fraction, so the integer part's separator is counted a second time against the fraction and a duplicate position is emitted (\"1,2,3,4.5,,7\"); F&O 4.7.4 records one position per separator in the fractional part (jsntrs-0kg)"
 }

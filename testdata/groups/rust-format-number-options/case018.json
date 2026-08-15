@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"0ab\", {\"decimal-separator\": \"ab\"})",
     "dataset": null,
     "bindings": {},
-    "result": "7abab"
+    "result": "7ab",
+    "divergence": "jsonata-js only removes the separator when its first character is the last character of the string, so a two-character separator survives (\"7abab\"); F&O 4.7.5 removes the decimal-separator whenever no digit follows it (jsntrs-0kg)"
 }

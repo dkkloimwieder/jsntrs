@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"0.0,0,0\")",
     "dataset": null,
     "bindings": {},
-    "result": "1234.5,68"
+    "result": "1234.5,6,8",
+    "divergence": "jsonata-js getGroupingPositions walks the integer part when handed the fraction, so it finds only the fraction's first position (\"1234.5,68\"); F&O 4.7.4 records one position per grouping separator in the fractional part, as the W3C suite pins in QT3 numberformat157/158 (jsntrs-0kg)"
 }

@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"#,###,#\")",
     "dataset": null,
     "bindings": {},
-    "result": ",123,5"
+    "result": "123,5",
+    "divergence": "jsonata-js wraps the out-of-range insertion point round with String.prototype.slice (\",123,5\"); F&O 4.7.5 places nothing for a grouping position with no digit that far from the decimal separator (jsntrs-0kg)"
 }

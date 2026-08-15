@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234, \"#,##0\", {\"decimal-separator\": \"ab\"})",
     "dataset": null,
     "bindings": {},
-    "result": "1,234a"
+    "result": "1,234",
+    "divergence": "jsonata-js takes substring(0, length-1) for F&O 4.7.5 bullet 12 and so leaves one character of a multi-character decimal-separator behind (\"1,234a\"); the spec removes the decimal-separator itself (jsntrs-0kg)"
 }

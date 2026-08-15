@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"#e0\")",
     "dataset": null,
     "bindings": {},
-    "result": "0.e4"
+    "result": "0.1e4",
+    "divergence": "jsonata-js drops the last character for F&O 4.7.5 bullet 12, eating the fractional digit the 4.7.4 exponent adjustment produced (\"0.e4\"); the spec removes the decimal-separator character, and the W3C test suite pins the shape (QT3 numberformat231: format-number(0.2, '#e0') = \"0.2e0\") (jsntrs-0kg)"
 }

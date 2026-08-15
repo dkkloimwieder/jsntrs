@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"#,###,#\")",
     "dataset": null,
     "bindings": {},
-    "result": ",,7"
+    "result": "7",
+    "divergence": "jsonata-js inserts irregular grouping positions with String.prototype.slice, whose negative index wraps round to the end of the string (\",,7\"); F&O 4.7.5 inserts a separator only \"if there is such a digit\", as the W3C suite pins in QT3 numberformat320 (format-number(897, ',##0') = \"897\") (jsntrs-0kg)"
 }

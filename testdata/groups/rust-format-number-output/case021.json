@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"#0.0,\")",
     "dataset": null,
     "bindings": {},
-    "result": "1234.6,"
+    "result": "1234.6",
+    "divergence": "F&O 4.7.5 places a fractional grouping separator immediately before the digit that has N digits between it and the decimal separator, \"if there is such a digit\" — a one-digit fraction has no digit at position 1. jsonata-js clamps the slice to the end of the string and answers \"1234.6,\" (jsntrs-0kg)"
 }

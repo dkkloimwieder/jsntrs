@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(897, \",##0\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "897",
+    "authority": "XPath 3.1 F&O 4.7.5; expectation from the W3C QT3 test suite, fn/format-number.xml numberformat320"
+}

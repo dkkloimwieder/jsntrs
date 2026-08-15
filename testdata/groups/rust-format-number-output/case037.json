@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(0.2, \"#e0\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "0.2e0",
+    "authority": "XPath 3.1 F&O 4.7.5; expectation from the W3C QT3 test suite, fn/format-number.xml numberformat231"
+}

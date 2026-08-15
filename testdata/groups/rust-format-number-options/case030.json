@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234, \"0000ab\", {\"grouping-separator\": \"ab\"})",
     "dataset": null,
     "bindings": {},
-    "result": "1234.aab"
+    "result": "1234ab",
+    "divergence": "the suffix \"ab\" is this picture's fractional part and records a grouping position; F&O 4.7.5 places a fractional grouping separator only \"if there is such a digit\" and this fraction has none, where jsonata-js slices at the end of the string and answers \"1234.aab\" (jsntrs-0kg)"
 }

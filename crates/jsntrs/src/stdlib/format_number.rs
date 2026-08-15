@@ -295,11 +295,6 @@ pub(crate) struct SubPicture {
     min_exp: usize,
     /// 0=none, 1=percent, 2=per-mille
     scale: u8,
-    /// Whether the *sub-picture* carries a decimal separator anywhere.
-    /// Bullet 12 tests the picture, not the mantissa, which is why `"#e0"`
-    /// (no separator at all) drops the one bullet 7 appended and formats
-    /// `1234.5678` as "0.e4".
-    has_decimal: bool,
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -578,36 +573,34 @@ fn count_places(part: &[char], fc: &FmtChars) -> usize {
         .count()
 }
 
-/// Grouping positions for one part, counted in digit places.
+/// Grouping positions for one part, counted in digit places (F&O 4.7.4).
 ///
-/// `to_left` counts the places to the left of each separator (the fractional
-/// part rule); otherwise the places from the separator rightwards.
+/// `to_left` counts the places to the left of each separator — the
+/// fractional-part rule, "the total number of ·optional digit character· and
+/// ·decimal digit family· characters that appear within the fractional part of
+/// the sub-picture and to the left of the grouping-separator character";
+/// otherwise the places from the separator rightwards, which is the
+/// integer-part rule.
 ///
-/// The scan advances through `int_part` whichever part it was handed, because
-/// jsonata-js `getGroupingPositions` closes over `parts.integerPart` for the
-/// "next separator" search. So the fractional scan finds only its own *first*
-/// separator and then walks the integer part's separator indices, counting
-/// each against the fractional part (clamped, `String.prototype.substring`
-/// style). Replicated deliberately: it is the whole of the reference's
-/// fractional grouping behaviour, and `"0.0,0,0"` formats 1234.5678 as
-/// "1234.5,68" there — one separator, not two (jsonata 2.2.2, jsntrs-tx4).
-fn grouping_positions(
-    part: &[char],
-    int_part: &[char],
-    to_left: bool,
-    fc: &FmtChars,
-) -> Vec<usize> {
+/// Each part is scanned for its *own* separators. jsonata-js
+/// `getGroupingPositions` closes over `parts.integerPart` for the "next
+/// separator" search, so its fractional scan finds only the fraction's first
+/// separator and then walks the integer part's separator indices; `"0.0,0,0"`
+/// formats 1234.5678 as "1234.5,68" there, one separator rather than two. The
+/// spec asks for one position per separator in the part, and the W3C test
+/// suite pins it: `format-number(12345.6789012345, '#.#,##,#')` is
+/// "12345.6,78,9" (QT3 numberformat157) — jsntrs-0kg.
+fn grouping_positions(part: &[char], to_left: bool, fc: &FmtChars) -> Vec<usize> {
     let mut positions = Vec::new();
     let mut at = find_sub(part, &fc.grouping_sep);
     while let Some(i) = at {
-        let cut = i.min(part.len());
-        let counted = if to_left { &part[..cut] } else { &part[cut..] };
+        let counted = if to_left { &part[..i] } else { &part[i..] };
         positions.push(count_places(counted, fc));
         // An empty separator matches at every position including the end, so
         // the reference loops here forever; it never arrives, because such a
         // picture is a D3089 before analysis runs. Requiring progress keeps
         // this total whatever validation lets through.
-        at = find_from(int_part, &fc.grouping_sep, i + 1).filter(|&next| next > i);
+        at = find_from(part, &fc.grouping_sep, i + 1).filter(|&next| next > i);
     }
     positions
 }
@@ -652,10 +645,9 @@ fn analyse(
     sp: &mut SubPicture,
 ) {
     sp.scale = scaling_factor(picture, fc);
-    sp.has_decimal = find_sub(picture, &fc.decimal_sep).is_some();
-    sp.int_grp_pos = grouping_positions(integer, integer, false, fc);
+    sp.int_grp_pos = grouping_positions(integer, false, fc);
     sp.regular_grouping = regular_grouping(&sp.int_grp_pos);
-    sp.frac_grp_pos = grouping_positions(fraction, integer, true, fc);
+    sp.frac_grp_pos = grouping_positions(fraction, true, fc);
 
     sp.min_int = count_mandatory(integer, fc);
     sp.scaling_factor = sp.min_int;
@@ -749,18 +741,6 @@ fn index_of(hay: &[char], needle: &str) -> isize {
     find_sub(hay, needle).map_or(-1, as_isize)
 }
 
-/// The insertion point `String.prototype.slice` splits at: a negative index
-/// counts back from the end, and both directions clamp into range. Bullets 10
-/// and 11 compute offsets that can fall outside the string — a grouping
-/// separator further left than the number is long gives a negative one, and
-/// jsonata-js then wraps it around rather than skipping the separator, so
-/// `$formatNumber(7, "#,###,#")` is ",,7".
-fn js_split_point(at: isize, len: usize) -> usize {
-    let len_i = as_isize(len);
-    let resolved = if at < 0 { len_i + at } else { at };
-    usize::try_from(resolved.clamp(0, len_i)).unwrap_or(0)
-}
-
 /// Insert `s` at `at`, as the bullets' `slice … join` does.
 fn splice_in(sv: &mut Vec<char>, at: usize, s: &str) {
     sv.splice(at..at, s.chars());
@@ -813,23 +793,43 @@ fn mantissa_and_exponent(adjusted: f64, sp: &SubPicture) -> (f64, Option<i32>) {
 }
 
 /// Bullet 10: the integer-part grouping separators.
+///
+/// F&O 4.7.5: "For each integer N in the integer-part-grouping-positions list,
+/// a grouping-separator character is inserted into the string immediately
+/// after that digit that appears in the integer part of the number and has N
+/// digits between it and the decimal-separator character, **if there is such a
+/// digit**." A position at or past the number's digit count therefore places
+/// nothing. jsonata-js reaches the same offsets through
+/// `String.prototype.slice`, which wraps a negative index round to the end
+/// instead, so `$formatNumber(7, "#,###,#")` is ",,7" there; the W3C test
+/// suite pins the skip (`format-number(897, ',##0')` is "897", QT3
+/// numberformat320) — jsntrs-0kg.
 fn group_integer_part(sv: &mut Vec<char>, sp: &SubPicture, fc: &FmtChars, decimal_pos: isize) {
     if sp.regular_grouping > 0 {
         let interval = as_isize(sp.regular_grouping);
-        // `Math.floor((decimalPos - 1) / regularGrouping)`; a missing decimal
-        // separator leaves this negative and the loop simply does not run.
+        // The extrapolated multiples of the interval that a digit exists for;
+        // a missing decimal separator leaves this negative and the loop simply
+        // does not run.
         let groups = (decimal_pos - 1).div_euclid(interval);
         for group in 1..=groups {
-            let at = js_split_point(decimal_pos - group * interval, sv.len());
+            // `group * interval <= decimal_pos - 1`, so this indexes a digit
+            // already written and never needs clamping.
+            let at = usize::try_from(decimal_pos - group * interval).unwrap_or(0);
             splice_in(sv, at, &fc.grouping_sep);
         }
         return;
     }
-    // Irregular positions are applied literally, left to right, each one
-    // shifting the decimal separator along by the separator just inserted.
-    for (inserted, &pos) in (decimal_pos..).zip(sp.int_grp_pos.iter()) {
-        let at = js_split_point(inserted - as_isize(pos), sv.len());
+    // Irregular positions are applied literally, left to right, each insertion
+    // shifting the ones after it along by the separator just written.
+    let sep_len = as_isize(fc.grouping_sep.chars().count());
+    let mut inserted = 0;
+    for &pos in &sp.int_grp_pos {
+        if as_isize(pos) >= decimal_pos {
+            continue; // no digit that far from the decimal separator
+        }
+        let at = usize::try_from(decimal_pos + inserted - as_isize(pos)).unwrap_or(0);
         splice_in(sv, at, &fc.grouping_sep);
+        inserted += sep_len;
     }
 }
 
@@ -881,20 +881,44 @@ fn format_sub_picture(adjusted: f64, sp: &SubPicture, fc: &FmtChars) -> String {
     let decimal_pos = index_of(&sv, &fc.decimal_sep);
     group_integer_part(&mut sv, sp, fc, decimal_pos);
 
-    // Bullet 11. The decimal position is *not* re-read between separators, so
-    // each offset is measured against the string as it was — which is exactly
-    // the shift the previous insertion introduced.
+    // Bullet 11, the mirror of bullet 10: "a grouping-separator character is
+    // inserted into the string immediately *before* that digit that appears in
+    // the fractional part of the number and has N digits between it and the
+    // decimal-separator character, if there is such a digit" (F&O 4.7.5). Each
+    // insertion shifts the ones after it along, and a position at or past the
+    // fraction's digit count places nothing.
+    let sep_len = fc.decimal_sep.chars().count();
     let decimal_pos = index_of(&sv, &fc.decimal_sep);
-    for &pos in &sp.frac_grp_pos {
-        let at = js_split_point(as_isize(pos) + decimal_pos + 1, sv.len());
-        splice_in(&mut sv, at, &fc.grouping_sep);
+    if let Ok(dp) = usize::try_from(decimal_pos) {
+        let frac_start = dp + sep_len;
+        let frac_digits = sv.len().saturating_sub(frac_start);
+        let grp_len = fc.grouping_sep.chars().count();
+        let mut inserted = 0;
+        for &pos in &sp.frac_grp_pos {
+            if pos >= frac_digits {
+                continue; // no digit that far from the decimal separator
+            }
+            splice_in(&mut sv, frac_start + pos + inserted, &fc.grouping_sep);
+            inserted += grp_len;
+        }
     }
 
-    // Bullet 12: drop one character when the picture never asked for a
-    // decimal separator, or when nothing followed the one it has. It is one
-    // character, not one separator: `substring(0, length - 1)`.
-    if !sp.has_decimal || index_of(&sv, &fc.decimal_sep) == as_isize(sv.len()) - 1 {
-        sv.pop();
+    // Bullet 12: "If there is no decimal-separator character in the
+    // sub-picture, or if there are no digits to the right of the
+    // decimal-separator character in the string, then the decimal-separator
+    // character is removed from the string (it will be the rightmost character
+    // in the string)" (F&O 4.7.5). What goes is the separator, and only when
+    // nothing follows it — jsonata-js drops the last character instead
+    // (`substring(0, length - 1)`), which eats a *digit* when a picture with no
+    // separator of its own gained a fractional digit from the 4.7.4 exponent
+    // adjustment: `$formatNumber(1234.5678, "#e0")` is "0.e4" there and
+    // "0.1e4" here, the shape the W3C test suite pins
+    // (`format-number(0.2, '#e0')` is "0.2e0", QT3 numberformat231) —
+    // jsntrs-0kg.
+    if let Ok(dp) = usize::try_from(index_of(&sv, &fc.decimal_sep))
+        && dp + sep_len == sv.len()
+    {
+        sv.drain(dp..);
     }
 
     // Bullet 13.
@@ -1155,11 +1179,16 @@ mod tests {
         let ab = r#"{"decimal-separator": "ab"}"#;
         assert_eq!(fmt_opts(7.0, "0.0", ab), Err("D3086"));
         assert_eq!(fmt_opts(7.0, "0ab0", ab), Err("D3086"));
-        // The value is appended by bullet 7 whether the picture mentions it
-        // or not, and bullet 12 then takes one character back off.
-        assert_eq!(fmt_opts(7.0, "00", ab), Ok("07a".to_string()));
-        assert_eq!(fmt_opts(7.0, "0ab", ab), Ok("7abab".to_string()));
-        assert_eq!(fmt_opts(7.5, "0", ab), Ok("8a".to_string()));
+        // The value is appended by bullet 7 whether the picture mentions it or
+        // not, and bullet 12 removes it again when no digit follows it. The
+        // multi-character values here are outside XPath, which gives every
+        // decimal-format property a single character; what the answers pin is
+        // that bullet 12 removes *the separator* and not one character of it,
+        // which is why jsonata-js keeps a stray "a" ("07a", "8a") and leaves
+        // "7abab" standing (jsntrs-0kg).
+        assert_eq!(fmt_opts(7.0, "00", ab), Ok("07".to_string()));
+        assert_eq!(fmt_opts(7.0, "0ab", ab), Ok("7ab".to_string()));
+        assert_eq!(fmt_opts(7.5, "0", ab), Ok("8".to_string()));
         // An empty value occurs everywhere, so the picture holds more than
         // one instance of it.
         assert_eq!(
@@ -1177,7 +1206,11 @@ mod tests {
         assert_eq!(fmt_opts(1234.0, "#,##0", gs), Err("D3086"));
         assert_eq!(fmt_opts(1234.0, "#ab##0", gs), Err("D3086"));
         assert_eq!(fmt_opts(1234.0, "0000", gs), Ok("1234".to_string()));
-        assert_eq!(fmt_opts(1234.0, "0000ab", gs), Ok("1234.aab".to_string()));
+        // The suffix "ab" is the picture's fractional part, so it records a
+        // grouping position — which places nothing, the fraction having no
+        // digits at all. jsonata-js slices at the end of the string instead
+        // and answers "1234.aab" (jsntrs-0kg).
+        assert_eq!(fmt_opts(1234.0, "0000ab", gs), Ok("1234ab".to_string()));
         // Two adjacent separators are searched as the doubled string, which
         // an empty value always matches.
         assert_eq!(
@@ -1608,15 +1641,60 @@ mod tests {
         assert_eq!(fmt(123_456.0, "#,##,#"), "123,45,6");
     }
 
-    /// Irregular grouping positions are applied literally and wrap around the
-    /// ends of the string, `String.prototype.slice` style: "#,###,#" asks for
-    /// separators 4 and 1 digit places from the right, and a number with
-    /// fewer digits than that gets them anyway. Expected values verified
-    /// against jsonata 2.2.2 (jsntrs-tx4).
+    /// Irregular grouping positions are applied literally, and a position with
+    /// no digit that far from the decimal separator places nothing: F&O 4.7.5
+    /// inserts a separator "immediately after that digit that appears in the
+    /// integer part of the number and has N digits between it and the
+    /// decimal-separator character, *if there is such a digit*". "#,###,#"
+    /// asks for separators 4 and 1 digit places from the right, so a
+    /// four-digit number takes only the second. jsonata-js reaches the
+    /// insertion point with `String.prototype.slice`, whose negative index
+    /// wraps round to the end of the string, and answers ",,7" and ",123,5"
+    /// (jsntrs-0kg); the W3C test suite pins the skip in QT3 numberformat320,
+    /// `format-number(897, ',##0')` = "897".
     #[test]
-    fn grouping_positions_past_the_number_wrap_around() {
-        assert_eq!(fmt(7.0, "#,###,#"), ",,7");
-        assert_eq!(fmt(1234.5678, "#,###,#"), ",123,5");
+    fn grouping_positions_past_the_number_are_skipped() {
+        assert_eq!(fmt(7.0, "#,###,#"), "7");
+        assert_eq!(fmt(1234.5678, "#,###,#"), "123,5");
         assert_eq!(fmt(1234.5678, "9,9,99.99"), "1,2,34.57");
+        assert_eq!(fmt(897.0, ",##0"), "897");
+        assert_eq!(fmt(2001.0, ",##0"), "2,001");
+    }
+
+    /// The fractional part gets one separator per grouping character in it,
+    /// counted from the decimal separator outwards, and the same "if there is
+    /// such a digit" guard applies. Expected values from the W3C test suite:
+    /// QT3 numberformat157 `format-number(12345.6789012345, '#.#,##,#')` =
+    /// "12345.6,78,9" and numberformat158 `'#.##,##,##'` = "12345.67,89,01".
+    /// jsonata-js walks the *integer* part looking for the fraction's later
+    /// separators, so it emits at most the fraction's first position and
+    /// answers "12345.6,789" (jsntrs-0kg).
+    #[test]
+    fn fractional_grouping_places_one_separator_per_position() {
+        assert_eq!(fmt(12_345.678_901_234_5, "#.#,##,#"), "12345.6,78,9");
+        assert_eq!(fmt(12_345.678_901_234_5, "#.##,##,##"), "12345.67,89,01");
+        assert_eq!(fmt(1234.5678, "0.0,0,0"), "1234.5,6,8");
+        // No digit two places into a one-digit fraction: nothing is placed.
+        assert_eq!(fmt(1234.5678, "#0.0,"), "1234.6");
+    }
+
+    /// The 4.7.4 exponent adjustment gives a picture with no decimal separator
+    /// of its own a fractional digit, and bullet 12 then removes the separator
+    /// rather than the digit: "the decimal-separator character is removed from
+    /// the string". jsonata-js takes `substring(0, length - 1)` and answers
+    /// "0.e4". Expected values from the W3C test suite, QT3 numberformat231
+    /// (`format-number(0.2, '#e0')` = "0.2e0") and numberformat232
+    /// (`format-number(1.2, '#e0')` = "0.1e1") — jsntrs-0kg.
+    #[test]
+    fn a_picture_without_a_decimal_separator_keeps_its_exponent_digit() {
+        assert_eq!(fmt(0.2, "#e0"), "0.2e0");
+        assert_eq!(fmt(1.2, "#e0"), "0.1e1");
+        assert_eq!(fmt(1234.5678, "#e0"), "0.1e4");
+        assert_eq!(fmt(1.3, "#e00"), "0.1e01");
+        // The 4.7.4 note's own example, which has a separator and keeps it.
+        assert_eq!(fmt(0.123, "#.e9"), "0.1e0");
+        // With no fractional digit the separator still goes.
+        assert_eq!(fmt(99.5, "#."), "100");
+        assert_eq!(fmt(12_345.678, "999e9"), "123e2");
     }
 }

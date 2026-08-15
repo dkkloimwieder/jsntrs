@@ -1528,28 +1528,45 @@ jsntrs-p0v.18 for the audit.
 - **Picture syntax**: XPath 3.1 `format-number` compatible.
 - **Sub-pictures**: Separated by pattern-separator (default `;`). Max 2 sub-pictures (**D3080**).
 - **Error codes**: D3006, T0410, D3080-D3093 (picture validation errors).
-- **Output stage (jsntrs-tx4, jsonata 2.2.2-verified 2026-08-15)**: the
-  analyse/format stage is a bullet-for-bullet port of jsonata-js
-  `formatNumber` (F&O 4.7.4 `analyse` and the numbered bullets that follow),
-  not of the XPath prose. Four consequences are easy to mistake for bugs:
-  - The decimal separator is always written and then removed again when the
-    picture has none, or when nothing follows it (bullet 12): `$formatNumber(99.5,
-    "#.")` is `"100"`, and `$formatNumber(1234.5678, "#e0")` is `"0.e4"` —
-    that picture has no separator at all, so the bullet drops the *padded
-    fraction digit* rather than the separator.
-  - Minimum sizes come from the 4.7.4 adjustments, not from "at least one
-    integer digit": `".0"` keeps its empty integer part (`$formatNumber(0.000012345,
-    ".0")` is `".0"`), and `minimumFactionalPartSize` becomes 1 when both
-    minima are 0 (`$formatNumber(7, ".###")` is `"7.0"`).
-  - Grouping positions are applied literally when they are irregular, through
-    `String.prototype.slice`, so a position past the number wraps round:
-    `$formatNumber(7, "#,###,#")` is `",,7"`. A separator with no digit places
-    to its right lands immediately before the decimal separator rather than
-    being dropped.
-  - `getGroupingPositions` advances through the *integer* part whichever part
-    it was handed, so a fractional part gets at most its own first grouping
-    position: `$formatNumber(1234.5678, "0.0,0,0")` is `"1234.5,68"`, one
-    separator rather than two. Replicated deliberately.
+- **Output stage (jsntrs-0kg, re-derived from XPath 3.1 F&O 2026-08-15)**: the
+  analyse/format stage follows the **F&O 4.7.4/4.7.5 prose**, not jsonata-js's
+  `formatNumber`. It was a bullet-for-bullet port of the reference
+  (jsntrs-tx4); four of its consequences were re-checked against the prose and
+  the W3C QT3 test suite (`fn/format-number.xml`), and three of the four turned
+  out to be JavaScript artifacts and were dropped:
+  - **Kept (4.7.4).** Minimum sizes come from the 4.7.4 adjustments, not from
+    "at least one integer digit": `".0"` keeps its empty integer part
+    (`$formatNumber(0.000012345, ".0")` is `".0"`), and *"If (after making the
+    above adjustments) the minimum-integer-part-size and the
+    minimum-fractional-part-size are both zero, then the
+    minimum-fractional-part-size is set to 1"* — so `$formatNumber(7, ".###")`
+    is `"7.0"`. Genuine spec text, not a quirk.
+  - **Dropped: the trailing decimal.** 4.7.5 says *"if there are no digits to
+    the right of the decimal-separator character in the string, then the
+    decimal-separator character is removed from the string"*. jsonata-js takes
+    `substring(0, length - 1)`, which removes a *digit* when the 4.7.4 exponent
+    adjustment gave a separator-less picture a fractional digit:
+    `$formatNumber(1234.5678, "#e0")` is `"0.e4"` there and **`"0.1e4"`** here
+    (QT3 numberformat231: `format-number(0.2, '#e0')` is `"0.2e0"`). What the
+    bullet removes is the separator, and only when nothing follows it — so a
+    multi-character `decimal-separator` is removed whole, where jsonata-js
+    leaves one character of it behind.
+  - **Dropped: grouping positions past the number.** 4.7.5 inserts a separator
+    "immediately after that digit … that has N digits between it and the
+    decimal-separator character, *if there is such a digit*". jsonata-js
+    computes the insertion point with `String.prototype.slice`, whose negative
+    index wraps round to the end of the string: `$formatNumber(7, "#,###,#")`
+    is `",,7"` there and **`"7"`** here (QT3 numberformat320:
+    `format-number(897, ',##0')` is `"897"`). A position of 0 still places a
+    separator immediately before the decimal separator — that digit exists.
+  - **Dropped: the fractional grouping walk.** 4.7.4 records one position per
+    grouping separator *in the fractional part*; jsonata-js
+    `getGroupingPositions` closes over the integer part for its "next
+    separator" search, so the fraction gets at most its own first position and
+    can get a duplicate of the integer part's. `$formatNumber(1234.5678,
+    "0.0,0,0")` is `"1234.5,68"` there and **`"1234.5,6,8"`** here (QT3
+    numberformat157: `format-number(12345.6789012345, '#.#,##,#')` is
+    `"12345.6,78,9"`).
 - **Rust port deviation (jsntrs-p0v.23)**: jsonata-js indexes the *active
   part* with the exponent separator's position in the whole sub-picture, so
   any picture carrying both a prefix and an exponent splits at the wrong
