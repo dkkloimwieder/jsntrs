@@ -58,6 +58,17 @@
 //!   re-read as a shorter path — with a different layout
 //!   (`0.-0{0:0}.0.a`) — jsntrs-qhh.
 //!
+//! And one that the *padding* of that joining `.` had missed all along:
+//!
+//! - the `.` was padded only when the following step was a `NumberLit`
+//!   node, where what welds it into the preceding number is the step's
+//!   printed text — `Binary{Subscript}` prints `2[0]` — so `1e2.2@$w.2[0]`
+//!   came back a step shorter as `1e2 . 2.2[0]` and the second pass printed
+//!   `1e2.2.2[0]` — jsntrs-y3t. Most of that family is *idempotent* while
+//!   wrong (`0 . 2[0]` → `0.2[0]`, which is stable, and answers `0.2` where
+//!   the path is an S0213), so this target sees only the corner of it; the
+//!   fix is pinned by unit tests that compare results and step counts.
+//!
 //! `known_unstable_gap` is therefore empty, and both assertions are
 //! unconditional. A newly found gap is a bug in `format`, not in this
 //! target: fix the formatter, or, if the fix has to wait, add a fence here

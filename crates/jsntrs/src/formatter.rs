@@ -589,9 +589,11 @@ impl<'a> Formatter<'a> {
     /// `{` — so writing the group directly after that step both restores the
     /// terminator and keeps the group on the same node (jsntrs-ecq.9).
     ///
-    /// The joining `.` itself is padded where it would otherwise be eaten by
-    /// the step in front of it (see [`Formatter::dot_needs_padding`]); on the
-    /// broken-line layout the newline and indent already separate them.
+    /// The joining `.` itself is padded where the steps around it would
+    /// otherwise weld it into a number (see [`dot_needs_padding`]) — decided
+    /// *after* the following step is written, because the deciding fact is
+    /// its printed text; on the broken-line layout the newline and indent
+    /// already separate them.
     fn emit_path(&mut self, steps: &[NodeId], group: Option<&GroupExpr>, depth: usize) {
         let anchor = self.group_anchor(steps, group);
         let emit_step = |f: &mut Self, i: usize, step: NodeId, depth: usize| {
@@ -610,16 +612,24 @@ impl<'a> Formatter<'a> {
             }
         } else {
             for (i, &step) in steps.iter().enumerate() {
-                if i > 0 {
-                    // The group written after the previous step (if any) ends
-                    // in `}`, which no `.` can be absorbed into.
-                    if anchor != Some(i - 1) && dot_needs_padding(self.arena, steps[i - 1], step) {
-                        self.out.push_str(" . ");
-                    } else {
-                        self.out.push('.');
-                    }
-                }
+                // Write the joining `.` bare, then widen it once the step's
+                // own text is there to be read: what welds to the `.` is the
+                // *printed* text of the following step, which is not a
+                // property of its node kind (jsntrs-y3t).
+                let dot = i.checked_sub(1).map(|prev| {
+                    let at = self.out.len();
+                    self.out.push('.');
+                    (at, prev)
+                });
                 emit_step(self, i, step, depth);
+                // The group written after the previous step (if any) ends in
+                // `}`, which no `.` can be absorbed into.
+                if let Some((at, prev)) = dot
+                    && anchor != Some(prev)
+                    && dot_needs_padding(self.arena, steps[prev], &self.out[at + 1..])
+                {
+                    self.out.replace_range(at..=at, " . ");
+                }
             }
         }
         if anchor.is_none() {
@@ -962,8 +972,8 @@ impl<'a> Formatter<'a> {
     }
 }
 
-/// True when the `.` joining these two steps has to be padded with spaces
-/// to stay a path separator.
+/// True when the `.` joining the step `prev` to the text `next` has to be
+/// padded with spaces to stay a path separator.
 ///
 /// `scan_number` takes a `.` followed by a digit as the start of a fraction,
 /// so the two-step path `0 . 0` printed as `0.0` lexes back as the single
@@ -971,21 +981,24 @@ impl<'a> Formatter<'a> {
 /// `1 - --0 . 0` became `1 - --0.0` and then `1 - 0.0`, because unary minus
 /// folds into a number literal but not into a path (jsntrs-ecq.11).
 ///
-/// Both halves of the test are exact. A step's text ends in a number token
-/// only when the step *is* a `NumberLit` — every other kind ends in `]`,
-/// `}`, `)`, a flag letter or a name character, and a name that would end in
-/// a bare number cannot be spelled bare in the first place. It begins with a
-/// digit only for the same reason: [`needs_backtick`] quotes any name whose
-/// first character is not alphabetic, and a negative literal starts with
-/// `-`. Padding a `.` that did not strictly need it (after `1.5`, say, where
-/// the fraction is already spent) is harmless, so the test does not look at
-/// the digits.
-fn dot_needs_padding(arena: &AstArena, prev: NodeId, next: NodeId) -> bool {
+/// The two halves are asymmetric, and getting that wrong is what made the
+/// test miss half its cases. The step *before* the `.` is exact from its
+/// node kind: a step's text ends in a number token only when the step **is**
+/// a `NumberLit` — every other kind ends in `]`, `}`, `)`, a flag letter or
+/// a name character, and a name that would end in a bare number cannot be
+/// spelled bare in the first place. The step *after* it is not: what welds
+/// is the leading digit of the printed text, and a step of any kind can
+/// print one — `Binary{Subscript}` prints `2[0]`, and testing the node kind
+/// there wrote `1e2 . 2` + `.` + `2[0]`, whose `2.2` re-lexes as one number
+/// and drops a step (jsntrs-y3t). So the caller passes the text it just
+/// emitted rather than the node.
+///
+/// Padding a `.` that did not strictly need it (after `1.5`, say, where the
+/// fraction is already spent) is harmless, so the test does not look at the
+/// digits already in `prev`.
+fn dot_needs_padding(arena: &AstArena, prev: NodeId, next: &str) -> bool {
     matches!(arena.try_get(prev), Some(Expr::NumberLit { .. }))
-        && matches!(
-            arena.try_get(next),
-            Some(Expr::NumberLit { raw, .. }) if raw.starts_with(|c: char| c.is_ascii_digit())
-        )
+        && next.starts_with(|c: char| c.is_ascii_digit())
 }
 
 /// The flags of a regex literal as they were written in the source.
@@ -2327,8 +2340,7 @@ mod tests {
         assert_eq!(fmt(r#"0 . 0{"k": $}"#), r#"0 . 0{"k": $}"#);
         // The broken-line layout separates them already.
         assert_eq!(fmt("0 . 0 . 0 . 0"), "0\n  .0\n  .0\n  .0");
-        // Nothing else can weld: only a number can end in a bare number
-        // token, and only a number can start with a digit.
+        // A step whose text cannot start a fraction still joins bare.
         assert_eq!(fmt("0 . a"), "0.a");
         assert_eq!(fmt("a . 0"), "a.0");
         assert_eq!(fmt("0 . -1"), "0.-1");
@@ -2363,6 +2375,87 @@ mod tests {
         assert_eq!(eval(&fmt("1 - --0 . 0")), "S0213");
         // The spelling the old formatter produced, for contrast.
         assert_eq!(eval("1 - --0.0"), "1");
+    }
+
+    /// The padding is decided by the *printed text* of the following step,
+    /// not by its node kind. Any step can print a leading digit — a
+    /// `Binary{Subscript}` prints `2[0]` — and the bare `.` in front of one
+    /// welds into the number before it exactly as a `NumberLit` would. The
+    /// node-kind test missed every such step: `1e2.2@$w.2[0]` printed
+    /// `1e2 . 2.2[0]`, whose `2.2` re-lexes as one number, so the three-step
+    /// path came back with two steps and the *second* pass printed
+    /// `1e2.2.2[0]` (jsntrs-y3t).
+    #[test]
+    fn a_step_printing_a_leading_digit_needs_the_padding_too() {
+        assert_eq!(fmt("1e2.2@$w.2[0]"), "1e2 . 2 . 2[0]");
+        assert_eq!(fmt("0 . 2[0]"), "0 . 2[0]");
+        assert_eq!(fmt("0 . 0[1][2]"), "0 . 0[1][2]");
+        assert_eq!(fmt("0 . 2..3"), "0 . 2..3");
+        assert_eq!(fmt("0 . 2^(<a)"), "0 . 2^(<a)");
+        assert_eq!(fmt(r#"0 . 2{"k": $}"#), r#"0 . 2{"k": $}"#);
+        // The group hoisted to the end of the path leaves the `.` in front
+        // of `2[0]` to be padded like any other.
+        assert_eq!(fmt("0 . 0{} . 2[0]"), "0 . 0 . 2[0]{}");
+        // …and a group written *on* the previous step already ends it with
+        // `}`, which no `.` can be absorbed into.
+        assert_eq!(fmt("0.-0{0:0}.2[0]"), "0.-0{0: 0}.2[0]");
+        for src in [
+            "1e2.2@$w.2[0]",
+            "0 . 2[0]",
+            "0 . 0{} . 2[0]",
+            "0.-0{0:0}.2[0]",
+            "1 - --0 . 2[0]",
+        ] {
+            let once = fmt(src);
+            assert_eq!(
+                format(&once).expect("re-parse"),
+                once,
+                "not idempotent: {src}"
+            );
+        }
+    }
+
+    /// And the same meaning test as for two numeric steps: the welded
+    /// spelling is a number with a predicate, not a path, so it answers
+    /// where the path is an S0213. Both of these were *idempotent* while
+    /// wrong — the round trip changed the expression on the first pass and
+    /// then held still — so only the result pins them.
+    #[test]
+    fn a_welded_subscript_step_would_change_the_result() {
+        use crate::Expression;
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate("{}")
+                .map_or_else(|e| e.code.to_string(), |v| v.to_string())
+        };
+        assert_eq!(eval("0 . 2[0]"), "S0213");
+        assert_eq!(eval(&fmt("0 . 2[0]")), "S0213");
+        assert_eq!(eval("1 - --0 . 2[0]"), "S0213");
+        assert_eq!(eval(&fmt("1 - --0 . 2[0]")), "S0213");
+        // The spellings the old formatter produced, for contrast.
+        assert_eq!(eval("0.2[0]"), "0.2");
+        assert_eq!(eval("1 - --0.2[0]"), "0.8");
+    }
+
+    /// The printed path is the *same* path: a step count that survives the
+    /// round trip in both layouts.
+    #[test]
+    fn a_subscript_step_keeps_the_step_count() {
+        let steps = |src: &str| {
+            let (mut arena, root) = Parser::parse(src).expect("parse");
+            let root = process_ast(&mut arena, root).expect("process");
+            match arena.get(root) {
+                Expr::Path { steps, .. } => steps.len(),
+                other => panic!("not a path: {other:?}"),
+            }
+        };
+        for src in ["1e2.2@$w.2[0]", "0 . 2[0]", "0 . 0[1][2]", "0 . 0 . 2[0]"] {
+            assert_eq!(steps(&fmt(src)), steps(src), "step count changed: {src}");
+        }
+        // The shape the old formatter produced, for contrast.
+        assert_eq!(steps("1e2.2@$w.2[0]"), 3);
+        assert_eq!(steps("1e2 . 2.2[0]"), 2);
     }
 
     /// Wrapping the step in parentheses instead would not do: a block step
