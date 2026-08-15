@@ -124,13 +124,19 @@ pub(super) fn eval_tuple_group(
                 let merged = merge_group_envs(envs);
                 (Value::Array(Rc::from(values.clone())), Rc::new(merged))
             };
-            let val = if val_node.is_empty() {
+            let mut val = if val_node.is_empty() {
                 group_ctx
             } else {
                 let val_shadow = shadow_parent_env(shadow, &group_env);
                 let val_env = val_shadow.as_ref().unwrap_or(&group_env);
                 eval_no_stack_check(arena, val_node, &group_ctx, val_env)?
             };
+            // The pair value goes straight into the user-visible object, so
+            // this is a sequence boundary: a `[]`-decorated path hands back a
+            // keep-singleton `Sequence` since jsntrs-p0v.19, and collapsing
+            // here is also what drops the pair when the value came up empty
+            // (jsntrs-geb).
+            super::collapse_sequence_in_place(&mut val);
             if !val.is_undefined() {
                 result_map.insert(key.clone(), val);
             }
@@ -363,6 +369,12 @@ pub(super) fn eval_group_by(
                 val_result = apply_keep_array(val_result, Value::Array(Rc::from(vec![])));
             }
 
+            // Same boundary as in `eval_tuple_group`: `val_keep_array` only
+            // covers node kinds that carry the flag themselves — a
+            // `[]`-decorated *path* pair value arrives as a keep-singleton
+            // `Sequence` instead (jsntrs-p0v.19) and must collapse before the
+            // insert (jsntrs-geb).
+            super::collapse_sequence_in_place(&mut val_result);
             if !val_result.is_undefined() {
                 key_set.insert(key.clone());
                 out_obj.insert(key.clone(), val_result);
@@ -509,5 +521,63 @@ fn eval_group_value(
             let child_env = Rc::new(child_env);
             eval_no_stack_check(arena, *vn, &group_input, &child_env)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Expression, Value};
+
+    fn eval_value(expr: &str, data: &str) -> Value {
+        Expression::compile(expr)
+            .unwrap_or_else(|e| panic!("compile {expr}: {e}"))
+            .evaluate(data)
+            .unwrap_or_else(|e| panic!("evaluate {expr}: {e}"))
+    }
+
+    /// A `[]`-decorated *path* pair value reaches the group insert as a
+    /// keep-singleton `Sequence` (jsntrs-p0v.19); the insert boundary must
+    /// collapse it into a real array — `to_json` output cannot tell the two
+    /// apart, so these assert on the `Value` variant itself (jsntrs-geb).
+    #[test]
+    fn group_pair_values_collapse_before_insert() {
+        let cases = [
+            // (expr, data) — every `k` must come out as a real Array.
+            ("a{'k': b[]}", r#"{"a": [{"b": 1}]}"#),
+            ("a{'k': b[]}", r#"{"a": [{"b": 1}, {"b": 2}]}"#),
+            ("a{'k': b[]}", r#"{"a": {"b": 1}}"#),
+            // The tuple-stream group takes the other insert site.
+            ("a@$e{'k': $e.b[]}", r#"{"a": [{"b": 1}]}"#),
+            ("a@$e{'k': $e.b[]}", r#"{"a": [{"b": 1}, {"b": 2}]}"#),
+            ("a@$e{'k': $e.b[]}", r#"{"a": {"b": 1}}"#),
+        ];
+        for (expr, data) in cases {
+            let result = eval_value(expr, data);
+            let Value::Object(map) = &result else {
+                panic!("{expr} on {data}: expected an object, got {result:?}");
+            };
+            let field = map
+                .get("k")
+                .unwrap_or_else(|| panic!("{expr} on {data}: pair was dropped, expected an array"));
+            assert!(
+                matches!(field, Value::Array(_)),
+                "{expr} on {data}: pair value must be a real Array, got {field:?}"
+            );
+        }
+    }
+
+    /// An empty pair value drops the pair — the collapse at the insert
+    /// boundary is what turns an empty sequence into the Undefined the drop
+    /// check looks for (jsonata-js-verified). Only the tuple form is pinned
+    /// here: the standard group path substitutes `[]` for an undefined
+    /// keep-array value (`a{'k': c[]}` → `{"k": []}` where the reference
+    /// drops the pair), a pre-existing divergence tracked separately.
+    #[test]
+    fn group_pair_value_that_comes_up_empty_drops_the_pair() {
+        let result = eval_value("a@$e{'k': $e.c[]}", r#"{"a": [{"b": 1}]}"#);
+        let Value::Object(map) = &result else {
+            panic!("expected an object, got {result:?}");
+        };
+        assert!(map.is_empty(), "expected the pair dropped, got {result:?}");
     }
 }
