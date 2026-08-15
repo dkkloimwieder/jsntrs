@@ -279,6 +279,20 @@ impl Environment {
         self.cancel = Some(cancel);
     }
 
+    /// Test hook: set the cancellation token on an environment built
+    /// out-of-crate.
+    ///
+    /// [`crate::Expression::evaluate_with_cancel`] is the supported way to
+    /// cancel an evaluation; harnesses that drive [`crate::eval`] directly
+    /// (the conformance suite, which enforces each fixture's `timelimit`
+    /// this way) build their own root environment and need the same wiring.
+    /// Unstable, like every other `internals` item.
+    #[cfg(feature = "internals")]
+    #[doc(hidden)]
+    pub fn set_cancel_token(&mut self, cancel: Arc<AtomicBool>) {
+        self.set_cancel(cancel);
+    }
+
     /// Check if evaluation has been cancelled.
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancel
