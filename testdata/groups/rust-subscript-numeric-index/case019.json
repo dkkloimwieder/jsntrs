@@ -1,0 +1,6 @@
+{
+    "expr": "\"a\"[0/0]",
+    "data": null,
+    "bindings": {},
+    "undefinedResult": true
+}

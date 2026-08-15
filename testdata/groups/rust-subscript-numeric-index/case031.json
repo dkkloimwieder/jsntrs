@@ -1,0 +1,6 @@
+{
+    "expr": "[1,2,3][$foo/0]",
+    "data": null,
+    "bindings": {},
+    "undefinedResult": true
+}
