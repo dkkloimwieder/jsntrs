@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(1234.5, \"0.0\", {\"grouping-separator\": \"ab\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "1234.5"
+}

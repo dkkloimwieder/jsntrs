@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(1234.5678, \"#,##0.00\", {\"decimal-separator\": \",\", \"grouping-separator\": \".\"})",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3091"
+}

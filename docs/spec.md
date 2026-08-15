@@ -1437,7 +1437,40 @@ jsntrs-p0v.18 for the audit.
 - **Parameters**: `(number, picture [, options])`.
 - **<2 args**: **D3006**.
 - **nil first arg**: undefined propagation.
-- **options**: Object with keys: `decimal-separator`, `grouping-separator`, `percent`, `per-mille`, `zero-digit`, `digit`, `pattern-separator`, `exponent-separator`.
+- **options**: Object with keys: `decimal-separator`, `grouping-separator`, `percent`, `per-mille`, `zero-digit`, `digit`, `pattern-separator`, `exponent-separator`. jsonata-js
+  also reads `minus-sign`, `infinity` and `NaN`; jsntrs does not (the last two
+  are unreachable there, and `minus-sign` is a gap — see below).
+- **String-valued options (jsntrs-2px, jsonata 2.2.2-verified 2026-08-15)**:
+  every option value is a *string*, and the reference uses each one in two
+  ways. A picture character is "active" only when some option is exactly that
+  one character (`activeChars.indexOf(ch)` over an array of the values), so an
+  empty or multi-character value makes the corresponding character passive:
+  `$formatNumber(7, "0.0", {"decimal-separator": "ab"})` is a **D3086**, not
+  "7.0". The same value is then searched for, split on, and *emitted* whole,
+  which is why `$formatNumber(7, "00", {"decimal-separator": "ab"})` is "07a"
+  (bullet 7 appends "ab" and bullet 12 takes one character back) and
+  `$formatNumber(1234, "0000ab", {"grouping-separator": "ab"})` is
+  "1234.aab". jsntrs follows both readings for `decimal-separator`,
+  `grouping-separator`, `zero-digit`, `percent`, `per-mille` and
+  `pattern-separator`. `zero-digit` gives the digit family its base with
+  `charCodeAt(0)` but pads and strips as a whole string, so
+  `{"zero-digit": "ab"}` formats 7 through `"aaa"` as "ababh"; an empty value
+  leaves the family empty and the digits map to nothing
+  (`$formatNumber(7, "#", {"zero-digit": ""})` is `""` — jsonata 2.2.2 does
+  not throw here, older versions did).
+- **Rust port deviations in the option handling (jsntrs-2px, jsntrs-p0v.27)**:
+  - `exponent-separator` is matched as a *character*: a single-character value
+    behaves as the reference does, an **empty** one matches at the start of
+    the search (so the mantissa is empty and every picture is a D3085 or a
+    D3093, as in the reference), but a **multi-character** one matches
+    nothing, where jsonata-js substring-searches it — `"0.0EE"` with
+    `{"exponent-separator": "EE"}` formats here and is a D3093 there.
+  - `digit` is matched as a character: a multi-character value is ignored,
+    where the reference makes `#` passive and substring-searches the value in
+    the D3090/D3091 rules (`$formatNumber(7, "#0", {"digit": "ab"})` is "#7"
+    there, "7" here).
+  - `minus-sign` is not read at all: jsntrs always writes `-` in front of the
+    negative sub-picture and a negative exponent.
 - **Picture syntax**: XPath 3.1 `format-number` compatible.
 - **Sub-pictures**: Separated by pattern-separator (default `;`). Max 2 sub-pictures (**D3080**).
 - **Error codes**: D3006, T0410, D3080-D3093 (picture validation errors).

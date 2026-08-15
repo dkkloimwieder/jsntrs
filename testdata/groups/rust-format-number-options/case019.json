@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(7, \"0ab0\", {\"decimal-separator\": \"ab\"})",
+    "dataset": null,
+    "bindings": {},
+    "code": "D3086"
+}

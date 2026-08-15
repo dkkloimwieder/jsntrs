@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(1234, \"#,##0\", {\"decimal-separator\": \"ab\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "1,234a"
+}

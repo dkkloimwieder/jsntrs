@@ -72,18 +72,30 @@ pub fn fn_format_number(args: &[Value], _focus: &Value) -> JsonataResult {
 
 // ── Format character set ──────────────────────────────────────────────────────
 
-/// Default `exponent-separator`, used when the option is absent.
-const DEFAULT_EXPONENT_SEP: char = 'e';
-
 /// The `minus-sign` property. jsonata-js exposes it as an option and jsntrs
 /// does not yet, so it is the default everywhere it is written: in front of
 /// the negative sub-picture's prefix, and in front of a negative exponent.
 const MINUS_SIGN: char = '-';
 
+/// The option values, and the single characters they configure.
+///
+/// Every one of these is a *string* in jsonata-js, and the reference uses
+/// each in two ways that a `char` cannot express. It tests picture characters
+/// with `activeChars.indexOf(ch)`, an array of the option values, so a
+/// character is active only when some option is exactly that one character —
+/// an empty or multi-character value makes the corresponding character
+/// passive, and `{"decimal-separator": "ab"}` turns the `.` of `"0.0"` into
+/// a D3086. And it searches, splits and *emits* the value as a string, so a
+/// multi-character separator lands in the output whole
+/// (`$formatNumber(7, "0ab", {"decimal-separator": "ab"})` is `"7abab"`).
+/// jsntrs carries both (jsntrs-2px); the `_char` fields cache the
+/// single-character reading.
 #[derive(Clone)]
 pub(crate) struct FmtChars {
-    pub(crate) decimal_sep: char,
-    pub(crate) grouping_sep: char,
+    decimal_sep: CompactString,
+    decimal_char: Option<char>,
+    grouping_sep: CompactString,
+    grouping_char: Option<char>,
     /// Scaling markers, matched as *strings*. jsonata-js never compares a
     /// picture character to these: it asks whether the sub-picture *contains*
     /// the option's value (`subpicture.indexOf(properties.percent)`), and
@@ -95,43 +107,73 @@ pub(crate) struct FmtChars {
     /// the value, so a multi-character one broke pictures that never
     /// mentioned it: `$formatNumber(7, "00", {"per-mille": "0a"})` was D3083
     /// (jsntrs-p0v.27).
-    pub(crate) percent: CompactString,
-    pub(crate) per_mille: CompactString,
-    pub(crate) zero_digit: char,
-    pub(crate) digit: char,
+    percent: CompactString,
+    per_mille: CompactString,
+    /// The whole `zero-digit` value: the zero-stripping compares against it
+    /// as a string (so a multi-character one never strips) and the padding
+    /// writes it whole, one copy per missing digit.
+    zero_digit: CompactString,
+    zero_char: Option<char>,
+    /// `properties['zero-digit'].charCodeAt(0)`: the base of the decimal
+    /// digit family. `None` for an empty value, where the reference's
+    /// `charCodeAt(0)` is `NaN` and the family loop produces nothing — no
+    /// character is then a digit, and `makeString` maps every digit to
+    /// `undefined`, which `join` drops.
+    zero_base: Option<char>,
+    digit: char,
     /// Split on as a string, like `String.prototype.split`: a
     /// multi-character value splits on the whole run (and leaves `;` an
     /// ordinary passive character), and an empty one splits between every
     /// character, so `{"pattern-separator": ""}` makes `"000"` three
     /// sub-pictures and a D3080.
-    pub(crate) pattern_sep: CompactString,
-    /// Character treated as the exponent separator, or `None` when no
-    /// character can be: jsonata-js compares single picture characters against
-    /// the option value, so an empty or multi-character value never matches
-    /// and the picture then has no exponent part.
-    ///
-    /// This one stays a character. jsonata-js locates it with
-    /// `subpicture.indexOf(...)` like the scaling markers, but then *emits* it
-    /// and slices the mantissa at its index, so the string behaviour is
-    /// entangled with the off-by-prefix bug `locate_exponent` documents: an
-    /// empty value matches at the prefix boundary and makes every picture an
-    /// empty-mantissa error there. jsntrs keeps "no such separator" instead
-    /// (jsntrs-p0v.27).
-    pub(crate) exponent_sep: Option<char>,
+    pattern_sep: CompactString,
+    /// The `exponent-separator`, kept as the string it is emitted as.
+    /// `exponent_char` is what the picture scan matches: a multi-character
+    /// value matches no single character, and jsntrs deliberately does not
+    /// substring-search it the way the reference does (jsntrs-p0v.27), so
+    /// `"0.0EE"` with `{"exponent-separator": "EE"}` formats here and is a
+    /// D3093 there. An empty value is different: it matches at *every*
+    /// position, which `locate_exponent` honours.
+    exponent_sep: CompactString,
+    exponent_char: Option<char>,
 }
 
 impl Default for FmtChars {
     fn default() -> Self {
         FmtChars {
-            decimal_sep: '.',
-            grouping_sep: ',',
+            decimal_sep: CompactString::const_new("."),
+            decimal_char: Some('.'),
+            grouping_sep: CompactString::const_new(","),
+            grouping_char: Some(','),
             percent: CompactString::const_new("%"),
             per_mille: CompactString::const_new("\u{2030}"), // ‰
-            zero_digit: '0',
+            zero_digit: CompactString::const_new("0"),
+            zero_char: Some('0'),
+            zero_base: Some('0'),
             digit: '#',
             pattern_sep: CompactString::const_new(";"),
-            exponent_sep: Some(DEFAULT_EXPONENT_SEP),
+            exponent_sep: CompactString::const_new("e"),
+            exponent_char: Some('e'),
         }
+    }
+}
+
+/// The single character a value configures, or `None` when it is empty or
+/// longer: `activeChars.indexOf(ch)` only ever matches a one-character entry.
+fn single_char(value: &str) -> Option<char> {
+    let mut chars = value.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Some(c),
+        _ => None,
+    }
+}
+
+/// `charAt(i) === value`. An out-of-range index yields the empty string in
+/// JS, so it matches only an empty option value.
+fn char_is(ch: Option<char>, value: &str) -> bool {
+    match ch {
+        Some(c) => single_char(value) == Some(c),
+        None => value.is_empty(),
     }
 }
 
@@ -139,21 +181,33 @@ impl FmtChars {
     fn from_opts(opts: &[(&str, &str)]) -> Self {
         let mut fc = FmtChars::default();
         for &(key, val) in opts {
-            let chars: Vec<char> = val.chars().collect();
             match key {
-                "decimal-separator" if chars.len() == 1 => fc.decimal_sep = chars[0],
-                "grouping-separator" if chars.len() == 1 => fc.grouping_sep = chars[0],
+                "decimal-separator" => {
+                    fc.decimal_sep = CompactString::new(val);
+                    fc.decimal_char = single_char(val);
+                }
+                "grouping-separator" => {
+                    fc.grouping_sep = CompactString::new(val);
+                    fc.grouping_char = single_char(val);
+                }
                 "percent" => fc.percent = CompactString::new(val),
                 "per-mille" => fc.per_mille = CompactString::new(val),
-                "zero-digit" if chars.len() == 1 => fc.zero_digit = chars[0],
-                "digit" if chars.len() == 1 => fc.digit = chars[0],
+                "zero-digit" => {
+                    fc.zero_digit = CompactString::new(val);
+                    fc.zero_char = single_char(val);
+                    fc.zero_base = val.chars().next();
+                }
+                // `digit` stays a character: jsonata-js also substring-searches
+                // it (D3090/D3091 and the exponent's minimum-integer-size
+                // rule), so a multi-character value belongs with the picture
+                // validation rework rather than here (jsntrs-2px).
+                "digit" if val.chars().count() == 1 => {
+                    fc.digit = val.chars().next().unwrap_or(fc.digit);
+                }
                 "pattern-separator" => fc.pattern_sep = CompactString::new(val),
                 "exponent-separator" => {
-                    fc.exponent_sep = if chars.len() == 1 {
-                        Some(chars[0])
-                    } else {
-                        None
-                    };
+                    fc.exponent_sep = CompactString::new(val);
+                    fc.exponent_char = single_char(val);
                 }
                 _ => {}
             }
@@ -162,15 +216,16 @@ impl FmtChars {
     }
 
     fn is_digit_char(&self, c: char) -> bool {
-        c >= self.zero_digit && (c as u32) < (self.zero_digit as u32) + 10
+        self.zero_base
+            .is_some_and(|zero| c >= zero && (c as u32) < (zero as u32) + 10)
     }
 
     fn is_active_char(&self, c: char) -> bool {
         self.is_digit_char(c)
             || c == self.digit
-            || c == self.grouping_sep
-            || c == self.decimal_sep
-            || self.exponent_sep == Some(c)
+            || self.grouping_char == Some(c)
+            || self.decimal_char == Some(c)
+            || self.exponent_char == Some(c)
     }
 
     /// Narrower notion of "active", used only when locating the picture's
@@ -181,8 +236,36 @@ impl FmtChars {
     /// separator stays active everywhere else — splitting the sub-picture
     /// and emitting the exponent both rely on it.
     fn is_region_edge_char(&self, c: char) -> bool {
-        self.is_active_char(c) && self.exponent_sep != Some(c)
+        self.is_active_char(c) && self.exponent_char != Some(c)
     }
+}
+
+// ── String matching, `String.prototype.indexOf` style ─────────────────────────
+
+/// First occurrence of `needle` in `hay` at or after `from`, counted in
+/// characters. An empty needle matches at `from` (clamped to the length),
+/// exactly as `String.prototype.indexOf` reports it.
+fn find_from(hay: &[char], needle: &str, from: usize) -> Option<usize> {
+    // The one-character case is every default separator and most configured
+    // ones; walking it as a plain character scan keeps the picture parse off
+    // the general iterator comparison below.
+    if let Some(c) = single_char(needle) {
+        return hay
+            .get(from..)
+            .and_then(|tail| tail.iter().position(|&x| x == c))
+            .map(|i| i + from);
+    }
+    let len = needle.chars().count();
+    if len == 0 {
+        return Some(from.min(hay.len()));
+    }
+    let last = hay.len().checked_sub(len)?;
+    (from..=last).find(|&i| hay[i..i + len].iter().copied().eq(needle.chars()))
+}
+
+/// First occurrence of `needle` in `hay`.
+fn find_sub(hay: &[char], needle: &str) -> Option<usize> {
+    find_from(hay, needle, 0)
 }
 
 // ── Sub-picture ───────────────────────────────────────────────────────────────
@@ -221,10 +304,6 @@ pub(crate) struct SubPicture {
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
 
-fn count_char(hay: &[char], needle: char) -> usize {
-    hay.iter().filter(|&&c| c == needle).count()
-}
-
 /// Distinct positions at which `needle` occurs in `hay`.
 ///
 /// The rules that use this ask only whether there are none, one, or more than
@@ -234,6 +313,9 @@ fn count_char(hay: &[char], needle: char) -> usize {
 /// it, so an empty `percent` or `per-mille` option is "more than one instance"
 /// for every non-empty picture.
 fn count_occurrences(hay: &[char], needle: &str) -> usize {
+    if let Some(c) = single_char(needle) {
+        return hay.iter().filter(|&&x| x == c).count();
+    }
     let len = needle.chars().count();
     let Some(last_start) = hay.len().checked_sub(len) else {
         return 0;
@@ -311,14 +393,25 @@ fn scan_sub_picture_region<'a>(
 /// been swallowed into the mantissa. jsntrs stays XPath-correct and does not
 /// replicate the off-by-prefix bug — a deliberate deviation, like the D3085
 /// answer above (jsntrs-p0v.23).
+///
+/// An *empty* `exponent-separator` matches at the very start of the search,
+/// as `String.prototype.indexOf("")` does, so the mantissa comes out empty
+/// and every picture is a D3085 or a D3093 — the reference answers the same
+/// way, and only the picture-relative offset differs (jsntrs-2px). A
+/// multi-character value matches nothing: jsonata-js substring-searches it,
+/// jsntrs deliberately does not (jsntrs-p0v.27).
 fn locate_exponent(
     runes: &[char],
     start: usize,
     active_len: usize,
     fc: &FmtChars,
 ) -> Option<usize> {
-    let sep = fc.exponent_sep?;
-    let rel = runes[start..].iter().position(|&c| c == sep)?;
+    let rel = if fc.exponent_sep.is_empty() {
+        0
+    } else {
+        let sep = fc.exponent_char?;
+        runes[start..].iter().position(|&c| c == sep)?
+    };
     (rel <= active_len).then_some(rel)
 }
 
@@ -382,7 +475,7 @@ fn picture_error(code: &'static str) -> JsonataError {
 fn validate_sub_picture(p: &SubPictureParts<'_>, fc: &FmtChars) -> Option<JsonataError> {
     let mut worst = WorstRule::default();
 
-    if count_char(p.picture, fc.decimal_sep) > 1 {
+    if count_occurrences(p.picture, &fc.decimal_sep) > 1 {
         worst.note("D3081");
     }
     let percents = count_occurrences(p.picture, &fc.percent);
@@ -418,25 +511,29 @@ fn validate_sub_picture(p: &SubPictureParts<'_>, fc: &FmtChars) -> Option<Jsonat
     // D3087 — including one in the suffix, since the reference tests the
     // characters around the separator in the whole sub-picture. Only a
     // picture with no decimal separator at all reaches the D3088 rule.
-    match p.picture.iter().position(|&c| c == fc.decimal_sep) {
+    // The characters either side are read with `charAt`, which yields one
+    // character (or the empty string past the ends), so a multi-character
+    // grouping separator never matches here however it is spelled in the
+    // picture.
+    match find_sub(p.picture, &fc.decimal_sep) {
         Some(d) => {
             let before = d.checked_sub(1).map(|i| p.picture[i]);
             let after = p.picture.get(d + 1).copied();
-            if before == Some(fc.grouping_sep) || after == Some(fc.grouping_sep) {
+            if char_is(before, &fc.grouping_sep) || char_is(after, &fc.grouping_sep) {
                 worst.note("D3087");
             }
         }
         None => {
-            if p.integer.last() == Some(&fc.grouping_sep) {
+            if char_is(p.integer.last().copied(), &fc.grouping_sep) {
                 worst.note("D3088");
             }
         }
     }
 
-    if p.picture
-        .windows(2)
-        .any(|w| w[0] == fc.grouping_sep && w[1] == fc.grouping_sep)
-    {
+    // Two adjacent separators, searched as the doubled string — so an empty
+    // `grouping-separator` makes every picture a D3089.
+    let doubled = format!("{}{}", fc.grouping_sep, fc.grouping_sep);
+    if find_sub(p.picture, &doubled).is_some() {
         worst.note("D3089");
     }
 
@@ -501,17 +598,16 @@ fn grouping_positions(
     fc: &FmtChars,
 ) -> Vec<usize> {
     let mut positions = Vec::new();
-    let mut at = part.iter().position(|&c| c == fc.grouping_sep);
+    let mut at = find_sub(part, &fc.grouping_sep);
     while let Some(i) = at {
         let cut = i.min(part.len());
         let counted = if to_left { &part[..cut] } else { &part[cut..] };
         positions.push(count_places(counted, fc));
-        at = int_part
-            .iter()
-            .enumerate()
-            .skip(i + 1)
-            .find(|&(_, &c)| c == fc.grouping_sep)
-            .map(|(j, _)| j);
+        // An empty separator matches at every position including the end, so
+        // the reference loops here forever; it never arrives, because such a
+        // picture is a D3089 before analysis runs. Requiring progress keeps
+        // this total whatever validation lets through.
+        at = find_from(int_part, &fc.grouping_sep, i + 1).filter(|&next| next > i);
     }
     positions
 }
@@ -556,7 +652,7 @@ fn analyse(
     sp: &mut SubPicture,
 ) {
     sp.scale = scaling_factor(picture, fc);
-    sp.has_decimal = picture.contains(&fc.decimal_sep);
+    sp.has_decimal = find_sub(picture, &fc.decimal_sep).is_some();
     sp.int_grp_pos = grouping_positions(integer, integer, false, fc);
     sp.regular_grouping = regular_grouping(&sp.int_grp_pos);
     sp.frac_grp_pos = grouping_positions(fraction, integer, true, fc);
@@ -600,7 +696,10 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
     // is configured as both separators the exponent wins, exactly as in
     // jsonata-js — "0.0" with `exponent-separator` "." is mantissa "0",
     // exponent "0", and jsntrs used to panic on the backwards slice range.
-    let decimal = mantissa.iter().position(|&c| c == fc.decimal_sep);
+    // The fraction starts one character past the separator's *first*
+    // character, however long the separator is: jsonata-js slices with
+    // `substring(decimalPosition + 1)` regardless.
+    let decimal = find_sub(mantissa, &fc.decimal_sep);
     // With no decimal separator in the mantissa the fraction part is the
     // *suffix*, not nothing: jsonata-js `splitParts` writes
     // `fractionalPart = suffix` there. Every rule the fraction feeds counts
@@ -609,7 +708,9 @@ pub(crate) fn parse_sub_picture(pic: &str, fc: &FmtChars) -> Result<SubPicture, 
     // (`{"exponent-separator": "5"}`) — carry the reference's definition
     // rather than the coincidence.
     let (integer, fraction) = match decimal {
-        Some(d) => (&mantissa[..d], &mantissa[d + 1..]),
+        // `substring` clamps, so an empty separator matching an empty
+        // mantissa leaves both parts empty rather than panicking.
+        Some(d) => (&mantissa[..d], mantissa.get(d + 1..).unwrap_or(&[])),
         None => (mantissa, &runes[start + active.len()..]),
     };
 
@@ -640,9 +741,12 @@ fn as_isize(v: usize) -> isize {
 }
 
 /// Index of `needle`, or -1 — `String.prototype.indexOf`, which the bullets
-/// compare against and do arithmetic on.
-fn index_of(hay: &[char], needle: char) -> isize {
-    hay.iter().position(|&c| c == needle).map_or(-1, as_isize)
+/// compare against and do arithmetic on. A separator the strip loops removed
+/// leaves -1 behind and the padding arithmetic runs on it unchanged:
+/// `$formatNumber(7, "0", {"decimal-separator": "0"})` is "007" because the
+/// separator it appended was stripped again as a trailing zero-digit.
+fn index_of(hay: &[char], needle: &str) -> isize {
+    find_sub(hay, needle).map_or(-1, as_isize)
 }
 
 /// The insertion point `String.prototype.slice` splits at: a negative index
@@ -657,18 +761,26 @@ fn js_split_point(at: isize, len: usize) -> usize {
     usize::try_from(resolved.clamp(0, len_i)).unwrap_or(0)
 }
 
+/// Insert `s` at `at`, as the bullets' `slice … join` does.
+fn splice_in(sv: &mut Vec<char>, at: usize, s: &str) {
+    sv.splice(at..at, s.chars());
+}
+
 /// jsonata-js `makeString`: the magnitude at `dp` decimal places, mapped into
 /// the picture's digit family. Only the digits produced here are mapped — a
 /// separator that happens to be an ASCII digit is picture text and stays as
-/// written.
+/// written. An empty `zero-digit` leaves no family to map into, and the
+/// reference's `join` drops every `undefined` it looks up, so the digits
+/// disappear: `$formatNumber(7, "#", {"zero-digit": ""})` is "".
 fn make_string(value: f64, dp: usize, fc: &FmtChars) -> Vec<char> {
     format!("{:.dp$}", value.abs())
         .chars()
-        .map(|c| {
+        .filter_map(|c| {
             if c.is_ascii_digit() {
-                char::from_u32(fc.zero_digit as u32 + (c as u32 - '0' as u32)).unwrap_or(c)
+                let zero = fc.zero_base?;
+                char::from_u32(zero as u32 + (c as u32 - '0' as u32))
             } else {
-                c
+                Some(c)
             }
         })
         .collect()
@@ -709,7 +821,7 @@ fn group_integer_part(sv: &mut Vec<char>, sp: &SubPicture, fc: &FmtChars, decima
         let groups = (decimal_pos - 1).div_euclid(interval);
         for group in 1..=groups {
             let at = js_split_point(decimal_pos - group * interval, sv.len());
-            sv.insert(at, fc.grouping_sep);
+            splice_in(sv, at, &fc.grouping_sep);
         }
         return;
     }
@@ -717,7 +829,7 @@ fn group_integer_part(sv: &mut Vec<char>, sp: &SubPicture, fc: &FmtChars, decima
     // shifting the decimal separator along by the separator just inserted.
     for (inserted, &pos) in (decimal_pos..).zip(sp.int_grp_pos.iter()) {
         let at = js_split_point(inserted - as_isize(pos), sv.len());
-        sv.insert(at, fc.grouping_sep);
+        splice_in(sv, at, &fc.grouping_sep);
     }
 }
 
@@ -732,45 +844,56 @@ fn format_sub_picture(adjusted: f64, sp: &SubPicture, fc: &FmtChars) -> String {
     let rounded = super::numeric::bankers_round(mantissa, i32::try_from(sp.max_frac).unwrap_or(0));
     let mut sv = make_string(rounded, sp.max_frac, fc);
     match sv.iter().position(|&c| c == '.') {
-        Some(i) => sv[i] = fc.decimal_sep,
-        None => sv.push(fc.decimal_sep),
+        // `replace`, so a multi-character separator takes the place of the
+        // one character `toFixed` wrote.
+        Some(i) => {
+            sv.splice(i..=i, fc.decimal_sep.chars());
+        }
+        None => sv.extend(fc.decimal_sep.chars()),
     }
-    // Strip every leading and trailing zero-digit. The decimal separator
-    // stops both runs, so this trims the integer part on the left and the
-    // fraction on the right; bullets 8 and 9 pad back to the minima.
-    let leading = sv.iter().take_while(|&&c| c == fc.zero_digit).count();
+    // Strip every leading and trailing zero-digit. The comparison is against
+    // the whole option value, so a multi-character `zero-digit` never strips.
+    // The decimal separator otherwise stops both runs, so this trims the
+    // integer part on the left and the fraction on the right; bullets 8 and 9
+    // pad back to the minima.
+    let leading = sv
+        .iter()
+        .take_while(|&&c| char_is(Some(c), &fc.zero_digit))
+        .count();
     sv.drain(..leading);
-    while sv.last() == Some(&fc.zero_digit) {
+    while char_is(sv.last().copied(), &fc.zero_digit) && !sv.is_empty() {
         sv.pop();
     }
 
-    // Bullets 8 and 9.
-    let decimal_pos = index_of(&sv, fc.decimal_sep);
+    // Bullets 8 and 9. The pad counts are in characters and each unit writes
+    // the whole `zero-digit` value.
+    let decimal_pos = index_of(&sv, &fc.decimal_sep);
     let pad_left = as_isize(sp.min_int) - decimal_pos;
     let pad_right = as_isize(sp.min_frac) - (as_isize(sv.len()) - decimal_pos - 1);
     for _ in 0..pad_left.max(0) {
-        sv.insert(0, fc.zero_digit);
+        splice_in(&mut sv, 0, &fc.zero_digit);
     }
     for _ in 0..pad_right.max(0) {
-        sv.push(fc.zero_digit);
+        sv.extend(fc.zero_digit.chars());
     }
 
     // Bullet 10.
-    let decimal_pos = index_of(&sv, fc.decimal_sep);
+    let decimal_pos = index_of(&sv, &fc.decimal_sep);
     group_integer_part(&mut sv, sp, fc, decimal_pos);
 
     // Bullet 11. The decimal position is *not* re-read between separators, so
     // each offset is measured against the string as it was — which is exactly
     // the shift the previous insertion introduced.
-    let decimal_pos = index_of(&sv, fc.decimal_sep);
+    let decimal_pos = index_of(&sv, &fc.decimal_sep);
     for &pos in &sp.frac_grp_pos {
         let at = js_split_point(as_isize(pos) + decimal_pos + 1, sv.len());
-        sv.insert(at, fc.grouping_sep);
+        splice_in(&mut sv, at, &fc.grouping_sep);
     }
 
-    // Bullet 12: drop the decimal separator again when the picture never
-    // asked for one, or when nothing followed it.
-    if !sp.has_decimal || index_of(&sv, fc.decimal_sep) == as_isize(sv.len()) - 1 {
+    // Bullet 12: drop one character when the picture never asked for a
+    // decimal separator, or when nothing followed the one it has. It is one
+    // character, not one separator: `substring(0, length - 1)`.
+    if !sp.has_decimal || index_of(&sv, &fc.decimal_sep) == as_isize(sv.len()) - 1 {
         sv.pop();
     }
 
@@ -778,11 +901,9 @@ fn format_sub_picture(adjusted: f64, sp: &SubPicture, fc: &FmtChars) -> String {
     if let Some(exponent) = exponent {
         let mut digits = make_string(f64::from(exponent), 0, fc);
         for _ in digits.len()..sp.min_exp {
-            digits.insert(0, fc.zero_digit);
+            splice_in(&mut digits, 0, &fc.zero_digit);
         }
-        // Only reached when the picture had an exponent part, which implies a
-        // separator character was configured; the fallback keeps this total.
-        sv.push(fc.exponent_sep.unwrap_or(DEFAULT_EXPONENT_SEP));
+        sv.extend(fc.exponent_sep.chars());
         if exponent < 0 {
             sv.push(MINUS_SIGN);
         }
@@ -1019,6 +1140,100 @@ mod tests {
             Ok(other) => panic!("expected string, got {other:?}"),
             Err(e) => Err(e.code),
         }
+    }
+
+    /// `decimal-separator` and `grouping-separator` are strings, matched two
+    /// ways: a picture character is that separator only when the option is
+    /// exactly that one character, and the value is searched for and emitted
+    /// whole everywhere else. So a multi-character value turns the ordinary
+    /// separator into a passive character (D3086) and lands in the output as
+    /// a run. Expected values verified against jsonata 2.2.2 (jsntrs-2px);
+    /// jsntrs used to ignore any value that was not a single character and
+    /// carry on with the default, formatting `"0.0"` as "7.0".
+    #[test]
+    fn separator_options_are_matched_and_emitted_as_strings() {
+        let ab = r#"{"decimal-separator": "ab"}"#;
+        assert_eq!(fmt_opts(7.0, "0.0", ab), Err("D3086"));
+        assert_eq!(fmt_opts(7.0, "0ab0", ab), Err("D3086"));
+        // The value is appended by bullet 7 whether the picture mentions it
+        // or not, and bullet 12 then takes one character back off.
+        assert_eq!(fmt_opts(7.0, "00", ab), Ok("07a".to_string()));
+        assert_eq!(fmt_opts(7.0, "0ab", ab), Ok("7abab".to_string()));
+        assert_eq!(fmt_opts(7.5, "0", ab), Ok("8a".to_string()));
+        // An empty value occurs everywhere, so the picture holds more than
+        // one instance of it.
+        assert_eq!(
+            fmt_opts(7.0, "00", r#"{"decimal-separator": ""}"#),
+            Err("D3081")
+        );
+        // A separator that is also a digit is stripped again as a trailing
+        // zero-digit, leaving the padding to work from indexOf's -1.
+        assert_eq!(
+            fmt_opts(7.0, "0", r#"{"decimal-separator": "0"}"#),
+            Ok("007".to_string())
+        );
+
+        let gs = r#"{"grouping-separator": "ab"}"#;
+        assert_eq!(fmt_opts(1234.0, "#,##0", gs), Err("D3086"));
+        assert_eq!(fmt_opts(1234.0, "#ab##0", gs), Err("D3086"));
+        assert_eq!(fmt_opts(1234.0, "0000", gs), Ok("1234".to_string()));
+        assert_eq!(fmt_opts(1234.0, "0000ab", gs), Ok("1234.aab".to_string()));
+        // Two adjacent separators are searched as the doubled string, which
+        // an empty value always matches.
+        assert_eq!(
+            fmt_opts(1234.0, "0000", r#"{"grouping-separator": ""}"#),
+            Err("D3089")
+        );
+        // A single-character value still behaves as it always did.
+        assert_eq!(
+            fmt_opts(1_234_567.0, "#'###", r#"{"grouping-separator": "'"}"#),
+            Ok("1'234'567".to_string())
+        );
+    }
+
+    /// `zero-digit` gives the digit family its base with `charCodeAt(0)`, but
+    /// pads and strips as a whole string: a multi-character value never
+    /// strips a zero and writes all of itself per padded digit, and an empty
+    /// one leaves no family at all — nothing in the picture is a digit, and
+    /// the digits that survive validation map to nothing. Expected values
+    /// verified against jsonata 2.2.2 (jsntrs-2px), which does *not* throw
+    /// the TypeError the issue reported: that was an older jsonata.
+    #[test]
+    fn zero_digit_takes_its_family_from_the_first_character() {
+        let ab = r#"{"zero-digit": "ab"}"#;
+        assert_eq!(fmt_opts(7.0, "#", ab), Ok("h".to_string()));
+        assert_eq!(fmt_opts(0.5, "#.#", ab), Ok("a.f".to_string()));
+        assert_eq!(fmt_opts(7.0, "aaa", ab), Ok("ababh".to_string()));
+        assert_eq!(fmt_opts(7.0, "aa.aa", ab), Ok("abh.aa".to_string()));
+        assert_eq!(
+            fmt_opts(1_234_567.0, "a,aaa", ab),
+            Ok("b,cde,fgh".to_string())
+        );
+        // '0' is not in the family any more, so it is passive text.
+        assert_eq!(fmt_opts(7.5, "0.0", ab), Err("D3085"));
+
+        let empty = r#"{"zero-digit": ""}"#;
+        assert_eq!(fmt_opts(7.0, "#", empty), Ok(String::new()));
+        assert_eq!(fmt_opts(7.0, "#.#", empty), Ok(String::new()));
+    }
+
+    /// An empty `exponent-separator` matches at the start of the search, so
+    /// the mantissa comes out empty and every picture is an error — D3085
+    /// when the rest of the active region is digit-family, D3093 otherwise.
+    /// Expected codes verified against jsonata 2.2.2 (jsntrs-2px); jsntrs
+    /// used to treat the option as "no separator" and format normally.
+    #[test]
+    fn an_empty_exponent_separator_empties_the_mantissa() {
+        let empty = r#"{"exponent-separator": ""}"#;
+        assert_eq!(fmt_opts(7.0, "0", empty), Err("D3093"));
+        assert_eq!(fmt_opts(7.0, "00", empty), Err("D3085"));
+        assert_eq!(fmt_opts(1234.5678, "0.0e0", empty), Err("D3093"));
+        assert_eq!(fmt_opts(1234.5678, "#,##0.00", empty), Err("D3093"));
+        // A prefix is where the two part company: jsonata-js measures the
+        // match from the start of the sub-picture and then indexes the
+        // active part with it, so "$00" is a D3093 there and a D3085 here —
+        // the same off-by-prefix deviation as jsntrs-p0v.23.
+        assert_eq!(fmt_opts(7.0, "$00", empty), Err("D3085"));
     }
 
     /// Expected values verified against jsonata-js 2.x: `exponent-separator`
