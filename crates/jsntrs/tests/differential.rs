@@ -84,6 +84,16 @@ const NUMS: &str = r#"{"items": [
     {"x": -2.5, "y": 0.5}
 ]}"#;
 
+/// Signed zeros next to ordinary numbers. `$formatNumber` decides the
+/// sub-picture and strips the sign in two places — the builtin and the
+/// mapped-call `PreparedState` — so -0.0 pins them against each other
+/// (jsntrs-p0v.26).
+const SIGNED_ZEROS: &str = r#"{"items": [
+    {"x": -0.0},
+    {"x": 0.0},
+    {"x": -1.5}
+]}"#;
+
 /// Nested document for pure-path / comparison / function fast paths.
 const NESTED: &str = r#"{"a": {"b": {"c": 42, "s": "hello"}},
     "arr": [{"v": 1}, {"v": 2}, {"v": 3}],
@@ -365,6 +375,8 @@ const CASES: &[(&str, &str)] = &[
     ("items.$round(x, 1)", NUMS),
     ("items.$formatNumber(x, \"#,##0.00\")", CLEAN),
     ("items.$formatNumber(x, \"#,##0.00\")", NUMS),
+    ("items.$formatNumber(x, \"9,9,99.99\")", SIGNED_ZEROS),
+    ("items.$formatNumber(x, \"0.00;(0.00)\")", SIGNED_ZEROS),
     ("items.$contains(name, \"a\")", CLEAN),
     ("items.$contains(name, \"a\")", HOSTILE),
     ("items.$formatBase(x, 16)", CLEAN),

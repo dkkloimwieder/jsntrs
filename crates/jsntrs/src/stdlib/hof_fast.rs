@@ -994,7 +994,10 @@ fn exec_prepared(prepared: &PreparedState, field_val: &Value) -> Option<JsonataR
             };
             let negative = n < 0.0;
             let sp = if negative { neg_pic } else { pos_pic };
-            let mut value = if negative { -n } else { n };
+            // Negative zero is positive here, and must lose its sign before
+            // the formatters see it — exactly as in `format_number_picture`
+            // (jsntrs-p0v.26).
+            let mut value = if negative { -n } else { n + 0.0 };
             match sp.scale {
                 1 => value *= 100.0,
                 2 => value *= 1000.0,

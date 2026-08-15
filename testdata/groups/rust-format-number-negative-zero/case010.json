@@ -1,0 +1,6 @@
+{
+    "expr": "[-0.0].$formatNumber($, \"9,9,99.99\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "0,0,00.00"
+}

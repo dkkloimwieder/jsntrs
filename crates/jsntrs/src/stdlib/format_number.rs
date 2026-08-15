@@ -738,7 +738,13 @@ fn format_number_picture(
 
     let negative = n < 0.0;
     let sp = if negative { &neg_pic } else { &pos_pic };
-    let mut value = if negative { -n } else { n };
+    // `-0.0 < 0.0` is false, so negative zero already formats through the
+    // positive sub-picture (jsonata-js branches on `value >= 0`, which agrees).
+    // Its sign still has to go: `format!("{:.2}", -0.0)` writes "-0.00", and the
+    // minus then travels through the picture machinery as if it were a digit —
+    // with grouping, "9,9,99.99" produced "0,0,-0.00" (jsntrs-p0v.26). Adding
+    // zero normalises -0.0 to 0.0 and leaves every other value alone.
+    let mut value = if negative { -n } else { n + 0.0 };
 
     match sp.scale {
         1 => value *= 100.0,
@@ -786,6 +792,36 @@ mod tests {
     fn negative_sub_picture_is_applied() {
         assert_eq!(fmt(-1.0, "#0.00;(#0.00)"), "(1.00)");
         assert_eq!(fmt(1.0, "#0.00;(#0.00)"), "1.00");
+    }
+
+    /// Negative zero formats as zero. `-0.0 < 0.0` is false, so it already
+    /// took the positive sub-picture (jsonata-js branches on `value >= 0`
+    /// and agrees), but the sign `format!("{:.p$}")` writes still reached the
+    /// picture machinery: jsntrs answered "-0.00", and with grouping the
+    /// minus was grouped as if it were a digit — "9,9,99.99" gave
+    /// "0,0,-0.00". Expected values verified against jsonata-js 2.1.0
+    /// (jsntrs-p0v.26).
+    #[test]
+    fn negative_zero_formats_as_zero() {
+        assert_eq!(fmt(-0.0, "0.00"), "0.00");
+        assert_eq!(fmt(-0.0, "0.0"), "0.0");
+        assert_eq!(fmt(-0.0, "9,9,99.99"), "0,0,00.00");
+        assert_eq!(fmt(-0.0, "#,##0.00"), "0.00");
+        assert_eq!(fmt(-0.0, "0.00%"), "0.00%");
+        assert_eq!(fmt(-0.0, "‰0.00"), "‰0.00");
+        // The negative sub-picture is for negative numbers, and -0.0 is not
+        // one of them.
+        assert_eq!(fmt(-0.0, "0.00;(0.00)"), "0.00");
+        assert_eq!(fmt(-0.0, "0.00;-0.00"), "0.00");
+        // An exponent picture has no reference answer — jsonata-js loops
+        // forever on a zero mantissa — but the sign must be gone all the
+        // same.
+        assert_eq!(fmt(-0.0, "0.0e0"), fmt(0.0, "0.0e0"));
+        assert_eq!(fmt(-0.0, "00.000e0"), fmt(0.0, "00.000e0"));
+        // A number that really is negative still takes the negative picture.
+        assert_eq!(fmt(-0.000_000_001, "0.00"), "-0.00");
+        assert_eq!(fmt(-0.4, "0"), "-0");
+        assert_eq!(fmt(-1.0, "0.00;(0.00)"), "(1.00)");
     }
 
     /// Call the builtin with arbitrary arguments; `Err` carries the code.

@@ -1,0 +1,9 @@
+{
+    "expr": "[-0.0, 1.5].$formatNumber($, \"0.00\")",
+    "dataset": null,
+    "bindings": {},
+    "result": [
+        "0.00",
+        "1.50"
+    ]
+}
