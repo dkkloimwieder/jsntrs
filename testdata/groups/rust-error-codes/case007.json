@@ -1,6 +1,7 @@
 {
-    "expr": "1..2.5",
+    "expr": "[1..2.5]",
     "dataset": null,
     "bindings": {},
-    "code": "T2004"
+    "code": "T2004",
+    "divergence": "Written as the bare `1..2.5` until jsntrs-uql, which narrowed the sequence generator to the array constructor it is documented for ('The sequence generator can only be used within an array constructor []', docs.jsonata.org/numeric-operators). The bracket form pins the same T2004."
 }

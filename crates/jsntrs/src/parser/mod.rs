@@ -280,14 +280,32 @@ impl Parser {
                 })?)
             }
             TokenType::LBracket => {
-                // Array constructor [...]
+                // Array constructor [...] — and the only place `..` is a
+                // legal operator: "The sequence generator can only be used
+                // within an array constructor []."
+                // (docs.jsonata.org/numeric-operators, ".. (Range)")
                 self.advance_prefix()?;
                 let mut exprs = Vec::new();
                 while self.token.typ != TokenType::RBracket {
                     if self.token.typ == TokenType::EOF {
                         return Err(parse_error("S0202", "expected ]", self.token.pos));
                     }
-                    let expr = self.expression(0)?;
+                    let mut expr = self.expression(0)?;
+                    if self.token.typ == TokenType::DotDot {
+                        let range_pos = self.token.pos;
+                        self.advance_prefix()?;
+                        let rhs = self.expression(0)?;
+                        expr = self.arena.alloc(Expr::Binary {
+                            op: BinaryOp::Range,
+                            lhs: expr,
+                            rhs,
+                            group: None,
+                            keep_array: false,
+                            focus: None,
+                            index: None,
+                            pos: range_pos,
+                        })?;
+                    }
                     exprs.push(expr);
                     if self.token.typ == TokenType::Comma {
                         self.advance_prefix()?;
@@ -722,20 +740,6 @@ impl Parser {
                     pos: tok.pos,
                 })?)
             }
-            TokenType::DotDot => {
-                self.advance_prefix()?;
-                let rhs = self.expression(19)?;
-                Ok(self.arena.alloc(Expr::Binary {
-                    op: BinaryOp::Range,
-                    lhs: left,
-                    rhs,
-                    group: None,
-                    keep_array: false,
-                    focus: None,
-                    index: None,
-                    pos: tok.pos,
-                })?)
-            }
             TokenType::And => {
                 self.advance_prefix()?;
                 let rhs = self.expression(30)?;
@@ -1142,11 +1146,13 @@ fn binding_power(tt: TokenType) -> i32 {
         | TokenType::Caret => 40,
         TokenType::And => 30,
         TokenType::Or => 25,
-        TokenType::DotDot
-        | TokenType::Pipe
-        | TokenType::Question
-        | TokenType::Elvis
-        | TokenType::Coalesce => 20,
+        TokenType::Pipe | TokenType::Question | TokenType::Elvis | TokenType::Coalesce => 20,
+        // `..` is not an operator of the expression grammar: it is only
+        // recognised between two elements of an array constructor, by the
+        // `[` prefix handler. Binding power 0 keeps `expression()` from
+        // consuming it anywhere else, so `1..5` ends after `1` and the
+        // leftover `..` is the S0201 an unexpected token gets (jsntrs-uql).
+        TokenType::DotDot => 0,
         TokenType::Assign => 10,
         _ => 0,
     }

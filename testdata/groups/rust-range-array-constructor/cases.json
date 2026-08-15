@@ -1,0 +1,126 @@
+[
+    {
+        "expr": "1..5",
+        "data": null,
+        "bindings": {},
+        "code": "S0201",
+        "divergence": "jsntrs answered [1,2,3,4,5] before jsntrs-uql, because `..` was an ordinary infix operator. docs.jsonata.org/numeric-operators, '.. (Range)': 'The sequence generator can only be used within an array constructor [].' With `..` out of the expression grammar the leftover token is the S0201 an unexpected token gets, which is what jsonata 2.2.2 reports here too."
+    },
+    {
+        "expr": "(1..5)",
+        "data": null,
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "$sum(1..5)",
+        "data": null,
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "a[1..3]",
+        "data": {
+            "a": [
+                1,
+                2,
+                3,
+                4,
+                5
+            ]
+        },
+        "bindings": {},
+        "code": "S0202",
+        "divergence": "A predicate is the filter operator '[ ... ]' (docs.jsonata.org/path-operators), not the array constructor the range operator is confined to, so a bare range is not legal there; the doubled form a[[1..3]] is. jsntrs answered [2,3,4] before jsntrs-uql; jsonata 2.2.2 rejects it as well."
+    },
+    {
+        "expr": "[(1..3)]",
+        "data": null,
+        "bindings": {},
+        "code": "S0202",
+        "divergence": "UNRESOLVED, and pinned only to catch an accidental change. This is a CONSEQUENCE of removing `..` from the expression grammar, not something the documentation decides: docs.jsonata.org/numeric-operators says only 'The sequence generator can only be used within an array constructor []', and `[(1..3)]` IS within an array constructor \u2014 the further rule that the range must be an ELEMENT of the constructor rather than nested inside a block within it appears nowhere in the documentation. jsntrs answered [1,2,3] before jsntrs-uql and answers S0202 now; jsonata 2.2.2 also answers S0202, but agreement with the reference is not authority. See jsntrs-2rp."
+    },
+    {
+        "expr": "[1..5]",
+        "data": null,
+        "bindings": {},
+        "result": [
+            1,
+            2,
+            3,
+            4,
+            5
+        ]
+    },
+    {
+        "expr": "[1..3, 5..6]",
+        "data": null,
+        "bindings": {},
+        "result": [
+            1,
+            2,
+            3,
+            5,
+            6
+        ]
+    },
+    {
+        "expr": "a[[1..3]]",
+        "data": {
+            "a": [
+                1,
+                2,
+                3,
+                4,
+                5
+            ]
+        },
+        "bindings": {},
+        "result": [
+            2,
+            3,
+            4
+        ]
+    },
+    {
+        "expr": "a.[1..3]",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "result": [
+            1,
+            2,
+            3
+        ]
+    },
+    {
+        "expr": "[1..3][0]",
+        "data": null,
+        "bindings": {},
+        "result": 1
+    },
+    {
+        "expr": "[1+1..2*3]",
+        "data": null,
+        "bindings": {},
+        "result": [
+            2,
+            3,
+            4,
+            5,
+            6
+        ]
+    },
+    {
+        "expr": "[1 ? 2 : 3..4]",
+        "data": null,
+        "bindings": {},
+        "result": [
+            2,
+            3,
+            4
+        ],
+        "divergence": "jsntrs answered [2] before jsntrs-uql: `..` bound looser than `?`, so the range was read as the conditional's else branch. Recognising `..` only between two elements of the constructor makes the whole conditional the range's LHS, which is jsonata 2.2.2's reading too."
+    }
+]

@@ -2542,7 +2542,14 @@ mod tests {
         assert_eq!(fmt("1e2.2@$w.2[0]"), "1e2 . 2 . 2[0]");
         assert_eq!(fmt("0 . 2[0]"), "0 . 2[0]");
         assert_eq!(fmt("0 . 0[1][2]"), "0 . 0[1][2]");
-        assert_eq!(fmt("0 . 2..3"), "0 . 2..3");
+        // …and the rule cuts the other way too, which is the half a
+        // node-kind test could never get right: this step's value starts
+        // with a digit but its *printed text* starts with `[`, so the `.`
+        // needs no padding and welds on. (The line used to read
+        // `0 . 2..3`, which stopped parsing when `..` left the general
+        // expression grammar for the array constructor — jsntrs-uql.)
+        assert_eq!(fmt("0 . [2..3]"), "0.[2..3]");
+        assert_eq!(fmt("0.[2..3]"), "0.[2..3]");
         assert_eq!(fmt("0 . 2^(<a)"), "0 . 2^(<a)");
         assert_eq!(fmt(r#"0 . 2{"k": $}"#), r#"0 . 2{"k": $}"#);
         // The group hoisted to the end of the path leaves the `.` in front
