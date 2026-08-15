@@ -1,0 +1,17 @@
+[
+    {
+        "expr": "$string(5e-324)",
+        "data": {},
+        "result": "5e-324"
+    },
+    {
+        "expr": "$string([5e-324])",
+        "data": {},
+        "result": "[5e-324]"
+    },
+    {
+        "expr": "\"\" & (5e-324)",
+        "data": {},
+        "result": "5e-324"
+    }
+]

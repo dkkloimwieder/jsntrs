@@ -101,7 +101,7 @@ type Sequence struct {
 
 ## 1.4 Number Handling: Single f64 Representation
 
-**Rust port (shipped behavior).** Numbers are `Value::Number(f64)` only -- there is no second numeric variant (`crates/jsntrs/src/value.rs:82`). JSON input is converted to f64 at parse time (`Value::from_json`, `value.rs:464-467`, via `n.as_f64()`), so integers beyond 2^53 are **not** preserved verbatim; digits past that limit are lost on ingest. JSON output re-renders through `ryu-js` (`value.rs:521-528`) and `&`/`$string` coercion goes through `format_float` (`value.rs:399-401`). The Go `json.Number` verbatim-precision path was deliberately not ported, and `FormatNumber` has no Rust counterpart.
+**Rust port (shipped behavior).** Numbers are `Value::Number(f64)` only -- there is no second numeric variant (`crates/jsntrs/src/value.rs:82`). JSON input is converted to f64 at parse time (`Value::from_json`, `value.rs:464-467`, via `n.as_f64()`), so integers beyond 2^53 are **not** preserved verbatim; digits past that limit are lost on ingest. JSON output re-renders through `ryu-js`, exactly, and `&`/`$string` coercion applies the 15-significant-digit cast first and then renders through the same `ryu-js` — scalars via `format_float`, container members via `Value::string_cast` (jsntrs-nyn unified the two; before it, the scalar arm skipped the cast for every `|n| < 0.1`). The Go `json.Number` verbatim-precision path was deliberately not ported, and `FormatNumber` has no Rust counterpart.
 
 **Rust port: negative zero (jsntrs-p0v.5).** `format_float` prints `-0.0` as
 `"0"`, not Go's `"-0"`. JavaScript agrees at both layers (`String(-0)` and
@@ -566,6 +566,38 @@ Matches JavaScript `Number.toString()`:
 - Numbers between `5e-7` and `1e21` (exclusive): decimal notation via `strconv.FormatFloat('g', 15, 64)`
 - Numbers outside that range: scientific notation with cleaned exponents -- leading zeros stripped, sign always present (`1e+21`, `1e-7`)
 - `NaN` / `Inf` -> `"null"`
+
+**Rust port deviation (jsntrs-nyn).** jsntrs no longer runs this pipeline.
+`format_float` now rounds to 15 significant digits and renders the result
+with `ryu-js`, which is the same two steps `$string` takes on a container's
+members — so one number renders identically whether or not it is wrapped.
+The `'g'` pipeline could not do that: its scientific threshold is `exp < -1`,
+so every `|n| < 0.1` bypassed the rounding, and `$string(0.04308013916015625)`
+answered `"0.04308013916015625"` while `$string([0.04308013916015625])`
+answered `"[0.0430801391601563]"`. On `[5e-7, 1e-6)` the scalar arm stood
+alone against jsonata-js, ECMAScript and jsntrs's own container arm at once
+(`$string(7/9000000)` was `"0.0000007777777777777778"`, now
+`"7.77777777777778e-7"`). `testdata/groups/rust-string-small-scalars` pins
+scalar, array and `&` forms of the same values together so the two arms
+cannot drift apart again.
+
+**Where the 15 digits come from, and what is *not* claimed (jsntrs-jnv).**
+The JSONata documentation never states a digit count. It says `$string`
+converts "all other values ... using the JSON.stringify function", which
+names a three-parameter function whose replacer runs *before* ECMAScript's
+exact-number step — and two of the same list's four bullets (functions to
+`""`, infinity/NaN throwing) are unreachable without such a replacer, so the
+sentence cannot be read as mandating exact output. What the documentation
+does show is rounded example output: `$sqrt(2)` documented as
+`1.414213562373`, `$power(2, 0.5)` the same, `Numbers[0] / Numbers[4]` as
+`0.04784688995215` — all 13 significant digits, byte-exact
+`toPrecision(13)`. Those examples are frozen jsonata-1.5.1 output; the
+reference moved to 15 in 1.5.4 and never updated the docs. jsntrs uses 15 as
+the live consensus count. **This is a deliberate, undocumented-behavior
+deviation, and it means `$string` is not round-trip lossless**:
+`$number($string(0.4308013916015625))` does not recover its argument. The
+JSON layer is unaffected — `write_json` stays exact, which is what CLAUDE.md
+invariant 5 is about.
 
 ### 4.2.7 `compareValues` -- Relational Operators (line 104)
 

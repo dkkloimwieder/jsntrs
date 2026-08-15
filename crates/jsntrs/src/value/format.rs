@@ -3,97 +3,51 @@
 //! Go equivalent: `FormatFloat` in `eval_helpers.go`, `FormatNumber` in `eval_helpers.go`.
 //! Uses `ryu-js` crate for exact ECMAScript formatting.
 
-/// Format an f64 to match Go's `FormatFloat` in `eval_helpers.go`.
+/// Render one number the way `$string` (and `&`) must render it.
 ///
-/// Algorithm (mirrors Go exactly):
-/// 1. `s = FormatFloat(n, 'g', 15, 64)` — 15 significant digits
-/// 2. If `abs ∉ [5e-7, 1e21)` — scientific with shortest repr, cleaned exponent
-/// 3. Else if `s` contains `e`/`E` — `FormatFloat(n, 'f', -1, 64)` full decimal
-/// 4. Else — return `s`
+/// This is the *scalar* arm of the `$string` cast, and it is deliberately the
+/// same two steps the container arm takes ([`Value::string_cast`] followed by
+/// the JSON writer): snap the value to 15 significant digits with
+/// [`string_cast_number`], then render that double exactly, with `ryu-js`.
+/// The rounding is the cast; the rendering is ECMAScript
+/// `Number.prototype.toString`, which `ryu-js` implements.
 ///
-/// Step 3 splits on integrality — see [`round_to_15_significant`] and the
-/// comment at its call site.
+/// [`Value::string_cast`]: crate::Value::string_cast
 ///
-/// - NaN/Inf → "null"
+/// Doing anything else here splits the engine against itself. Until
+/// jsntrs-nyn this function ran a port of Go's `FormatFloat(n, 'g', 15, 64)`
+/// pipeline whose scientific threshold (`exp < -1`) let every `|n| < 0.1`
+/// escape the cast, so `$string(0.04308013916015625)` answered
+/// `"0.04308013916015625"` while `$string([0.04308013916015625])` answered
+/// `"[0.0430801391601563]"` — one number, one function, two answers. No
+/// conformance case covered the band, which is how the split survived.
+///
+/// What the cast *is* is settled separately (jsntrs-jnv): the JSONata
+/// documentation never states a digit count, but its own worked examples are
+/// rounded, and the sentence delegating to `JSON.stringify` names a function
+/// whose replacer runs before the exact-number step. 15 digits is the live
+/// reference count, recorded as a deviation in `docs/spec.md`.
+///
+/// Non-finite input returns `"null"`. `$string` rejects those with `D1001`
+/// long before this, but the error payloads that report them come through
+/// here and pin that spelling.
 pub fn format_float(n: f64) -> String {
-    if n.is_nan() || n.is_infinite() {
+    if !n.is_finite() {
         return "null".into();
     }
 
-    // Negative zero prints unsigned. JavaScript agrees at both layers
-    // (`String(-0)` and `JSON.stringify(-0)` are both "0") and so does the
-    // JSON side here (`ryu-js`), so the two number-formatting layers must
-    // not disagree about the sign of zero (jsntrs-p0v.5). Go's
-    // FormatFloat('g') did print "-0"; that is the one place this function
-    // does not mirror it.
-    if n == 0.0 {
-        return "0".into();
-    }
-
-    let abs = n.abs();
-
-    // Fast path: integral values below 1e15 print as their plain digits —
-    // identical to the 'g'15 pipeline output (≤15 significant digits, exact
-    // in f64), without its intermediate strings. Integers dominate the
-    // string-concat and $string hot paths.
-    if abs < 1e15 && n.fract() == 0.0 {
+    // Integral values below 1e15 print as their plain digits: the cast passes
+    // integers through untouched, so this is what both steps below would
+    // produce anyway, without their intermediate work. Integers dominate the
+    // string-concat and $string hot paths, and this also settles negative
+    // zero — `-0.0 as i64` is 0, and JavaScript prints `String(-0)` and
+    // `JSON.stringify(-0)` both as "0" (jsntrs-p0v.5).
+    if n.abs() < 1e15 && n.fract() == 0.0 {
         return format!("{}", n as i64);
     }
 
-    // Step 1: 15 significant digits (Go's 'g', 15).
-    // Rust's format!("{:.14e}") gives 15 sig digits in scientific form.
-    let s = format_g15(n);
-
-    // Step 2: very small or very large → scientific with shortest repr
-    if abs != 0.0 && !(5e-7..1e21).contains(&abs) {
-        // Use ryu-js for shortest representation (like Go's 'e', -1)
-        let mut buf = ryu_js::Buffer::new();
-        let ryu = buf.format(n).to_owned();
-        if ryu.contains('e') || ryu.contains('E') {
-            return clean_exponent(&ryu);
-        }
-        // Fallback: Rust scientific notation
-        let sci = format!("{n:e}");
-        return clean_exponent(&sci);
-    }
-
-    // Step 3: if 'g',15 produced scientific, use full decimal (Go's 'f', -1)
-    if s.contains('e') || s.contains('E') {
-        // Go's 'f',-1 is the *shortest round-tripping* digits, which keeps
-        // everything past the 15th that step 1 had just rounded away. That
-        // matches jsonata-js only for integers: its stringify replacer
-        // passes those to JSON.stringify untouched
-        // (`!Number.isInteger(val)` guards the cast), which is what pins
-        // $string(5890840712243076) to its own digits in
-        // function-string/case030. A non-integer goes through
-        // `Number(val.toPrecision(15))` first, so the extra digits are gone
-        // before serialization — $string(1234567890123456.7) is
-        // "1234567890123460", not the "1234567890123456.8" this used to
-        // print (jsntrs-p0v.24).
-        //
-        // Only the large end: 'g'15 also goes scientific below 1e-6, and
-        // that band is deliberately Go-shaped (see
-        // `format_small_band_keeps_full_precision`). A positive exponent
-        // here means 15 significant digits reach at least 1e15, so this
-        // covers the non-integral doubles from 999999999999999.5 up to
-        // 2^52, above which every double is a whole number anyway.
-        if n.fract() != 0.0 && s.contains("e+") {
-            let mut buf = ryu_js::Buffer::new();
-            return buf.format_finite(round_to_15_significant(n)).to_owned();
-        }
-        // ryu-js may produce scientific notation. We need full decimal.
-        // Use ryu-js first; if it's decimal, return it. Otherwise convert.
-        let mut buf = ryu_js::Buffer::new();
-        let ryu = buf.format(n).to_owned();
-        if !ryu.contains('e') && !ryu.contains('E') {
-            return ryu;
-        }
-        // ryu-js gave scientific; manually convert to decimal.
-        return scientific_to_decimal(n);
-    }
-
-    // Step 4: return the 15-sig-digit result
-    s
+    let mut buf = ryu_js::Buffer::new();
+    buf.format_finite(string_cast_number(n)).to_owned()
 }
 
 /// Round `n` to 15 significant decimal digits and return the nearest double
@@ -226,102 +180,6 @@ fn g15_significand(abs: f64) -> (String, i32) {
     } else {
         (rounded.to_string(), exp)
     }
-}
-
-/// Format a number with 15 significant digits, equivalent to Go's
-/// `strconv.FormatFloat(n, 'g', 15, 64)` except that ties round away from
-/// zero (see [`g15_significand`]).
-///
-/// Converts the rounded significand to the most compact non-scientific
-/// representation.
-fn format_g15(n: f64) -> String {
-    if n == 0.0 {
-        return if n.is_sign_negative() {
-            "-0".into()
-        } else {
-            "0".into()
-        };
-    }
-
-    let negative = n.is_sign_negative();
-    let (all_digits, exp) = g15_significand(n.abs());
-
-    // Remove trailing zeros from the significand
-    let digits = all_digits.trim_end_matches('0');
-    let num_digits = digits.len() as i32;
-
-    // Decide format: 'g' uses scientific if exp < -1 or exp >= precision
-    // For precision 15: scientific if exp < -1 or exp >= 15
-    let use_scientific = !(-1..15).contains(&exp);
-
-    let result = if use_scientific {
-        // Scientific notation: d.dddde±dd
-        if num_digits <= 1 {
-            format!("{digits}e{exp:+03}")
-        } else {
-            format!("{}.{}e{:+03}", &digits[..1], &digits[1..], exp)
-        }
-    } else if exp < 0 {
-        // Needs leading zeros: 0.000...digits
-        let zeros = (-(exp + 1)) as usize + 1;
-        let mut r = String::from("0.");
-        for _ in 1..zeros {
-            r.push('0');
-        }
-        r.push_str(digits);
-        r
-    } else {
-        let decimal_pos = (exp + 1) as usize;
-        if decimal_pos >= num_digits as usize {
-            // All digits before decimal, pad with zeros
-            let mut r = digits.to_owned();
-            for _ in 0..(decimal_pos - num_digits as usize) {
-                r.push('0');
-            }
-            r
-        } else {
-            // Decimal point within digits
-            format!("{}.{}", &digits[..decimal_pos], &digits[decimal_pos..])
-        }
-    };
-
-    if negative {
-        format!("-{result}")
-    } else {
-        result
-    }
-}
-
-/// Convert a number in the range [5e-7, 1e21) to full decimal representation.
-/// Equivalent to Go's `strconv.FormatFloat(n, 'f', -1, 64)` — and so is
-/// Rust's `Display`: shortest round-trip digits, positional notation only.
-/// (A fixed-precision `{n:.20}` kept only ~14 significant digits for the
-/// [5e-7, 1e-6) band, so $string(7/9000000) failed to round-trip.)
-fn scientific_to_decimal(n: f64) -> String {
-    n.to_string()
-}
-
-/// Clean up a scientific notation string: remove leading zeros from exponent,
-/// ensure sign is present.
-fn clean_exponent(s: &str) -> String {
-    let (mantissa, exp) = if let Some(pos) = s.find('e') {
-        (&s[..pos], &s[pos + 1..])
-    } else if let Some(pos) = s.find('E') {
-        (&s[..pos], &s[pos + 1..])
-    } else {
-        return s.to_owned();
-    };
-
-    let (sign, digits) = if exp.starts_with('+') || exp.starts_with('-') {
-        (&exp[..1], &exp[1..])
-    } else {
-        ("+", exp)
-    };
-
-    let trimmed = digits.trim_start_matches('0');
-    let trimmed = if trimmed.is_empty() { "0" } else { trimmed };
-
-    format!("{mantissa}e{sign}{trimmed}")
 }
 
 #[cfg(test)]
@@ -458,26 +316,71 @@ mod tests {
         );
     }
 
-    /// Go-verified (2026-08-07): the [5e-7, 1e-6) band prints full decimal
-    /// with shortest round-trip digits, not 14-sig-digit truncation
-    /// (gnata-nuo.4).
+    /// Below 0.1 the cast applies like everywhere else (jsntrs-nyn).
+    ///
+    /// This test used to assert the opposite — that `[5e-7, 1e-6)` kept
+    /// shortest round-trip digits, `$string(7/9000000)` being
+    /// `"0.0000007777777777777778"`. That came from the Go pipeline's `'g'`
+    /// threshold (`exp < -1`), which sent everything under 0.1 down a branch
+    /// that never rounded, and it left the scalar path disagreeing with
+    /// jsonata-js, with ECMAScript, *and* with jsntrs's own container path all
+    /// at once. It was the only thing pinning the band, and it was wrong.
+    ///
+    /// Every expectation below is copied from a jsonata 2.2.2 sweep
+    /// (2026-08-15, `require.cache` cleared per case).
     #[test]
-    fn format_small_band_keeps_full_precision() {
-        assert_eq!(
-            format_float(7.0_f64 / 9_000_000.0),
-            "0.0000007777777777777778"
-        );
-        assert_eq!(format_float(0.000_000_5), "0.0000005");
-        assert_eq!(
-            format_float(0.000_000_999_999_999_999_999_7),
-            "0.0000009999999999999997"
-        );
-        assert_eq!(
-            format_float(0.000_001_234_567_890_123_456_7),
-            "0.0000012345678901234567"
-        );
-        // Just below the band stays scientific.
-        assert_eq!(format_float(0.000_000_49), "4.9e-7");
+    fn format_applies_the_cast_below_one_tenth() {
+        for (n, expected) in [
+            // The [5e-7, 1e-6) band the old test froze.
+            (7.0_f64 / 9_000_000.0, "7.77777777777778e-7"),
+            (0.000_000_5, "5e-7"),
+            (0.000_000_999_999_999_999_999_7, "0.000001"),
+            (0.000_001_234_567_890_123_456_7, "0.00000123456789012346"),
+            (0.000_000_49, "4.9e-7"),
+            // …and the rest of the decade range that escaped with it.
+            (0.012_345_678_901_234_567, "0.0123456789012346"),
+            (0.043_080_139_160_156_25, "0.0430801391601563"),
+            (0.004_308_013_916_015_625, "0.00430801391601562"),
+            (1.234_567_890_123_456_7e-10, "1.23456789012346e-10"),
+            (3.980_498_358_697_587e-249, "3.98049835869759e-249"),
+            (f64::from_bits(1), "5e-324"),
+            (0.099_999_999_999_999_99, "0.1"),
+            (1.0_f64 / 3.0, "0.333333333333333"),
+            // The float-noise case the cast exists to absorb.
+            (0.1 + 0.2, "0.3"),
+        ] {
+            assert_eq!(format_float(n), expected, "for {n:e}");
+            assert_eq!(format_float(-n), format!("-{expected}"), "for -{n:e}");
+        }
+    }
+
+    /// One number must render the same whether or not it sits in a container.
+    ///
+    /// The scalar arm ([`format_float`]) and the container arm
+    /// (`Value::string_cast` plus the JSON writer) are separate code paths
+    /// that have to agree; jsntrs-nyn is what happens when they stop. The
+    /// values are the ones that used to disagree.
+    #[test]
+    fn scalar_and_container_arms_agree() {
+        for n in [
+            7.0_f64 / 9_000_000.0,
+            0.012_345_678_901_234_567,
+            0.043_080_139_160_156_25,
+            0.004_308_013_916_015_625,
+            1.234_567_890_123_456_7e-10,
+            0.1 + 0.2,
+            1.0 / 3.0,
+            0.5,
+            1.5,
+            42.0,
+            -0.000_000_777_777_777_777_777_8,
+        ] {
+            // What the container arm hands the JSON writer, rendered the way
+            // the JSON writer renders it.
+            let mut buf = ryu_js::Buffer::new();
+            let via_container = buf.format_finite(string_cast_number(n)).to_owned();
+            assert_eq!(format_float(n), via_container, "for {n:e}");
+        }
     }
 
     #[test]
