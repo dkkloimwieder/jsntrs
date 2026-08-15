@@ -573,7 +573,7 @@ const KNOWN_TOKEN_GAPS: &[(&str, &str)] = &[];
 /// total, so a third of a group could vanish unnoticed). Pin the count
 /// instead. This is the single constant to bump when cases are added or
 /// removed — the diff then always says how many, in one line.
-const EXPECTED_CASE_TOTAL: usize = 2832;
+const EXPECTED_CASE_TOTAL: usize = 2833;
 
 #[test]
 fn conformance_suite() {

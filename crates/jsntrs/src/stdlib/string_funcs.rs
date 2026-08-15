@@ -382,11 +382,20 @@ pub fn fn_split(args: &[Value], _focus: &Value) -> JsonataResult {
     if args[0].is_undefined() {
         return Ok(Value::Undefined);
     }
-    // Non-string first arg → undefined
-    let s: &str = match &args[0] {
-        Value::String(s) => s,
-        _ => return Ok(Value::Undefined),
+    // A defined, non-string `str` is an error, not undefined: the JSONata
+    // documentation's `$split` entry says "It is an error if `str` is not a
+    // string" (docs.jsonata.org String Functions, `$split`). Every sibling
+    // string builtin here already raises T0410 for the same shape
+    // (`$contains`, `$replace`, `$match`, `$substringBefore`, …); the
+    // documentation names no code, so `$split` follows that house rule
+    // rather than inventing one.
+    let Value::String(first) = &args[0] else {
+        return Err(JsonataError::new(
+            "T0410",
+            "$split: argument 1 must be a string",
+        ));
     };
+    let s: &str = first;
     if args.len() < 2 {
         return Err(JsonataError::new(
             "T0410",

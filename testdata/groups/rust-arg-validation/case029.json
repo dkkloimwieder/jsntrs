@@ -1,0 +1,5 @@
+{
+    "expr": "$split(1, 'a')",
+    "data": null,
+    "code": "T0410"
+}

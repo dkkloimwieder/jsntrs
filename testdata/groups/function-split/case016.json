@@ -2,5 +2,6 @@
     "expr": "$split(12345, 3)",
     "dataset": null,
     "bindings": {},
-    "undefinedResult": true
+    "code": "T0410",
+    "divergence": "Inherited case expected undefined. The JSONata documentation's String Functions page says of $split: \"It is an error if `str` is not a string\", so a defined non-string first argument must raise, not yield undefined; jsonata 2.2.2 agrees (T0410 token \"split\"). Expectation re-derived from the documentation."
 }
