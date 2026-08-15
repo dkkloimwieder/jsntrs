@@ -1,0 +1,15 @@
+{
+    "expr": "a.b[%.n=1]",
+    "data": {
+        "n": 1,
+        "a": {
+            "b": [
+                1,
+                2,
+                3
+            ]
+        }
+    },
+    "bindings": {},
+    "undefinedResult": true
+}

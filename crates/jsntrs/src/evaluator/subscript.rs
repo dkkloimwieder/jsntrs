@@ -218,9 +218,34 @@ fn eval_subscript(
     // reference's `evaluateFilter` loop body never runs over an empty input:
     // `a[1/0]` on `{"a": []}` answers undefined there, so the probe must not
     // reach `numeric_index` and raise D1001 for it either.
+    //
+    // The probe is a *rehearsal* of the loop below, so it has to run in the
+    // loop's environment. Running it in the outer `env` left `%` bound by the
+    // enclosing path step instead of by this filter, and the two are different
+    // objects one step apart:
+    //
+    // > This will select the 'parent' of the current context value. Here, we
+    // > define 'parent' to be the enclosing object which has the property
+    // > representing the context value.
+    // >   — https://docs.jsonata.org/path-operators, `%` (Parent)
+    //
+    // For `a.b[%.n]` the context values are the members of `b`, so `%` is the
+    // object that has the `b` property — the `a` object. The probe saw the
+    // *root* and answered from `n` at the top level, which is one level too
+    // far out (jsntrs-0hg). Note the divergence only ever showed up through
+    // the probe: whenever the predicate was not numeric it fell through to the
+    // loop, which had the binding right all along.
+    let filter_env_owned: Option<Rc<Environment>> = if needs_env {
+        let fe = Rc::new(Environment::new_child(Rc::clone(env)));
+        fe.bind(PARENT_BINDING, input.clone());
+        Some(fe)
+    } else {
+        None
+    };
+    let eval_env = filter_env_owned.as_ref().unwrap_or(env);
     if let Some(probe_ctx) = arr.first()
         && rhs_could_be_numeric
-        && let Ok(index) = eval_operand(arena, rhs, probe_ctx, env)
+        && let Ok(index) = eval_operand(arena, rhs, probe_ctx, eval_env)
     {
         // Array of all-numeric values → select those indices (e.g. [[1..4]]).
         if let Value::Array(ref indices) = index
@@ -243,16 +268,8 @@ fn eval_subscript(
         let _ = index;
     }
 
-    // Predicate filter — evaluate rhs against each element.
-    // Only create a child env when the predicate uses % or has index variable bindings.
-    let filter_env_owned: Option<Rc<Environment>> = if needs_env {
-        let fe = Rc::new(Environment::new_child(Rc::clone(env)));
-        fe.bind(PARENT_BINDING, input.clone());
-        Some(fe)
-    } else {
-        None
-    };
-    let eval_env = filter_env_owned.as_ref().unwrap_or(env);
+    // Predicate filter — evaluate rhs against each element, in the same
+    // environment the probe above used.
     let mut seq = Sequence::with_capacity(arr.len());
     for (i, item) in arr.iter().enumerate() {
         eval_env.poll_cancelled(i)?;

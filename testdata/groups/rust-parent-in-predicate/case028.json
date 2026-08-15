@@ -1,0 +1,19 @@
+{
+    "expr": "a.b[%]",
+    "data": {
+        "a": {
+            "b": [
+                1,
+                2,
+                3
+            ]
+        }
+    },
+    "bindings": {},
+    "result": [
+        1,
+        2,
+        3
+    ],
+    "divergence": "jsonata 2.2.2 answers undefined here. Its processAST gives a bare `%` predicate a parent slot at level 1 where `%.n` gets level 0 (verified in the reference AST: the `a.b[%]` step carries no `ancestor` and no `tuple: true`), so the slot is never filled and `%` evaluates to undefined -- an off-by-one in its static analysis, not a rule. docs.jsonata.org/path-operators defines `%` as 'the enclosing object which has the property representing the context value', which is the `a` object for every context value in `b`, whether the predicate is `%` or `%.n`; that object is truthy, so the filter keeps every item. The same page says an unresolvable parent is a static error S0217, which the reference does not raise either."
+}
