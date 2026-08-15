@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(7, \"00a\", {\"per-mille\": \"0a\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "7000a"
+}

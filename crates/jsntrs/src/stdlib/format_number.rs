@@ -2,6 +2,8 @@
 //!
 //! Port of Go `functions/string_format_number.go`.
 
+use compact_str::CompactString;
+
 use crate::error::{JsonataError, JsonataResult};
 use crate::value::Value;
 
@@ -77,17 +79,40 @@ const DEFAULT_EXPONENT_SEP: char = 'e';
 pub(crate) struct FmtChars {
     pub(crate) decimal_sep: char,
     pub(crate) grouping_sep: char,
-    pub(crate) percent: char,
-    pub(crate) per_mille: char,
+    /// Scaling markers, matched as *strings*. jsonata-js never compares a
+    /// picture character to these: it asks whether the sub-picture *contains*
+    /// the option's value (`subpicture.indexOf(properties.percent)`), and
+    /// scales by 100 or 1000 when it does. So a multi-character value matches
+    /// only a run of that many characters — `{"percent": "0a"}` leaves an
+    /// ordinary `%` as passive suffix text but scales `"00a"` — and an empty
+    /// value matches everywhere, which is why `{"per-mille": ""}` makes every
+    /// non-empty picture a D3083. jsntrs used to take the first character of
+    /// the value, so a multi-character one broke pictures that never
+    /// mentioned it: `$formatNumber(7, "00", {"per-mille": "0a"})` was D3083
+    /// (jsntrs-p0v.27).
+    pub(crate) percent: CompactString,
+    pub(crate) per_mille: CompactString,
     pub(crate) zero_digit: char,
     pub(crate) digit: char,
-    pub(crate) pattern_sep: char,
+    /// Split on as a string, like `String.prototype.split`: a
+    /// multi-character value splits on the whole run (and leaves `;` an
+    /// ordinary passive character), and an empty one splits between every
+    /// character, so `{"pattern-separator": ""}` makes `"000"` three
+    /// sub-pictures and a D3080.
+    pub(crate) pattern_sep: CompactString,
     /// Character treated as the exponent separator, or `None` when no
     /// character can be: jsonata-js compares single picture characters against
     /// the option value, so an empty or multi-character value never matches
     /// and the picture then has no exponent part.
+    ///
+    /// This one stays a character. jsonata-js locates it with
+    /// `subpicture.indexOf(...)` like the scaling markers, but then *emits* it
+    /// and slices the mantissa at its index, so the string behaviour is
+    /// entangled with the off-by-prefix bug `locate_exponent` documents: an
+    /// empty value matches at the prefix boundary and makes every picture an
+    /// empty-mantissa error there. jsntrs keeps "no such separator" instead
+    /// (jsntrs-p0v.27).
     pub(crate) exponent_sep: Option<char>,
-    pub(crate) per_mille_str: String,
 }
 
 impl Default for FmtChars {
@@ -95,13 +120,12 @@ impl Default for FmtChars {
         FmtChars {
             decimal_sep: '.',
             grouping_sep: ',',
-            percent: '%',
-            per_mille: '\u{2030}', // ‰
+            percent: CompactString::const_new("%"),
+            per_mille: CompactString::const_new("\u{2030}"), // ‰
             zero_digit: '0',
             digit: '#',
-            pattern_sep: ';',
+            pattern_sep: CompactString::const_new(";"),
             exponent_sep: Some(DEFAULT_EXPONENT_SEP),
-            per_mille_str: "\u{2030}".to_string(),
         }
     }
 }
@@ -114,14 +138,11 @@ impl FmtChars {
             match key {
                 "decimal-separator" if chars.len() == 1 => fc.decimal_sep = chars[0],
                 "grouping-separator" if chars.len() == 1 => fc.grouping_sep = chars[0],
-                "percent" if chars.len() == 1 => fc.percent = chars[0],
-                "per-mille" if !val.is_empty() => {
-                    fc.per_mille_str = val.to_string();
-                    fc.per_mille = chars[0];
-                }
+                "percent" => fc.percent = CompactString::new(val),
+                "per-mille" => fc.per_mille = CompactString::new(val),
                 "zero-digit" if chars.len() == 1 => fc.zero_digit = chars[0],
                 "digit" if chars.len() == 1 => fc.digit = chars[0],
-                "pattern-separator" if chars.len() == 1 => fc.pattern_sep = chars[0],
+                "pattern-separator" => fc.pattern_sep = CompactString::new(val),
                 "exponent-separator" => {
                     fc.exponent_sep = if chars.len() == 1 {
                         Some(chars[0])
@@ -185,13 +206,31 @@ fn count_char(hay: &[char], needle: char) -> usize {
     hay.iter().filter(|&&c| c == needle).count()
 }
 
+/// Distinct positions at which `needle` occurs in `hay`.
+///
+/// The rules that use this ask only whether there are none, one, or more than
+/// one — jsonata-js phrases "more than one instance" as
+/// `indexOf(x) !== lastIndexOf(x)`. An empty needle matches at every position
+/// including one past the end, exactly as `String.prototype.indexOf` reports
+/// it, so an empty `percent` or `per-mille` option is "more than one instance"
+/// for every non-empty picture.
+fn count_occurrences(hay: &[char], needle: &str) -> usize {
+    let len = needle.chars().count();
+    let Some(last_start) = hay.len().checked_sub(len) else {
+        return 0;
+    };
+    (0..=last_start)
+        .filter(|&i| hay[i..i + len].iter().copied().eq(needle.chars()))
+        .count()
+}
+
 /// 0 = no scaling, 1 = percent, 2 = per-mille.
 ///
 /// Only reached once validation has ruled out a picture carrying both.
 fn scaling_factor(picture: &[char], fc: &FmtChars) -> u8 {
-    if count_char(picture, fc.percent) > 0 {
+    if count_occurrences(picture, &fc.percent) > 0 {
         1
-    } else if count_char(picture, fc.per_mille) > 0 {
+    } else if count_occurrences(picture, &fc.per_mille) > 0 {
         2
     } else {
         0
@@ -327,8 +366,8 @@ fn validate_sub_picture(p: &SubPictureParts<'_>, fc: &FmtChars) -> Option<Jsonat
     if count_char(p.picture, fc.decimal_sep) > 1 {
         worst.note("D3081");
     }
-    let percents = count_char(p.picture, fc.percent);
-    let per_milles = count_char(p.picture, fc.per_mille);
+    let percents = count_occurrences(p.picture, &fc.percent);
+    let per_milles = count_occurrences(p.picture, &fc.per_mille);
     if percents > 1 {
         worst.note("D3082");
     }
@@ -696,19 +735,23 @@ pub(crate) fn format_with_exponent(n: f64, sp: &SubPicture, fc: &FmtChars) -> St
     format!("{mantissa_part}{exp_sep}{exp_sign}{exp_str}")
 }
 
-pub(crate) fn split_on_pattern_sep(picture: &str, sep: char) -> Vec<String> {
-    let mut parts: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    for c in picture.chars() {
-        if c == sep {
-            parts.push(cur);
-            cur = String::new();
-        } else {
-            cur.push(c);
+/// Cut the picture into sub-pictures, with `String.prototype.split`
+/// semantics: the separator is matched as a string, so a multi-character
+/// `pattern-separator` splits on the whole run, and an empty one splits
+/// between every character.
+///
+/// JS returns *no* parts when both the picture and the separator are empty;
+/// jsonata-js then analyses an undefined sub-picture and throws a TypeError.
+/// jsntrs keeps the single empty sub-picture it has always answered D3085
+/// for, which is the same deviation `scan_sub_picture_region` documents.
+pub(crate) fn split_on_pattern_sep(picture: &str, sep: &str) -> Vec<String> {
+    if sep.is_empty() {
+        if picture.is_empty() {
+            return vec![String::new()];
         }
+        return picture.chars().map(String::from).collect();
     }
-    parts.push(cur);
-    parts
+    picture.split(sep).map(str::to_string).collect()
 }
 
 fn format_number_picture(
@@ -718,7 +761,7 @@ fn format_number_picture(
 ) -> Result<String, JsonataError> {
     let fc = FmtChars::from_opts(opts);
 
-    let pics = split_on_pattern_sep(picture, fc.pattern_sep);
+    let pics = split_on_pattern_sep(picture, &fc.pattern_sep);
     if pics.len() > 2 {
         return Err(JsonataError::new(
             "D3080",
@@ -942,6 +985,74 @@ mod tests {
         assert_eq!(
             fmt_opts(1234.5678, "0.0e0", r#"{"bogus": "x"}"#),
             Ok("1.2e3".to_string())
+        );
+    }
+
+    /// `percent` and `per-mille` are matched as strings: jsonata-js only ever
+    /// asks whether the sub-picture *contains* the option's value. Expected
+    /// values verified against jsonata-js 2.1.0 (jsntrs-p0v.27); jsntrs took
+    /// the value's first character, so a multi-character per-mille broke
+    /// pictures that never mentioned it.
+    #[test]
+    fn scaling_options_are_matched_as_strings() {
+        // First-character matching made this D3083: "00" has two '0'.
+        assert_eq!(
+            fmt_opts(7.0, "00", r#"{"per-mille": "0a"}"#),
+            Ok("07".to_string())
+        );
+        assert_eq!(
+            fmt_opts(7.0, "00", r#"{"percent": "0a"}"#),
+            Ok("07".to_string())
+        );
+        // Once the option replaces it, the default marker is passive text.
+        assert_eq!(
+            fmt_opts(7.0, "0%", r#"{"percent": "0a"}"#),
+            Ok("7%".to_string())
+        );
+        assert_eq!(
+            fmt_opts(7.0, "0‰", r#"{"per-mille": "0a"}"#),
+            Ok("7‰".to_string())
+        );
+        // A multi-character value that does occur still scales.
+        assert_eq!(
+            fmt_opts(7.0, "00a", r#"{"percent": "0a"}"#),
+            Ok("700a".to_string())
+        );
+        assert_eq!(
+            fmt_opts(7.0, "00a", r#"{"per-mille": "0a"}"#),
+            Ok("7000a".to_string())
+        );
+        assert_eq!(
+            fmt_opts(7.0, "0ab", r#"{"percent": "ab"}"#),
+            Ok("700ab".to_string())
+        );
+        // An empty value matches at every position, so every non-empty
+        // picture holds "more than one instance" of it.
+        assert_eq!(fmt_opts(7.0, "0", r#"{"percent": ""}"#), Err("D3082"));
+        assert_eq!(fmt_opts(7.0, "0", r#"{"per-mille": ""}"#), Err("D3083"));
+    }
+
+    /// `pattern-separator` splits the picture as a string, like
+    /// `String.prototype.split`. Expected values verified against jsonata-js
+    /// 2.1.0 (jsntrs-p0v.27); jsntrs ignored any value that was not a single
+    /// character and split on `;` regardless.
+    #[test]
+    fn pattern_separator_splits_on_the_whole_value() {
+        let aa = r#"{"pattern-separator": "aa"}"#;
+        assert_eq!(fmt_opts(7.0, "0aa00", aa), Ok("7".to_string()));
+        assert_eq!(fmt_opts(-7.0, "0aa00", aa), Ok("07".to_string()));
+        // `;` is then an ordinary passive character between active ones.
+        assert_eq!(fmt_opts(7.0, "0;00", aa), Err("D3086"));
+        assert_eq!(fmt_opts(-7.0, "0aa#0aa0", aa), Err("D3080"));
+        // An empty separator splits between every character, and a separator
+        // occurring twice yields three sub-pictures.
+        let empty = r#"{"pattern-separator": ""}"#;
+        assert_eq!(fmt_opts(7.0, "0", empty), Ok("7".to_string()));
+        assert_eq!(fmt_opts(7.0, "00", empty), Ok("7".to_string()));
+        assert_eq!(fmt_opts(7.0, "000", empty), Err("D3080"));
+        assert_eq!(
+            fmt_opts(7.0, "00", r#"{"pattern-separator": "0"}"#),
+            Err("D3080")
         );
     }
 

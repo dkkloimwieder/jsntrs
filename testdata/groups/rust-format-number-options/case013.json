@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(7, \"00\", {\"pattern-separator\": \"\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "7"
+}

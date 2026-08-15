@@ -911,7 +911,7 @@ fn try_prepare(func_name: &str, args: &[CallArg]) -> Option<PreparedState> {
                 _ => return None,
             };
             let fc = super::format_number::FmtChars::default();
-            let pics = super::format_number::split_on_pattern_sep(&picture, fc.pattern_sep);
+            let pics = super::format_number::split_on_pattern_sep(&picture, &fc.pattern_sep);
             if pics.len() > 2 {
                 return None;
             }

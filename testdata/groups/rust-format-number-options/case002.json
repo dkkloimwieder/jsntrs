@@ -1,0 +1,6 @@
+{
+    "expr": "$formatNumber(7, \"0%\", {\"percent\": \"0a\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "7%"
+}
