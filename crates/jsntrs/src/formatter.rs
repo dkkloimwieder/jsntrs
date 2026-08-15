@@ -291,11 +291,23 @@ impl<'a> Formatter<'a> {
     /// when any step carries `keep_array`, and the step keeps its own flag,
     /// so emitting the step's `[]` reproduces it.
     ///
-    /// Slot order is fixed: `[]` before `{…}`, everywhere. The reverse
-    /// spelling is an S0209 ("a predicate cannot follow a grouping
-    /// expression"), which also makes `keep_array` unreachable on a negated
-    /// `Unary` — `-a[]` puts the `[]` on `a`, and the only spelling that
-    /// would not, `-a{}[]`, is that same S0209.
+    /// Slot order is fixed — `[]`, the step's own stages, `@$v`, `#$i`,
+    /// `{…}` — and for the ones a source can reorder by hand it is the
+    /// *canonical* order rather than the written one. The parser drops each
+    /// decoration into its own slot and keeps no record of which came
+    /// first, so `a#$i@$v` and `a@$v#$i` are one node and both print as
+    /// `a@$v#$i` (jsntrs-k56). Nothing rides on the order — both spellings
+    /// of each pair answer alike here and in jsonata 2.2.2 — and the
+    /// canonical one is the shape the documentation writes, which says of
+    /// `@`: "It can only be used directly following a map stage, not a
+    /// filter or order-by stage."
+    /// (<https://docs.jsonata.org/path-operators>).
+    ///
+    /// `[]` before `{…}` is not a choice at all. The reverse spelling is an
+    /// S0209 ("a predicate cannot follow a grouping expression"), which
+    /// also makes `keep_array` unreachable on a negated `Unary` — `-a[]`
+    /// puts the `[]` on `a`, and the only spelling that would not,
+    /// `-a{}[]`, is that same S0209.
     #[expect(clippy::too_many_lines)]
     fn emit(&mut self, id: NodeId, depth: usize) {
         if id.is_empty() {
@@ -2324,6 +2336,52 @@ mod tests {
             assert_eq!(eval(decorated), "S0213", "unexpected result: {decorated}");
             assert_eq!(eval(&once), "S0213", "unexpected result: {once}");
         }
+    }
+
+    /// The decoration slots print in a fixed order whatever order the
+    /// source wrote them in, because the order is not in the AST either:
+    /// the parser drops each decoration into its own slot and keeps no
+    /// record of which came first, so `a#$i@$v` and `a@$v#$i` are one node
+    /// and `format` prints the one spelling both of them mean. Choosing a
+    /// canonical spelling is what a formatter is for — it already hoists a
+    /// path group and re-spaces every operator — and there is no meaning
+    /// here to canonicalize away: both spellings of each pair answer the
+    /// same, in jsntrs and in jsonata 2.2.2 (checked 2026-08-15). The
+    /// documentation says nothing about the order of two bindings on one
+    /// step; the order chosen is the one it writes, saying of `@` that "It
+    /// can only be used directly following a map stage, not a filter or
+    /// order-by stage." (<https://docs.jsonata.org/path-operators>).
+    /// (jsntrs-k56.)
+    #[test]
+    fn decoration_slots_print_in_a_canonical_order() {
+        use crate::Expression;
+        for (written, canonical) in [
+            ("a#$i@$v", "a@$v#$i"),
+            ("a@$v[]", "a[]@$v"),
+            ("a#$i[]", "a[]#$i"),
+            ("a@$v#$i[]", "a[]@$v#$i"),
+        ] {
+            assert_eq!(
+                ast_shape(written),
+                ast_shape(canonical),
+                "slot order reached the AST: {written}"
+            );
+            assert_eq!(fmt(written), canonical, "not the canonical order");
+            assert_eq!(fmt(canonical), canonical, "not idempotent: {canonical}");
+        }
+        // And the order the source used changes nothing to evaluate.
+        let data = r#"{"a": [1, 2]}"#;
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate(data)
+                .unwrap_or_else(|e| panic!("eval `{src}`: {e}"))
+                .to_string()
+        };
+        assert_eq!(eval("a@$v#$i.[$v, $i]"), "[1,0,2,1]");
+        assert_eq!(eval("a#$i@$v.[$v, $i]"), "[1,0,2,1]");
+        assert_eq!(eval("a[]@$v.$v"), "[1,2]");
+        assert_eq!(eval("a@$v[].$v"), "[1,2]");
     }
 
     /// A `-` step parses its operand below the dot's binding power, so a

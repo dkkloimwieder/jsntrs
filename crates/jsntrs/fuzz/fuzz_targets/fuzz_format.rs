@@ -73,6 +73,16 @@
 //! unconditional. A newly found gap is a bug in `format`, not in this
 //! target: fix the formatter, or, if the fix has to wait, add a fence here
 //! with its repro and file the issue.
+//!
+//! Two things this target is right *not* to fence, though both look like
+//! gaps from the outside. `format` does not reproduce the source text of a
+//! decoration the parser never stored — `a.-0#$i` prints as `a.-0`
+//! (jsntrs-89v) — nor the order two decorations were written in —
+//! `a#$i@$v` prints as `a@$v#$i` (jsntrs-k56). Neither breaks anything
+//! asserted here: the output parses, it re-parses to the *same* AST, and
+//! the first pass is already the fixed point. Both are pinned as unit
+//! tests in `formatter.rs`; a fence would only hide the next real gap in
+//! the same shape.
 
 use libfuzzer_sys::fuzz_target;
 
