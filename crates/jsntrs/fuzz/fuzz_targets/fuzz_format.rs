@@ -45,11 +45,90 @@
 //!   `\x0c`/`\u{a0}`/`\u{2028}` straight out of the last token — `$x\u{a0}`
 //!   formatted to `$x` — jsntrs-ecq.12.
 //!
+//! Two gaps are currently fenced off in `known_unstable_gap`, which is the
+//! authoritative list:
+//!
+//! - **quotes next to `$` tokens confuse the comment scan.** The lexer and
+//!   `extract_comments` classify a quote adjacent to a `$name` differently,
+//!   in both directions: the lexer accepts `$'//*'` as a quoted variable
+//!   name whose `/*` the scan then rips a bogus comment out of
+//!   (`a@$'//*'/**/a`), and after a non-empty name the scan treats a plain
+//!   string as a quoted-name continuation (`a@$0'@$0'()?/**/0`) — either
+//!   way the expression is corrupted and the second pass drops the
+//!   relocated comment — jsntrs-5xh.
+//! - **path layout flips across passes.** The two disambiguation strategies
+//!   for numeric path steps — multi-line layout and the spaced dot
+//!   (jsntrs-ecq.11) — are chosen from context that the group hoist
+//!   (jsntrs-ecq.9) rewrites: `0.-0{0:0}.0.a` formats multi-line on the
+//!   first pass and single-line on the second — jsntrs-qhh.
+//!
 //! A newly found gap is a bug in `format`, not in this target: fix the
-//! formatter, or — if the fix has to wait — reintroduce a fenced-off
-//! `known_unstable_gap` predicate with its repro, and file the issue.
+//! formatter — removing its fence from `known_unstable_gap` — or, if the fix
+//! has to wait, add a fence with its repro and file the issue.
 
 use libfuzzer_sys::fuzz_target;
+
+/// `Some(reason)` when this input hits a known gap that makes the *second*
+/// pass differ from the first (see the header). No gap can still make the
+/// formatted text fail to *parse*: that assertion is unconditional.
+fn known_unstable_gap(src: &str) -> Option<&'static str> {
+    // A quote right after a `$` token — `$'…'`, `$name'…'`, or with any
+    // non-delimiter bytes in between (the lexer's name boundary is looser
+    // than alphanumerics: a NUL reached it too) — is classified differently
+    // by the lexer and the comment scan (jsntrs-5xh). Over-approximates —
+    // `'$'` also matches — which only costs a little corpus coverage.
+    let bytes = src.as_bytes();
+    let delimiter = |b: u8| {
+        b.is_ascii_whitespace()
+            || matches!(
+                b,
+                b'(' | b')'
+                    | b'['
+                    | b']'
+                    | b'{'
+                    | b'}'
+                    | b','
+                    | b';'
+                    | b':'
+                    | b'?'
+                    | b'+'
+                    | b'*'
+                    | b'/'
+                    | b'%'
+                    | b'|'
+                    | b'='
+                    | b'<'
+                    | b'>'
+                    | b'&'
+                    | b'!'
+                    | b'~'
+                    | b'^'
+                    | b'@'
+                    | b'#'
+                    | b'.'
+                    | b'\''
+                    | b'"'
+                    | b'`'
+            )
+    };
+    if bytes.iter().enumerate().any(|(i, &c)| {
+        matches!(c, b'\'' | b'"' | b'`')
+            && bytes[..i]
+                .iter()
+                .rev()
+                .take_while(|&&b| !delimiter(b))
+                .any(|&b| b == b'$')
+    }) {
+        return Some("quote after a $ token (jsntrs-5xh)");
+    }
+    // A negated path step next to a group can flip the layout strategy
+    // between passes (jsntrs-qhh). Over-approximates — most such pairs are
+    // stable — which only costs a little corpus coverage.
+    if bytes.windows(2).any(|w| w == b".-") && bytes.contains(&b'{') {
+        return Some("negated path step with a group (jsntrs-qhh)");
+    }
+    None
+}
 
 fuzz_target!(|data: &[u8]| {
     let Ok(src) = std::str::from_utf8(data) else {
@@ -66,6 +145,9 @@ fuzz_target!(|data: &[u8]| {
         Err(e) => panic!("formatted output does not parse: {e}\n src: {src:?}\nonce: {once:?}"),
     };
     // … and one pass must already be the canonical form.
+    if known_unstable_gap(src).is_some() {
+        return;
+    }
     assert_eq!(
         once, twice,
         "format is not idempotent\n src: {src:?}\nonce: {once:?}\ntwice: {twice:?}"
