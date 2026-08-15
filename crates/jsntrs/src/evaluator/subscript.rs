@@ -10,7 +10,7 @@ use crate::parser::BinaryOp;
 use crate::parser::{AstArena, Expr, NodeId};
 use crate::value::{Sequence, Value, format_float};
 
-use super::binary::{flag_keep_array, has_keep_array};
+use super::binary::has_keep_array;
 use super::environment::Environment;
 use super::path::node_has_parent_ref;
 use super::{PARENT_BINDING, descendant_lookup, eval_no_stack_check, eval_operand};
@@ -80,7 +80,7 @@ pub(super) fn eval_subscript_binary(
         // keepSingleton flag is set, so the flag never has anything to wrap.
         // Handing `[]` in as the undefined replacement made `a[0][]` on a
         // document with no `a` answer `[]` (jsntrs-k3a).
-        Ok(flag_keep_array(result, Value::Undefined))
+        Ok(super::mark_keep_singleton(result))
     } else {
         Ok(result)
     }

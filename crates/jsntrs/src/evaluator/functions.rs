@@ -246,7 +246,7 @@ pub fn eval_function(
 
     let result = call_function(&func, &args, input, env, arena).map_err(|e| e.or_token(name))?;
     if keep_array && call_result_is_sequence(&result) {
-        Ok(super::flag_keep_array(result, Value::Undefined))
+        Ok(super::mark_keep_singleton(result))
     } else {
         Ok(result)
     }

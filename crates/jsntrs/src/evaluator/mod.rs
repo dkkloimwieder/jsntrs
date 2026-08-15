@@ -18,7 +18,7 @@ pub use functions::{
 pub use signature::{ParamSpec, parse_signature, process_call_args};
 
 pub(crate) use binary::apply_arithmetic;
-use binary::{eval_binary, flag_keep_array};
+use binary::eval_binary;
 use group::eval_group_by;
 use path::{
     collapse_val, eval_descendant_step, eval_path, eval_path_step, flatten_to_vec,
@@ -154,6 +154,13 @@ pub(crate) fn eval_operand(
 ///
 /// `Value::Array` is left alone: the reference sets the property on a plain
 /// array too, but a plain array is not a sequence there, so nothing reads it.
+///
+/// `Value::Undefined` is left alone for a different reason — nothing stays
+/// nothing. A flag that suppresses an unwrap has nothing to unwrap when no
+/// value was selected, so `a[0][]` on a document with no `a` answers
+/// undefined rather than `[]` (jsntrs-k3a). Until jsntrs-6zi that case lived
+/// in a `flag_keep_array` wrapper taking the replacement as a parameter; all
+/// four call sites passed `Undefined`, which is what this arm already does.
 pub(crate) fn mark_keep_singleton(result: Value) -> Value {
     match result {
         Value::Undefined | Value::Array(_) => result,
@@ -652,7 +659,7 @@ fn eval_chain_step(
         // (`call_result_is_sequence`), so `x ~> $sum()[]` stays a scalar
         // while `x ~> $map($f)[]` keeps its singleton wrapped.
         if keep_array && functions::call_result_is_sequence(&result) {
-            return Ok(flag_keep_array(result, Value::Undefined));
+            return Ok(mark_keep_singleton(result));
         }
         // A chain stage feeds the next one, so its result is a consumer
         // position too.
