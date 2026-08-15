@@ -1675,8 +1675,12 @@ mod tests {
             "a`b@$v.$v",
             "`plain name`.a`b",
             "{\"k\": a`b}",
-            // The fuzzer's idempotence repro.
-            "($t;2\u{0}c222222222`% $222`% $y)",
+            // The fuzzer's idempotence repro. It was found as
+            // `($t;2\u{0}c222222222…)`, with no separator between `2` and the
+            // name; jsntrs-0jv made that a syntax error, so the `;` the
+            // documented block grammar requires is spelled out here. The
+            // backtick-quoting path under test is unchanged.
+            "($t;2;\u{0}c222222222`% $222`% $y)",
         ] {
             let once = fmt(src);
             let twice = format(&once)

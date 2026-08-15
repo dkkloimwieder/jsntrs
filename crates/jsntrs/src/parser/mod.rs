@@ -344,7 +344,12 @@ impl Parser {
                 })?)
             }
             TokenType::LParen => {
-                // Block or parenthesized expression
+                // Block or parenthesized expression. The documentation gives
+                // the block exactly one shape — "'code blocks' — multiple
+                // expressions, separated by semicolons: (expr1; expr2;
+                // expr3)" (docs.jsonata.org/composition) — so an expression
+                // that is not followed by `;` ends the block, and anything
+                // other than `)` there is a syntax error (jsntrs-0jv).
                 self.advance_prefix()?;
                 let mut exprs = Vec::new();
                 while self.token.typ != TokenType::RParen {
@@ -357,9 +362,28 @@ impl Parser {
                     }
                     let expr = self.expression(0)?;
                     exprs.push(expr);
-                    if self.token.typ == TokenType::Semicolon {
-                        self.advance_prefix()?;
+                    if self.token.typ != TokenType::Semicolon {
+                        break;
                     }
+                    self.advance_prefix()?;
+                }
+                if self.token.typ == TokenType::EOF {
+                    return Err(parse_error(
+                        "S0203",
+                        "expected ) before end of expression",
+                        self.token.pos,
+                    ));
+                }
+                if self.token.typ != TokenType::RParen {
+                    return Err(parse_error(
+                        "S0202",
+                        &format!(
+                            "expected ; or ) in block, got {:?}: {}",
+                            self.token.typ, self.token.value
+                        ),
+                        self.token.pos,
+                    )
+                    .with_token(self.token.value.clone()));
                 }
                 self.infix = true;
                 self.advance()?; // consume )

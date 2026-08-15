@@ -1,0 +1,76 @@
+[
+    {
+        "expr": "(1 2)",
+        "data": null,
+        "bindings": {},
+        "code": "S0202",
+        "divergence": "jsntrs answered 2 before jsntrs-0jv: its block loop skipped a missing ';' and kept parsing. docs.jsonata.org/composition gives the block exactly one shape -- \"Used to support 'code blocks' - multiple expressions, separated by semicolons: (expr1; expr2; expr3)\" -- so this is not valid JSONata, and docs.jsonata.org/embedding-extending shows S0202 as the code for a syntax error of the form 'expected X got Y'."
+    },
+    {
+        "expr": "(1 \"x\")",
+        "data": null,
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "($x := 1 2)",
+        "data": null,
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "(a b)",
+        "data": {
+            "a": 1,
+            "b": 2
+        },
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "(1; 2 3)",
+        "data": null,
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "(1 2; 3)",
+        "data": null,
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "a.(1 2)",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0202"
+    },
+    {
+        "expr": "(1; 2)",
+        "data": null,
+        "bindings": {},
+        "result": 2
+    },
+    {
+        "expr": "(1;)",
+        "data": null,
+        "bindings": {},
+        "result": 1,
+        "divergence": "Control: a trailing ';' still ends the block, as it did before."
+    },
+    {
+        "expr": "()",
+        "data": null,
+        "bindings": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "(1",
+        "data": null,
+        "bindings": {},
+        "code": "S0203",
+        "divergence": "Control: running out of input is still S0203 ('expected ) before end of expression'), not the new S0202."
+    }
+]
