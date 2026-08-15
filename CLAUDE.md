@@ -154,6 +154,9 @@ combined repo's tracker — do not rename them.
 ## References
 
 - `docs/spec.md` — authoritative behavioral spec (derived from the Go code)
+- `docs/sequence-and-keep-array.md` — sequences, singleton collapse and the
+  `[]` flag, derived from the language documentation with every rule quoted;
+  ranks **above** `docs/spec.md`, and names the rules jsntrs does not yet obey
 - `docs/behaviors.md` — truth tables, error codes, equality rules
 - `docs/migration-hazards.md` — Go→Rust pitfalls encountered in the port
 - `docs/rust-migration-plan.md` — **historical**: the original plan; several
