@@ -57,7 +57,15 @@ pub(super) fn eval_subscript_binary(
     };
     // Check keep_array: the [] suffix on this node or anywhere in the LHS chain.
     let keep_array = has_keep_array(arena, node);
-    let result = eval_subscript(arena, rhs, &left, input, env, index_var.as_ref())?;
+    let result = eval_subscript(
+        arena,
+        rhs,
+        &left,
+        input,
+        env,
+        index_var.as_ref(),
+        keep_array,
+    )?;
     if keep_array {
         // Undefined stays undefined: `[]` never manufactures an empty array.
         // jsonata-js `evaluate()` (jsonata.js 2.2.2, the tail of the big
@@ -164,6 +172,7 @@ fn eval_subscript(
     input: &Value,
     env: &Rc<Environment>,
     index_var: Option<&String>,
+    keep_array: bool,
 ) -> JsonataResult {
     // Only create a child environment when the predicate actually needs it:
     // either it references % (parent operator) or it has an index variable binding.
@@ -173,7 +182,7 @@ fn eval_subscript(
     // (With an index variable, fall through: the predicate filter path
     // handles index binding correctly, like Go's evalSubscriptLeft.)
     if !matches!(left, Value::Array(_) | Value::Sequence(_)) && index_var.is_none() {
-        return eval_subscript_single(arena, rhs, left, input, env, needs_env);
+        return eval_subscript_single(arena, rhs, left, input, env, needs_env, keep_array);
     }
 
     // Avoid cloning: borrow the array as a slice where possible.
@@ -218,7 +227,7 @@ fn eval_subscript(
             && !indices.is_empty()
             && all_numeric_indices(indices)?
         {
-            return Ok(select_by_indices(arr, indices));
+            return Ok(select_by_indices(arr, indices, keep_array));
         }
         // Single numeric index.
         if let Some(n) = numeric_index(&index)? {
@@ -273,6 +282,19 @@ fn eval_subscript(
 /// Subscript on a single (non-array) value: numeric index 0/-1 selects the
 /// value itself; any other number selects nothing; otherwise the result is a
 /// boolean predicate on the value.
+///
+/// A single value is filtered as the one-item sequence it is equivalent to:
+///
+/// > Within a JSONata expression or subexpression, any value (which is not
+/// > itself an array) and an array containing just that value are deemed to
+/// > be equivalent.
+/// > — <https://docs.jsonata.org/predicate> § Singleton array and value
+/// >   equivalence
+///
+/// so an index *list* has to work here exactly as it does on a real array —
+/// `1[[0]]` selects position 0 of `[1]`, i.e. `1`. Falling through to the
+/// truthiness test instead answered undefined, because `$boolean([0])` is
+/// false.
 fn eval_subscript_single(
     arena: &AstArena,
     rhs: NodeId,
@@ -280,6 +302,7 @@ fn eval_subscript_single(
     input: &Value,
     env: &Rc<Environment>,
     needs_env: bool,
+    keep_array: bool,
 ) -> JsonataResult {
     // Conditionally bind %% → input for the % operator.
     let filter_env_owned;
@@ -291,6 +314,28 @@ fn eval_subscript_single(
         env
     };
     let index = eval_operand(arena, rhs, left, eval_env)?;
+    // Array of all-numeric values → select those positions of the one-item
+    // sequence this value stands for (e.g. `1[[0]]`, `1[[0,0]]`).
+    if let Value::Array(ref indices) = index
+        && !indices.is_empty()
+        && all_numeric_indices(indices)?
+    {
+        // A missing left-hand side is "nothing", not a one-item sequence
+        // holding `undefined`: selecting position 0 of nothing selects
+        // nothing. Without this, `a[[0]][]` on `{}` answers `[undefined]` —
+        // `[]` suppresses the unwrap that used to hide the manufactured
+        // element — and that array is user-visible, so `$count` says 1 and
+        // `{"k": a[[0]][]}` grows a `k` the documentation says it must not
+        // have. `[]` never manufactures an element (jsntrs-k3a).
+        if left.is_undefined() {
+            return Ok(Value::Undefined);
+        }
+        return Ok(select_by_indices(
+            std::slice::from_ref(left),
+            indices,
+            keep_array,
+        ));
+    }
     if let Some(n) = numeric_index(&index)? {
         // Numeric index on a single value — treat as array of one.
         let idx = floor_index(n);
@@ -310,7 +355,36 @@ fn eval_subscript_single(
 /// Matches Go's selectByIndices: resolve negative indices (add len), sort
 /// ascending, then select — [[1..3,8,-1]] on a 10-element array gives sorted
 /// actual indices [1,2,3,8,9] → elements [2,3,4,9,10].
-fn select_by_indices(arr: &[Value], indices: &[Value]) -> Value {
+///
+/// The selection is a *result sequence*, not a matched array, so it obeys the
+/// collapsing rules:
+///
+/// > An **empty sequence** is a sequence with no values and is considered to
+/// > be "nothing" or "no match". It won't appear in the output of any
+/// > expression.
+/// >
+/// > A **singleton sequence** is a sequence containing a single value. It is
+/// > considered equivalent to that value itself, and the output from any
+/// > expression, or sub-expression will be that value without any surrounding
+/// > structure.
+/// >
+/// > A sequence containing more than one value is represented in the output
+/// > as a JSON array.
+/// > — <https://docs.jsonata.org/processing> § Sequences
+///
+/// Returning a bare `Value::Array` here skipped the singleton rule, so
+/// `[1,2,3][[0]]` answered `[1]` where the sequence rule (and CLAUDE.md
+/// invariant 2) says `1` — visible through equality, since `[1,2,3][[0]] = 1`
+/// was false (jsntrs-bmw).
+///
+/// `keep_array` is the `[]` flag already computed by the caller. It is
+/// consumed *here*, on the uncollapsed sequence, so that the singleton rule
+/// and the `[]` rule compose in the documented order — the flag suppresses
+/// the unwrap rather than re-wrapping whatever the unwrap produced, which is
+/// the only way `[[1,2],[3,4]][[0]][]` can stay `[[1,2]]` instead of
+/// re-reading its one array-valued item as the result itself. No sequence
+/// leaves this function.
+fn select_by_indices(arr: &[Value], indices: &[Value], keep_array: bool) -> Value {
     let len = arr.len() as i64;
     let mut actual_indices: Vec<i64> = indices
         .iter()
@@ -330,9 +404,5 @@ fn select_by_indices(arr: &[Value], indices: &[Value]) -> Value {
             }
         })
         .collect();
-    if result.is_empty() {
-        Value::Undefined
-    } else {
-        Value::Array(Rc::from(result))
-    }
+    Sequence::with_items(result).collapse_and_keep(keep_array)
 }

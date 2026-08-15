@@ -1,0 +1,6 @@
+{
+    "expr": "5[[1/0]]",
+    "data": null,
+    "bindings": {},
+    "code": "D1001"
+}

@@ -1,0 +1,37 @@
+[
+    {
+        "expr": "a[[0]][]",
+        "data": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "a[[0]][]",
+        "data": {"b": 1},
+        "undefinedResult": true
+    },
+    {
+        "expr": "a[[0,1]][]",
+        "data": {},
+        "undefinedResult": true
+    },
+    {
+        "expr": "{\"k\": a[[0]][]}",
+        "data": {},
+        "result": {}
+    },
+    {
+        "expr": "$count(a[[0]][])",
+        "data": {},
+        "result": 0
+    },
+    {
+        "expr": "$exists(a[[0]][])",
+        "data": {},
+        "result": false
+    },
+    {
+        "expr": "a.b[[0]][]",
+        "data": {"a": {}},
+        "undefinedResult": true
+    }
+]
