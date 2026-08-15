@@ -113,6 +113,19 @@ own suite, so a green run does **not** prove spec-correctness: where an
 inherited case pins an implementation artifact, re-derive the expectation
 from the spec and change the case.
 
+When you change an inherited case, say so in the case — add a `divergence`
+note giving the reason and the spec citation:
+
+```json
+"divergence": "jsonata-js indexes the active character in the whole picture;
+               XPath 3.1 F&O §4.7.4 indexes it within the sub-picture"
+```
+
+The harness ignores unknown fields, so this is a note for the next reader,
+not a mechanism. It just has to be there: an edited fixture with no note is
+indistinguishable from a corrupted import. Groups named `rust-*` were
+written here and were never upstream.
+
 ## Behavioral invariants (DO NOT VIOLATE)
 
 1. `undefined = undefined` → `false`; `null = null` → `true`

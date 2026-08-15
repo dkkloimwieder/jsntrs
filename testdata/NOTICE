@@ -1,6 +1,29 @@
 The test cases in this directory are derived from the jsonata-js test suite:
 https://github.com/jsonata-js/jsonata
 
+THIS SUITE IS NO LONGER EXPECTED TO AGREE WITH jsonata-js EVERYWHERE.
+
+jsntrs implements JSONata as *specified* — the JSONata language documentation
+at jsonata.org, XPath 3.1 F&O for the picture-string builtins, and ECMAScript
+for number-to-string. jsonata-js is evidence of what a behavior is meant to
+be, never the authority: it has real bugs, and reproducing one is a defect
+rather than conformance. Where an inherited case pins behavior the
+specification contradicts, the expectation is re-derived from the
+specification and the case is changed.
+
+A case changed that way carries a `divergence` note saying why, with the
+citation it rests on:
+
+    "divergence": "jsonata-js indexes the active character in the whole
+                   picture; XPath 3.1 F&O 4.7.4 indexes it within the
+                   sub-picture"
+
+Grep for it to find every deliberate departure from upstream. Groups named
+`rust-*` were written for this project and were never part of the upstream
+suite.
+
+The upstream license below governs the inherited material regardless.
+
 The original test suite is licensed under the MIT License. The upstream LICENSE
 file (https://github.com/jsonata-js/jsonata/blob/master/LICENSE) is reproduced
 verbatim below:
