@@ -148,9 +148,17 @@ pub fn fn_merge(args: &[Value], _focus: &Value) -> JsonataResult {
             }
         }
         Value::Object(obj) => merge_obj(&mut merged, obj),
+        // A bare value stands for the one-element sequence containing it —
+        // that is why the `Value::Object` arm above accepts `$merge({...})`
+        // as `$merge([{...}])`. So `$merge(1)` *is* `$merge([1])`, and the
+        // documented condition it violates is the same one: "It is an error
+        // if the input array contains an item that is not an object"
+        // (docs.jsonata.org Object Functions, `$merge`). The array arm above
+        // answers that with T0412; this arm must not answer it with a
+        // different code.
         _ => {
             return Err(JsonataError::new(
-                "T0410",
+                "T0412",
                 "$merge: argument must be an array of objects",
             ));
         }
