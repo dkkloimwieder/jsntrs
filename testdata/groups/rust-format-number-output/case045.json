@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(1e21, \"#####################\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "1000000000000000000000",
+    "authority": "XPath 3.1 F&O 4.7.5 (\"the smallest possible number of digits\"): the 1e21 boundary where jsonata-js's toFixed switches to exponential and answers \"1e+21\"."
+}

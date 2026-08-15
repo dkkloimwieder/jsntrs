@@ -1,0 +1,12 @@
+[
+    {
+        "expr": "$formatNumber(2.675, \"0.00\")",
+        "data": {},
+        "result": "2.68"
+    },
+    {
+        "expr": "$formatNumber(1.115, \"0.00\")",
+        "data": {},
+        "result": "1.12"
+    }
+]

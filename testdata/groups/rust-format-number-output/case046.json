@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(0.1, \"0.00000000000000000000\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "0.10000000000000000000",
+    "authority": "XPath 3.1 F&O 4.7.5: the mantissa is the xs:decimal with \"the smallest possible number of digits\" that is numerically equal to it, padded to the minimum fractional part size — not the double's exact expansion, which is what jsonata-js's toFixed(20) writes (\"0.10000000000000000555\")."
+}

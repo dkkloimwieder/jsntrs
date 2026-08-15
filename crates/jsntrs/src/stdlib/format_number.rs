@@ -768,15 +768,93 @@ fn splice_in(sv: &mut Vec<char>, at: usize, s: &str) {
     sv.splice(at..at, s.chars());
 }
 
-/// jsonata-js `makeString`: the magnitude at `dp` decimal places, mapped into
-/// the picture's digit family. Only the digits produced here are mapped — a
-/// separator that happens to be an ASCII digit is picture text and stays as
-/// written. An empty `zero-digit` leaves no family to map into, and the
-/// reference's `join` drops every `undefined` it looks up, so the digits
-/// disappear: `$formatNumber(7, "#", {"zero-digit": ""})` is "".
+/// Round the decimal `int_part`.`frac_part` to `dp` fractional digits,
+/// half-to-even, and write it back out with exactly `dp` of them.
+///
+/// Only called when there are digits to drop, so `frac_part` is longer than
+/// `dp`. Both parts are ASCII digits.
+fn round_decimal_half_to_even(int_part: &str, frac_part: &str, dp: usize) -> String {
+    let mut digits: Vec<u8> = int_part
+        .bytes()
+        .chain(frac_part.bytes().take(dp))
+        .map(|b| b - b'0')
+        .collect();
+    let dropped = &frac_part.as_bytes()[dp..];
+    let first = dropped[0] - b'0';
+    let round_up = first > 5
+        || (first == 5
+            && (dropped[1..].iter().any(|&b| b != b'0')
+                || digits.last().is_some_and(|d| d % 2 == 1)));
+    if round_up {
+        let mut carry = 1;
+        for digit in digits.iter_mut().rev() {
+            *digit += carry;
+            if *digit == 10 {
+                *digit = 0;
+            } else {
+                carry = 0;
+                break;
+            }
+        }
+        if carry == 1 {
+            digits.insert(0, 1);
+        }
+    }
+    let split = digits.len() - dp;
+    let mut out = String::with_capacity(digits.len() + 1);
+    for (index, digit) in digits.iter().enumerate() {
+        if index == split && dp > 0 {
+            out.push('.');
+        }
+        out.push(char::from(b'0' + digit));
+    }
+    out
+}
+
+/// The magnitude at `dp` decimal places, mapped into the picture's digit
+/// family.
+///
+/// The digits are those of the *shortest* decimal that round-trips to `value`,
+/// which is what F&O 4.7.5 asks for: the mantissa "is converted (if necessary)
+/// to an xs:decimal value … If there are several such values that are
+/// numerically equal to the mantissa … the one that is chosen should be one
+/// with the smallest possible number of digits not counting leading or
+/// trailing zeroes". Rust's `{}` for `f64` is exactly that decimal, in
+/// positional notation, and it is the same digit sequence ECMAScript's
+/// `Number::toString` produces. Printing the double's *exact* expansion
+/// instead (`{:.dp$}`) leaks binary noise once the value is past 2^53:
+/// `$formatNumber(1e25, "#####################")` was
+/// "10000000000000000905969664" and is now "10000000000000000000000000", the
+/// answer the W3C QT3 suite pins (numberformat60m). jsonata-js has a third
+/// answer, `toFixed` switching to exponential notation at 1e21 (jsntrs-5kd).
+///
+/// Only the digits produced here are mapped into the family — a separator that
+/// happens to be an ASCII digit is picture text and stays as written. An empty
+/// `zero-digit` leaves no family to map into, and the reference's `join` drops
+/// every `undefined` it looks up, so the digits disappear:
+/// `$formatNumber(7, "#", {"zero-digit": ""})` is "".
 fn make_string(value: f64, dp: usize, fc: &FmtChars) -> Vec<char> {
-    format!("{:.dp$}", value.abs())
-        .chars()
+    let magnitude = value.abs();
+    // Non-finite values never reach here (D3001 rejects them up front), but
+    // "inf"/"NaN" are not digit strings, so keep them off the decimal path.
+    let text = if magnitude.is_finite() {
+        let shortest = format!("{magnitude}");
+        let (int_part, frac_part) = shortest.split_once('.').unwrap_or((&shortest, ""));
+        if frac_part.len() > dp {
+            round_decimal_half_to_even(int_part, frac_part, dp)
+        } else if dp == 0 {
+            int_part.to_string()
+        } else {
+            format!(
+                "{int_part}.{frac_part}{:0<width$}",
+                "",
+                width = dp - frac_part.len()
+            )
+        }
+    } else {
+        format!("{magnitude:.dp$}")
+    };
+    text.chars()
         .filter_map(|c| {
             if c.is_ascii_digit() {
                 let zero = fc.zero_base?;

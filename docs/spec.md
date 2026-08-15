@@ -1580,6 +1580,19 @@ jsntrs-p0v.18 for the audit.
     is `",,7"` there and **`"7"`** here (QT3 numberformat320:
     `format-number(897, ',##0')` is `"897"`). A position of 0 still places a
     separator immediately before the decimal separator — that digit exists.
+  - **Dropped: the exact binary expansion** (jsntrs-5kd). 4.7.5 converts the
+    mantissa to "an xs:decimal value … If there are several such values that
+    are numerically equal to the mantissa …, the one that is chosen should be
+    one with the smallest possible number of digits not counting leading or
+    trailing zeroes", and only then rounds and pads. That is the shortest
+    round-tripping decimal — ECMAScript `Number::toString`'s digits — not the
+    double's exact expansion. `$formatNumber(1e25,
+    "#####################")` was "10000000000000000905969664" and is
+    "10000000000000000000000000" (QT3 numberformat60m); `$formatNumber(0.1,
+    "0.00000000000000000000")` is "0.10000000000000000000". jsonata-js reaches
+    neither: its `toFixed` switches to exponential notation at 1e21, so the
+    first of those is `"1e+21"`-shaped text inside the formatted number, and
+    the last is the exact expansion "0.10000000000000000555".
   - **Dropped: the GCD test for regular grouping** (found in the same audit;
     needs its own issue). 4.7.4 calls the grouping regular when "There is a
     positive integer G (the grouping size) such that the position of every

@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(1e25, \"#####################\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "10000000000000000000000000",
+    "authority": "XPath 3.1 F&O 4.7.5 (\"the smallest possible number of digits\"); expectation from the W3C QT3 test suite, fn/format-number.xml numberformat60m. jsonata-js answers \"1e+25\" (toFixed switches to exponential at 1e21) and the exact binary expansion would be \"10000000000000000905969664\"."
+}
