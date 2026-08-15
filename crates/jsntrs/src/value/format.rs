@@ -100,28 +100,119 @@ pub fn format_float(n: f64) -> String {
 /// — ECMAScript `Number(n.toPrecision(15))`, the cast jsonata-js's `$string`
 /// applies to a non-integral number before serializing it.
 ///
-/// `{:.14e}` is Rust's correctly-rounded 15-significant-digit form, and
-/// parsing it back lands on the same double `Number(…)` would. The two rules
-/// disagree only on an exact tie — a value whose exact decimal expansion is
-/// 16 significant digits ending in 5 — which Rust breaks to even and
-/// ECMAScript breaks away from zero.
-///
-/// The one caller reaches this with a non-integral double whose 15 digits
-/// span 1e15 or more, i.e. from 999999999999999.5 up to 2^52. Above 1e15
-/// such a value has at least 17 significant digits (16 in the integer part,
-/// plus a fraction that is a multiple of 1/8, 1/4 or 1/2 — the only ulps
-/// below 2^52), so it cannot be a tie. Below 1e15 the ulp is 1/8 and the
-/// only tie in range is 999999999999999.5 itself, where the digit being
-/// kept is a 9: both rules round it up.
+/// The digits come from [`g15_significand`], so ties round away from zero;
+/// re-parsing a ≤15-digit decimal lands on the same double `Number(…)` would.
 fn round_to_15_significant(n: f64) -> f64 {
-    format!("{n:.14e}").parse().unwrap_or(n)
+    let (digits, exp) = g15_significand(n.abs());
+    let sign = if n.is_sign_negative() { "-" } else { "" };
+    let (lead, rest) = digits.split_at(1);
+    format!("{sign}{lead}.{rest}e{exp}").parse().unwrap_or(n)
+}
+
+/// Powers of five up to the largest one that can still leave a 16-digit
+/// product (5^23 = 1.19e16 already has 17 digits on its own).
+const POW5: [u128; 23] = {
+    let mut table = [1u128; 23];
+    let mut i = 1;
+    while i < 23 {
+        table[i] = table[i - 1] * 5;
+        i += 1;
+    }
+    table
+};
+
+/// The exact decimal significand of `abs` when rounding it to 15 significant
+/// digits is an exact tie, paired with the power of ten it sits over.
+///
+/// Every finite double is `m × 2^e` with `m` odd. For `e < 0` — a
+/// non-integral value — the exact decimal expansion is `M / 10^k` with
+/// `k = -e` and `M = m·5^k`. `M` is an odd multiple of five, so its last
+/// digit is always 5 and its first is non-zero: the significant digits of
+/// the value are *exactly* the digits of `M`, and rounding to 15 significant
+/// digits is an exact tie precisely when `M` has 16 of them. For `e ≥ 0` the
+/// value is the integer `m·2^e`, which ends in an even digit unless `e == 0`,
+/// so only a bare odd mantissa can tie there.
+///
+/// Returns `(M, k)`: the value is `M × 10^-k`, so its decimal exponent (as in
+/// `d1.d2…d16 × 10^exp`) is `15 - k`. `abs` must be finite and non-zero.
+fn exact_15_digit_tie(abs: f64) -> Option<(u128, u32)> {
+    let bits = abs.to_bits();
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let frac = bits & ((1u64 << 52) - 1);
+    // Subnormals carry no implicit leading bit and share the smallest exponent.
+    let (mut m, mut e) = if biased == 0 {
+        (frac, -1074i32)
+    } else {
+        (frac | (1u64 << 52), biased - 1075)
+    };
+    if m == 0 {
+        return None;
+    }
+    let shift = m.trailing_zeros();
+    m >>= shift;
+    e += shift as i32;
+
+    let (significand, k) = if e >= 0 {
+        if e > 0 {
+            return None;
+        }
+        (u128::from(m), 0u32)
+    } else {
+        let k = e.unsigned_abs();
+        // 5^23 already exceeds 10^16, so no larger k can leave 16 digits.
+        if k as usize >= POW5.len() {
+            return None;
+        }
+        (u128::from(m) * POW5[k as usize], k)
+    };
+
+    if significand % 10 == 5
+        && (1_000_000_000_000_000..10_000_000_000_000_000).contains(&significand)
+    {
+        Some((significand, k))
+    } else {
+        None
+    }
+}
+
+/// `abs` rounded to 15 significant decimal digits, ties **away from zero**.
+///
+/// That is ECMAScript's `Number.prototype.toPrecision` rule: it strips the
+/// sign first, then picks, among two equally close candidates, "the `e` and
+/// `n` for which `n × 10^(e-p+1)` is larger". Rust's `{:.14e}` is correctly
+/// rounded but breaks ties to *even*, and by the time its output is in hand
+/// the 16th digit that would identify the tie is gone — so the tie case is
+/// recomputed from the exact significand rather than patched (jsntrs-1uk).
+///
+/// Returns exactly 15 digits and the decimal exponent `exp`: the value is
+/// `d1.d2…d15 × 10^exp`. `abs` must be finite, positive and non-zero.
+fn g15_significand(abs: f64) -> (String, i32) {
+    let sci = format!("{abs:.14e}");
+    let (mantissa_str, exp_str) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = exp_str.parse().unwrap_or(0);
+    let digits: String = mantissa_str.replace('.', "");
+
+    let Some((significand, k)) = exact_15_digit_tie(abs) else {
+        return (digits, exp);
+    };
+
+    // Exact tie: drop the trailing 5 and round the magnitude up.
+    let rounded = significand / 10 + 1;
+    let exp = 15 - k as i32;
+    if rounded >= 1_000_000_000_000_000 {
+        // 999…9|5 carried into a 16th digit.
+        ("100000000000000".to_owned(), exp + 1)
+    } else {
+        (rounded.to_string(), exp)
+    }
 }
 
 /// Format a number with 15 significant digits, equivalent to Go's
-/// `strconv.FormatFloat(n, 'g', 15, 64)`.
+/// `strconv.FormatFloat(n, 'g', 15, 64)` except that ties round away from
+/// zero (see [`g15_significand`]).
 ///
-/// Uses Rust's scientific formatting with 14 decimal places (= 15 sig digits),
-/// then converts to the most compact non-scientific representation.
+/// Converts the rounded significand to the most compact non-scientific
+/// representation.
 fn format_g15(n: f64) -> String {
     if n == 0.0 {
         return if n.is_sign_negative() {
@@ -131,23 +222,11 @@ fn format_g15(n: f64) -> String {
         };
     }
 
-    // Format in scientific notation with 14 decimal places = 15 significant digits
-    let sci = format!("{n:.14e}");
-    let (mantissa_str, exp_str) = sci.split_once('e').unwrap_or((&sci, "0"));
-    let exp: i32 = exp_str.parse().unwrap_or(0);
+    let negative = n.is_sign_negative();
+    let (all_digits, exp) = g15_significand(n.abs());
 
-    let negative = mantissa_str.starts_with('-');
-    let mant = if negative {
-        &mantissa_str[1..]
-    } else {
-        mantissa_str
-    };
-
-    // Remove trailing zeros from mantissa
-    let mant_trimmed = mant.trim_end_matches('0').trim_end_matches('.');
-
-    // Extract digits (without decimal point)
-    let digits: String = mant_trimmed.replace('.', "");
+    // Remove trailing zeros from the significand
+    let digits = all_digits.trim_end_matches('0');
     let num_digits = digits.len() as i32;
 
     // Decide format: 'g' uses scientific if exp < -1 or exp >= precision
@@ -157,7 +236,7 @@ fn format_g15(n: f64) -> String {
     let result = if use_scientific {
         // Scientific notation: d.dddde±dd
         if num_digits <= 1 {
-            format!("{}e{:+03}", &digits, exp)
+            format!("{digits}e{exp:+03}")
         } else {
             format!("{}.{}e{:+03}", &digits[..1], &digits[1..], exp)
         }
@@ -168,13 +247,13 @@ fn format_g15(n: f64) -> String {
         for _ in 1..zeros {
             r.push('0');
         }
-        r.push_str(&digits);
+        r.push_str(digits);
         r
     } else {
         let decimal_pos = (exp + 1) as usize;
         if decimal_pos >= num_digits as usize {
             // All digits before decimal, pad with zeros
-            let mut r = digits.clone();
+            let mut r = digits.to_owned();
             for _ in 0..(decimal_pos - num_digits as usize) {
                 r.push('0');
             }
@@ -389,5 +468,151 @@ mod tests {
         assert_eq!(format_float(245.79), "245.79");
         // case018: 78.8 / 2
         assert_eq!(format_float(39.4), "39.4");
+    }
+
+    /// jsonata-js 2.2.2-verified (2026-08-15, jsntrs-1uk): a value whose exact
+    /// decimal expansion is 16 significant digits ending in 5 is an exact tie
+    /// for the `toPrecision(15)` cast, and ECMAScript breaks it *away from
+    /// zero* — not to even, which is what Rust's `{:.14e}` does and what this
+    /// used to inherit. One representative per decade of the band
+    /// `format_float` prints positionally, each output copied from a sweep of
+    /// the reference engine.
+    #[test]
+    fn format_ties_round_away_from_zero() {
+        for (n, expected) in [
+            (499_747_614_544_282.5, "499747614544283"),
+            (100_000_000_000_000.5, "100000000000001"),
+            (85_162_478_855_207.25, "85162478855207.3"),
+            (5_500_000_000_000.125, "5500000000000.13"),
+            (100_000_000_000.062_5, "100000000000.063"),
+            (19_708_353_146.281_25, "19708353146.2813"),
+            (4_307_710_549.890_625, "4307710549.89063"),
+            (417_611_838.007_812_5, "417611838.007813"),
+            (38_761_082.347_656_25, "38761082.3476563"),
+            (5_500_000.001_953_125, "5500000.00195313"),
+            (468_358.176_757_812_5, "468358.176757813"),
+            (13_139.115_722_656_25, "13139.1157226563"),
+            (2_878.845_947_265_625, "2878.84594726563"),
+            (300.208_129_882_812_5, "300.208129882813"),
+            (28.434_875_488_281_25, "28.4348754882813"),
+            (1.000_030_517_578_125, "1.00003051757813"),
+            (0.430_801_391_601_562_5, "0.430801391601563"),
+            (0.999_984_741_210_937_5, "0.999984741210938"),
+        ] {
+            assert_eq!(format_float(n), expected, "for {n}");
+            assert_eq!(format_float(-n), format!("-{expected}"), "for -{n}");
+        }
+        // The tie that carries out of the 15th digit into a 16th.
+        assert_eq!(format_float(999_999_999_999_999.5), "1000000000000000");
+        assert_eq!(format_float(-999_999_999_999_999.5), "-1000000000000000");
+    }
+
+    /// The doubles on either side of a tie are not ties, and must keep the
+    /// plain nearest rounding. jsonata-js 2.2.2-verified (2026-08-15).
+    #[test]
+    fn format_near_ties_keep_nearest_rounding() {
+        for (n, expected) in [
+            (499_747_614_544_282.4, "499747614544282"),
+            (499_747_614_544_282.44, "499747614544282"),
+            (499_747_614_544_282.56, "499747614544283"),
+            (499_747_614_544_282.6, "499747614544283"),
+            (0.430_801_391_601_562_4, "0.430801391601562"),
+            (0.430_801_391_601_562_44, "0.430801391601562"),
+            (0.430_801_391_601_562_56, "0.430801391601563"),
+            (28.434_875_488_281_243, "28.4348754882812"),
+            (28.434_875_488_281_257, "28.4348754882813"),
+            (999_999_999_999_999.4, "999999999999999"),
+            (999_999_999_999_999.6, "1000000000000000"),
+        ] {
+            assert_eq!(format_float(n), expected, "for {n}");
+        }
+    }
+
+    /// Exhaustive over the *shape* of the bug rather than a sample: every
+    /// decade of the positional band gets a spread of exact ties, built from
+    /// odd mantissas so the construction is guaranteed exact, and each is
+    /// checked against the away-from-zero digits computed independently in
+    /// `u128` integer arithmetic. `n = m / 2^k` with `m` odd has the exact
+    /// decimal expansion `m·5^k / 10^k`, so the tie is real by construction.
+    #[test]
+    fn format_ties_match_exact_integer_rounding_across_the_band() {
+        let mut checked = 0u32;
+        for k in 1..=16u32 {
+            let pow5 = 5u128.pow(k);
+            let lo = 10u128.pow(15).div_ceil(pow5);
+            let hi = 10u128.pow(16) / pow5;
+            // Even step, odd start: every `m` visited stays odd, which is
+            // what makes `m·5^k` end in 5.
+            let step = (((hi - lo) / 61) & !1u128).max(2);
+            let mut m = lo | 1;
+            while m < hi {
+                let significand = m * pow5;
+                assert!((10u128.pow(15)..10u128.pow(16)).contains(&significand));
+                // m < 2^53 and 2^k is exact, so the double is exactly m/2^k.
+                let n = m as f64 / (1u64 << k) as f64;
+                assert_eq!(
+                    exact_15_digit_tie(n),
+                    Some((significand, k)),
+                    "tie not detected for {n}"
+                );
+
+                // Away from zero: drop the trailing 5, add one, then place
+                // the decimal point k-1 digits from the right.
+                let rounded = (significand / 10 + 1).to_string();
+                let frac = (k - 1) as usize;
+                let expected = if rounded.len() > frac {
+                    let (int_part, frac_part) = rounded.split_at(rounded.len() - frac);
+                    if frac_part.is_empty() {
+                        int_part.to_owned()
+                    } else {
+                        format!("{int_part}.{frac_part}")
+                            .trim_end_matches('0')
+                            .trim_end_matches('.')
+                            .to_owned()
+                    }
+                } else {
+                    format!("0.{}{}", "0".repeat(frac - rounded.len()), rounded)
+                        .trim_end_matches('0')
+                        .to_owned()
+                };
+
+                assert_eq!(format_float(n), expected, "for {n} (k={k}, m={m})");
+                assert_eq!(format_float(-n), format!("-{expected}"), "for -{n}");
+                checked += 1;
+                m += step;
+            }
+        }
+        assert!(checked > 900, "band coverage too thin: {checked}");
+    }
+
+    /// The tie detector must not fire on values that are not exact ties:
+    /// integers with an even trailing digit, expansions shorter or longer
+    /// than 16 significant digits, and neighbours of real ties.
+    #[test]
+    fn exact_tie_detection_rejects_non_ties() {
+        for n in [
+            0.5,
+            0.25,
+            1.0,
+            42.0,
+            1e15,
+            5_890_840_712_243_076.0,
+            1_234_567_890_123_456.7,
+            499_747_614_544_282.4,
+            499_747_614_544_282.6,
+            0.1,
+            22.0_f64 / 7.0,
+            f64::MIN_POSITIVE,
+        ] {
+            assert_eq!(exact_15_digit_tie(n.abs()), None, "false tie for {n}");
+        }
+        // 4997476145442825 is a 16-digit odd *integer* ending in 5: a real
+        // tie, which the detector reports even though `format_float` never
+        // 15-rounds an integer (jsonata-js leaves integers uncast).
+        assert_eq!(
+            exact_15_digit_tie(4_997_476_145_442_825.0),
+            Some((4_997_476_145_442_825, 0))
+        );
+        assert_eq!(format_float(4_997_476_145_442_825.0), "4997476145442825");
     }
 }
