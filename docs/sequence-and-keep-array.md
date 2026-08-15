@@ -321,17 +321,31 @@ Ordered by how load-bearing the divergence is. "spec" is the rule above.
 
 | shape | spec | jsntrs | reference | issue |
 |---|---|---|---|---|
-| `a^(b)` on `{"a":[{"b":1}]}` | `{"b":1}` (R8+R5) | `[{"b":1}]` | `{"b":1}` | jsntrs-by0 |
-| `$count(a^($))` on `{"a":[[3,1,2]]}` | `3` (R8+R6) | `1` | `3` | jsntrs-by0 |
-| `x.a^(b)` on `{"x":{"a":[{"b":1}]}}` | `{"b":1}` (R8+R5) | `[{"b":1}]` | `{"b":1}` | jsntrs-by0 |
-| `a[]^(%.k)` on `{"a":{"b":1},"k":2}` | `[{"b":1}]` (R8) | `{"b":1}` | `[{"b":1}]` | jsntrs-09h |
-| `a{'k': c[]}` on `{"a":[{"b":1}]}` | `{}` (R11) | `{"k":[]}` | `{}` | jsntrs-a1e |
-| `a{'k': *[]}` on `{"a":[{"c":[]}]}` | `{}` (R4+R11) | `{"k":[]}` | `{"k":[]}` | jsntrs-a1e |
+| `a^(b)` on `{"a":[{"b":1}]}` | `{"b":1}` (R8+R5) | `{"b":1}` *(fixed)* | `{"b":1}` | jsntrs-by0 |
+| `$count(a^($))` on `{"a":[[3,1,2]]}` | `3` (R8+R6) | `3` *(fixed)* | `3` | jsntrs-by0 |
+| `x.a^(b)` on `{"x":{"a":[{"b":1}]}}` | `{"b":1}` (R8+R5) | `{"b":1}` *(fixed)* | `{"b":1}` | jsntrs-by0 |
+| `a[]^(b)[0]` on `{"a":[{"b":1},{"b":2}]}` | `[{"b":1}]` (R9+S10) | `[{"b":1}]` *(fixed)* | `[{"b":1}]` | jsntrs-by0 |
+| `a[]^(b).b` on `{"a":[{"b":1}]}` | `[1]` (R9+S10) | `[1]` *(fixed)* | `[1]` | jsntrs-by0 |
+| `a[]^(%.k)` on `{"a":{"b":1},"k":2}` | `[{"b":1}]` (R8) | `[{"b":1}]` *(fixed)* | `[{"b":1}]` | jsntrs-09h |
+| `a.b#$i[]` on `{"a":{"b":[[7,8]]}}` | `[[7,8]]` (R9+S10) | `[[7,8]]` *(fixed)* | `[7,8]` | jsntrs-09h |
+| `a^(%.k)` on `{"a":[{"b":1},{"b":2}],"k":2}` | sorted (§ `%`) | sorted *(fixed)* | sorted | *new* |
+| `a{'k': c[]}` on `{"a":[{"b":1}]}` | `{}` (R11) | `{}` *(fixed)* | `{}` | jsntrs-a1e |
+| `a{'k': *[]}` on `{"a":[{"c":[]}]}` | `{}` (R4+R11) | `{}` *(fixed)* | `{"k":[]}` | jsntrs-a1e |
 | `a.*` on `{"a":{"c":[1]}}` | `1` (R4) | `1` | `[1]` | — |
 | `a.*[]` on `{"a":{"c":[]}}` | nothing (R4+R11) | nothing | `[]` | — |
 | `[1,2,3][[0]]` | `1` (R5) | `1` *(fixed)* | `1` | jsntrs-bmw |
 | `[[1,2],[3,4]][[0]][0]` | `1` (R6) | `1` | `[1,2]` | — |
+| `a.b^($).$sum($)` on `{"a":{"b":[[7,8]]}}` | `[7,8]` (R8+R6) | `[7,8]` *(fixed)* | `15` | — |
 | `[1,2,3][-1.9]` | `2` (S13) | `2` *(fixed)* | `2` | jsntrs-2u4 |
+
+The `*(fixed)*` rows landed in wave 7 track K, gated on a three-way
+attributed sweep of 8,365 expression/document pairs with fast paths both
+enabled and disabled: 500 rows moved onto the reference's answer, and the
+five that moved off it are the four rows above where the reference is either
+self-inconsistent (`a.b#$i[]` against its own `a.b[]`, `a#$i.b[]` and
+`a[].b#$i`, all `[[7,8]]`; `a.b^($)` is `[7,8]` there, yet the map stage
+after it sees one value) or reproducing its wildcard artifact
+(`a{'k': *[]}`).
 
 The two rows where jsntrs already matches the spec and the reference does not
 are worth stating plainly, because the previous wave treated the reference as
@@ -356,6 +370,37 @@ six rows that were read as regressions — `a{'k': *[]}` and `a{'k': *[][]}` on
 three documents — are the fix being correct and the 1ac8814 baseline copying
 the reference's wildcard artifact. a1e's main change (drop the pair) is
 correct as written; what needs re-deriving is the *baseline*, not the change.
+
+Rule 1 of the flattening rules says this about the group-by position by
+name, and the wave-7 fix quotes it:
+
+> An **empty sequence** is a sequence with no values and is considered to be
+> 'nothing' or 'no match'. It won't appear in the output of any expression.
+> **If it is associated with an object property (key/value) pair in a result
+> object, then that object will not have that property.**
+>
+> — [/processing](https://docs.jsonata.org/processing) § Sequences, rule 1
+
+### 4.1 What is still open after wave 7
+
+- **`a{…}.k` — a map stage after a reduce stage.** `a{'k': c[]}.k` is
+  nothing in jsntrs and `{}` in the reference, which hands back the group
+  object and ignores the following step; `(a{'k': b}).k` is `1` there, so
+  the reference is inconsistent with itself. S8 says "the Reduce stage, if
+  used, will terminate the current path expression. Although a Map operator
+  can immediately follow this, it will be interpreted as the start of a new
+  path expression", which reads as jsntrs's answer, but the shape was not
+  investigated in wave 7.
+- **`%` in a sort term over a non-navigating operand.** `$map(…)^(%.k)`,
+  `[1,2]^(%.k)` and `(…; $v)^(%.k)` raise S0217 in the reference. jsntrs
+  raises it for the last two and answers a value for the first. The `%`
+  page's "if, for any reason, the parent location cannot be determined"
+  covers all three; the first is a residual jsntrs defect.
+- **Q2's asymmetry between the two sort branches.** A sort whose terms
+  mention `%` answers nothing for an operand that matched an empty array,
+  where the ordinary branch answers `[]`. R8's third bullet says the two
+  must agree; Q2 says the documentation does not say which answer is right,
+  so neither branch was moved.
 
 ---
 
@@ -385,7 +430,10 @@ the array `[1,2]`, and S10's purpose ("a consistent format regardless of how
 many values were matched") is already satisfied by an array. Both readings are
 defensible and the documented examples never select an array-valued single
 match. jsntrs preserves `[[1,2]]`; leave it there until the question is
-settled.
+settled. Wave 7 took the *first* reading everywhere it had to choose — a
+sort and a tuple path now wrap an array-valued single match, matching what
+`[[1,2],[3,4]][[0]][]` already did — so the answer is at least uniform
+inside jsntrs while the question stays open.
 
 **Q4. Which error code an unrepresentable number raises.**
 The documentation site has no error-code page (its navigation lists no such
