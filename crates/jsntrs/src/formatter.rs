@@ -260,13 +260,32 @@ impl<'a> Formatter<'a> {
     /// | `Sort`      | –      | ✓          | ✓     | ✓     | –     |
     /// | `Path`      | –      | (derived)  | –     | –     | ✓     |
     /// | `Grouped`   | –      | –          | –     | –     | ✓     |
+    /// | `Wildcard`  | –      | ✓          | –     | –     | –     |
+    /// | `Descendant`| –      | ✓          | –     | –     | –     |
     ///
-    /// Every other kind (`StringLit`, `NumberLit`, `ValueLit`, `Wildcard`,
-    /// `Descendant`, `Parent`, `Regex`, `Placeholder`, `Condition`, `Bind`,
-    /// `Partial`, `Lambda`, `Transform`) has no decoration slot at all: the
-    /// parser's `set_group` wraps such a node in `Grouped` and `set_focus` /
-    /// `set_index` / `set_keep_array` drop the decoration outright, so there
-    /// is nothing for `emit` to write.
+    /// Every other kind (`StringLit`, `NumberLit`, `ValueLit`, `Parent`,
+    /// `Regex`, `Placeholder`, `Condition`, `Bind`, `Partial`, `Lambda`,
+    /// `Transform`) has no decoration slot at all: the parser's `set_group`
+    /// wraps such a node in `Grouped` and `set_focus` / `set_index` /
+    /// `set_keep_array` drop the decoration outright, so there is nothing
+    /// for `emit` to write.
+    ///
+    /// That drop is upstream of the formatter and not its to undo: by the
+    /// time `emit` runs, `a.-0#$i` *is* `a.-0`, so the printed text differs
+    /// from the source (jsntrs-89v) while the AST it re-parses to does not.
+    /// On a *number* it costs no meaning — a numeric step is S0213 either
+    /// way — but two of the slot-less kinds are valid steps, and there the
+    /// dropped flag did mean something. Both are parser bugs, not
+    /// formatter ones; the documented rule they break is that "the `[]` can
+    /// be placed either side of the predicates and on any step in the path
+    /// expression" (<https://docs.jsonata.org/predicate>):
+    ///
+    /// - `Parent`: `a.b.%[]` answers `[{…}]` in jsonata 2.2.2 and `{…}`
+    ///   here; `%@$v` and `%#$i` are dropped the same way.
+    /// - `StringLit`: a string step *is* a field name — `collect_path_steps`
+    ///   rebuilds it as a fresh `Name` — so `a."b"[]` should be `a.b[]`,
+    ///   and the `[]` is thrown away before that rebuild: `[1]` in jsonata
+    ///   2.2.2, `1` here.
     ///
     /// `Path::keep_singleton_array` is *derived*: `process_ast` raises it
     /// when any step carries `keep_array`, and the step keeps its own flag,
@@ -2233,6 +2252,77 @@ mod tests {
                 expected,
                 "formatted output changed semantics: {src} -> {once:?}"
             );
+        }
+    }
+
+    /// The arena's nodes with their byte offsets blanked: two spellings of
+    /// one tree differ only in where their tokens sat.
+    fn ast_shape(src: &str) -> String {
+        let (mut arena, root) = Parser::parse(src).expect("parse");
+        process_ast(&mut arena, root).expect("process");
+        let dump = format!("{:?}", arena.nodes());
+        let mut out = String::with_capacity(dump.len());
+        let mut rest = dump.as_str();
+        while let Some(i) = rest.find("pos: ") {
+            out.push_str(&rest[..i]);
+            rest = &rest[i + 5..];
+            rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A decoration the *parser* drops never reaches the formatter.
+    ///
+    /// `set_focus` / `set_index` / `set_keep_array` fill a slot only on the
+    /// node kinds that have one (the audit table on [`Formatter::emit`]);
+    /// on a literal there is no slot, so the decoration is dropped where it
+    /// is read and `a.-0#$i` is already the same tree as `a.-0` by the time
+    /// `format` sees it. The formatter prints the tree it is given, so the
+    /// *source text* is not reproduced (jsntrs-89v) — but what a formatter
+    /// owes, an output that re-parses to the same AST and a first pass that
+    /// is already canonical, is intact, and so is the answer: every
+    /// spelling below puts a *number* where a path step belongs, which is
+    /// S0213 either way. Restoring the text would mean giving numeric
+    /// literals decoration slots for a step that can never be evaluated.
+    ///
+    /// The same parser drop on a `%` or a string step is a different
+    /// matter and a real bug — see the audit on [`Formatter::emit`].
+    #[test]
+    fn a_decoration_the_parser_drops_is_not_the_formatters_to_restore() {
+        use crate::Expression;
+        let eval = |src: &str| {
+            Expression::compile(src)
+                .unwrap_or_else(|e| panic!("compile `{src}`: {e}"))
+                .evaluate(r#"{"a": 1}"#)
+                .map_or_else(|e| e.code.to_string(), |v| v.to_string())
+        };
+        for (decorated, plain) in [
+            ("a.-0#$i", "a.-0"),
+            ("a.0#$i", "a.0"),
+            ("a.-0@$v", "a.-0"),
+            ("0[].0", "0 . 0"),
+            ("a.0[]", "a.0"),
+        ] {
+            assert_eq!(
+                ast_shape(decorated),
+                ast_shape(plain),
+                "the decoration reached the AST: {decorated}"
+            );
+            assert_eq!(
+                fmt(decorated),
+                fmt(plain),
+                "one tree, two spellings: {decorated}"
+            );
+            let once = fmt(decorated);
+            assert_eq!(
+                ast_shape(&once),
+                ast_shape(decorated),
+                "AST changed: {once}"
+            );
+            assert_eq!(fmt(&once), once, "not idempotent: {decorated}");
+            assert_eq!(eval(decorated), "S0213", "unexpected result: {decorated}");
+            assert_eq!(eval(&once), "S0213", "unexpected result: {once}");
         }
     }
 
