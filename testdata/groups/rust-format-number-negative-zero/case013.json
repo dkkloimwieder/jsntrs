@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(0.0, \"0.0e0\")",
+    "dataset": null,
+    "bindings": {},
+    "result": "0.0e0",
+    "authority": "XPath 3.1 F&O 4.7.5: \"positive zero as positive\". Expectation taken from the W3C QT3 test suite, fn/format-number.xml numberformat321, format-number(0.0e0, '0.0e0') = \"0.0e0\" — the companion of numberformat322 in case012, and what makes the pair a test of the sign bit rather than of zero."
+}

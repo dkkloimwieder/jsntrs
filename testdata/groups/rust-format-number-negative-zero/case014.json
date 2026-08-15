@@ -1,0 +1,12 @@
+{
+    "expr": "[$string(-0.0), $string(-0), $string(0.0), -0.0 = 0.0]",
+    "dataset": null,
+    "bindings": {},
+    "result": [
+        "0",
+        "0",
+        "0",
+        true
+    ],
+    "authority": "Guards the layer boundary jsntrs-204 does not cross. Which sub-picture $formatNumber selects is XPath 3.1 F&O 4.7.5; number output is ECMAScript Number.toString(), where String(-0) is \"0\" (CLAUDE.md invariant 5, jsntrs-p0v.5), and equality is numeric, so -0.0 = 0.0 is true. Only $formatNumber reads the sign bit."
+}

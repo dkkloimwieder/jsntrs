@@ -107,7 +107,10 @@ type Sequence struct {
 `"0"`, not Go's `"-0"`. JavaScript agrees at both layers (`String(-0)` and
 `JSON.stringify(-0)` are both `"0"`) and the JSON side here already did
 (`ryu-js`), so `$string(0 * -1)` and the serialized form of the same value no
-longer disagree about the sign of zero.
+longer disagree about the sign of zero. That is the *number-output* layer, and
+it is the only place the sign of zero is dropped: `$formatNumber` reads the
+sign bit to choose its sub-picture, because XPath 3.1 F&O 4.7.5 tells it to
+(jsntrs-204, and § 5.2.20 below).
 
 **Rust port: out-of-range JSON number literals (jsntrs-ztg).** Ingest accepts
 every literal `JSON.parse` accepts, widening it the way JavaScript does:
@@ -1491,6 +1494,27 @@ jsntrs-p0v.18 for the audit.
 - **Parameters**: `(number, picture [, options])`.
 - **<2 args**: **T0410** (Go reference: D3006).
 - **nil first arg**: undefined propagation.
+- **Sub-picture selection, and negative zero (jsntrs-204, reverses
+  jsntrs-p0v.26)**: F&O 4.7.5 — "the positive sub-picture and its associated
+  variables are used if the input number is positive, and the negative
+  sub-picture and its associated variables are used if it is negative. **For
+  xs:double and xs:float, negative zero is taken as negative, positive zero as
+  positive.** For xs:decimal and xs:integer, the positive sub-picture is used
+  for zero." A JSONata number is an IEEE 754 double, and only a double has a
+  signed zero to begin with, so the double sentence is the one that applies:
+  `$formatNumber(-0.0, "0.00")` is **`"-0.00"`** and
+  `$formatNumber(-0.0, "0.00;(0.00)")` is **`"(0.00)"`**. The W3C QT3 suite
+  pins the pair — `format-number(-0.0e0, '0.0e0')` is `"-0.0e0"`
+  (numberformat322) against `"0.0e0"` for `0.0e0` (numberformat321).
+  jsonata-js branches on `value >= 0` and gives negative zero the positive
+  sub-picture; jsntrs followed it until this change. **This is not the
+  number-output layer**: `$string(-0)` and the JSON writer still print `"0"`
+  (§ 1.4, invariant 5), the digits still come from the magnitude, and every
+  minus in the output above is the negative sub-picture's prefix (4.7.4, "the
+  prefix for the negative sub-picture is set by concatenating the minus-sign
+  character and the prefix for the positive sub-picture (if any), in that
+  order"), never a sign inside the digit string — which *was* the real bug
+  p0v.26 fixed, `"9,9,99.99"` having produced `"0,0,-0.00"`.
 - **options**: Object with keys: `decimal-separator`, `grouping-separator`,
   `percent`, `per-mille`, `zero-digit`, `digit`, `pattern-separator`,
   `exponent-separator`, `minus-sign` (jsntrs-12g). `infinity` and `NaN` are

@@ -3,7 +3,8 @@
     "dataset": null,
     "bindings": {},
     "result": [
-        "0.00",
+        "-0.00",
         "1.50"
-    ]
+    ],
+    "divergence": "re-derived from XPath 3.1 F&O 4.7.5, which picks the sub-picture by sign: \"the positive sub-picture and its associated variables are used if the input number is positive, and the negative sub-picture and its associated variables are used if it is negative. For xs:double and xs:float, negative zero is taken as negative, positive zero as positive. For xs:decimal and xs:integer, the positive sub-picture is used for zero.\" A JSONata number is an IEEE 754 double and only a double has a signed zero at all, so the first sentence is the one that applies and -0.0 takes the negative sub-picture; the W3C QT3 suite pins it in fn/format-number.xml numberformat322, format-number(-0.0e0, '0.0e0') = \"-0.0e0\". The case used to pin the positive sub-picture, following jsonata-js's `value >= 0` branch (jsntrs-p0v.26, reversed by jsntrs-204). Sub-picture selection only: the digits come from make_string, which formats the magnitude, and the number-output layer is untouched — $string(-0) and the JSON writer still print \"0\". Reached through the $formatNumber fast path; the positive member of the array is unaffected."
 }

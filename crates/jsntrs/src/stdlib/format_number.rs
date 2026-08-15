@@ -1156,16 +1156,41 @@ pub(crate) fn prepare_sub_pictures(
 /// Bullets 2, 3 and 14: pick the sub-picture, apply the scaling factor, and
 /// wrap the formatted digits in the prefix and suffix.
 ///
-/// `-0.0 < 0.0` is false, so negative zero formats through the positive
-/// sub-picture, exactly as jsonata-js branching on `value >= 0` does; its
-/// sign disappears in `make_string`, which formats the magnitude.
+/// F&O 4.7.5: "the positive sub-picture and its associated variables are used
+/// if the input number is positive, and the negative sub-picture and its
+/// associated variables are used if it is negative. **For xs:double and
+/// xs:float, negative zero is taken as negative, positive zero as positive.**
+/// For xs:decimal and xs:integer, the positive sub-picture is used for zero."
+/// A JSONata number is an IEEE 754 double, and a zero that carries a sign bit
+/// can only be one — xs:decimal has no negative zero to distinguish — so the
+/// first sentence is the one that applies and `-0.0` takes the negative
+/// sub-picture. The W3C QT3 suite pins it: `format-number(-0.0e0, '0.0e0')`
+/// is "-0.0e0" (fn/format-number.xml numberformat322) against "0.0e0" for
+/// `0.0e0` (numberformat321). jsonata-js branches on `value >= 0` and gives
+/// negative zero the positive sub-picture; jsntrs followed it (jsntrs-p0v.26)
+/// and no longer does (jsntrs-204).
+///
+/// Only the *sub-picture choice* moves. The digits themselves are unaffected:
+/// `make_string` formats `value.abs()`, so the minus sign in the output is the
+/// negative prefix (F&O 4.7.4, "the prefix for the negative sub-picture is set
+/// by concatenating the minus-sign character and the prefix for the positive
+/// sub-picture"), never a stray sign inside the digit string. And this is not
+/// the number-output layer: `$string(-0)` and JSON both still print "0"
+/// (invariant 5, jsntrs-p0v.5).
 pub(crate) fn format_number_value(
     n: f64,
     pos_pic: &SubPicture,
     neg_pic: &SubPicture,
     fc: &FmtChars,
 ) -> String {
-    let sp = if n < 0.0 { neg_pic } else { pos_pic };
+    // `n < 0.0` is false for -0.0; the sign bit is the whole question here.
+    // Non-finite values never reach this function (D3001 rejects them, and the
+    // fast path hands them back), so `is_sign_negative` has no NaN to trip on.
+    let sp = if n.is_sign_negative() {
+        neg_pic
+    } else {
+        pos_pic
+    };
     let adjusted = match sp.scale {
         1 => n * 100.0,
         2 => n * 1000.0,
@@ -1217,34 +1242,64 @@ mod tests {
         assert_eq!(fmt(1.0, "#0.00;(#0.00)"), "1.00");
     }
 
-    /// Negative zero formats as zero. `-0.0 < 0.0` is false, so it already
-    /// took the positive sub-picture (jsonata-js branches on `value >= 0`
-    /// and agrees), but the sign `format!("{:.p$}")` writes still reached the
-    /// picture machinery: jsntrs answered "-0.00", and with grouping the
-    /// minus was grouped as if it were a digit — "9,9,99.99" gave
-    /// "0,0,-0.00". Expected values verified against jsonata-js 2.1.0
-    /// (jsntrs-p0v.26).
+    /// F&O 4.7.5 picks the sub-picture by sign: "the positive sub-picture and
+    /// its associated variables are used if the input number is positive, and
+    /// the negative sub-picture ... if it is negative. For xs:double and
+    /// xs:float, negative zero is taken as negative, positive zero as
+    /// positive." A JSONata number is a double, so `-0.0` takes the negative
+    /// sub-picture — W3C QT3 fn/format-number.xml numberformat322,
+    /// `format-number(-0.0e0, '0.0e0')` is "-0.0e0", against numberformat321's
+    /// "0.0e0" for `0.0e0`. jsonata-js branches on `value >= 0` and formats
+    /// negative zero through the positive sub-picture; jsntrs followed it
+    /// (jsntrs-p0v.26) until jsntrs-204.
+    ///
+    /// What the digits do is unchanged, and was the real bug p0v.26 fixed: the
+    /// sign `format!("{:.p$}")` wrote used to reach the picture machinery, so
+    /// jsntrs answered "-0.00" from the *digit string* and with grouping put
+    /// the minus in a group — "9,9,99.99" gave "0,0,-0.00". `make_string`
+    /// formats the magnitude; every minus below is the negative prefix.
     #[test]
-    fn negative_zero_formats_as_zero() {
-        assert_eq!(fmt(-0.0, "0.00"), "0.00");
-        assert_eq!(fmt(-0.0, "0.0"), "0.0");
-        assert_eq!(fmt(-0.0, "9,9,99.99"), "0,0,00.00");
-        assert_eq!(fmt(-0.0, "#,##0.00"), "0.00");
-        assert_eq!(fmt(-0.0, "0.00%"), "0.00%");
-        assert_eq!(fmt(-0.0, "‰0.00"), "‰0.00");
-        // The negative sub-picture is for negative numbers, and -0.0 is not
-        // one of them.
-        assert_eq!(fmt(-0.0, "0.00;(0.00)"), "0.00");
-        assert_eq!(fmt(-0.0, "0.00;-0.00"), "0.00");
-        // An exponent picture has no reference answer — jsonata-js loops
-        // forever on a zero mantissa — but the sign must be gone all the
-        // same.
-        assert_eq!(fmt(-0.0, "0.0e0"), fmt(0.0, "0.0e0"));
-        assert_eq!(fmt(-0.0, "00.000e0"), fmt(0.0, "00.000e0"));
+    fn negative_zero_takes_the_negative_sub_picture() {
+        assert_eq!(fmt(-0.0, "0.00"), "-0.00");
+        assert_eq!(fmt(-0.0, "0.0"), "-0.0");
+        assert_eq!(fmt(-0.0, "9,9,99.99"), "-0,0,00.00");
+        assert_eq!(fmt(-0.0, "#,##0.00"), "-0.00");
+        assert_eq!(fmt(-0.0, "0.00%"), "-0.00%");
+        assert_eq!(fmt(-0.0, "‰0.00"), "-‰0.00");
+        // With two sub-pictures the second one is used as written, minus sign
+        // and all: 4.7.4 only prepends `minus-sign` when the picture has a
+        // single sub-picture.
+        assert_eq!(fmt(-0.0, "0.00;(0.00)"), "(0.00)");
+        assert_eq!(fmt(-0.0, "0.00;-0.00"), "-0.00");
+        // numberformat322/321 themselves.
+        assert_eq!(fmt(-0.0, "0.0e0"), "-0.0e0");
+        assert_eq!(fmt(0.0, "0.0e0"), "0.0e0");
+        assert_eq!(fmt(-0.0, "00.000e0"), "-00.000e0");
+        // Positive zero is unaffected.
+        assert_eq!(fmt(0.0, "0.00"), "0.00");
+        assert_eq!(fmt(0.0, "0.00;(0.00)"), "0.00");
         // A number that really is negative still takes the negative picture.
         assert_eq!(fmt(-0.000_000_001, "0.00"), "-0.00");
         assert_eq!(fmt(-0.4, "0"), "-0");
         assert_eq!(fmt(-1.0, "0.00;(0.00)"), "(1.00)");
+        // The minus lives in the prefix, so a `minus-sign` option moves it and
+        // the digits never carry one.
+        assert_eq!(
+            fmt_opts(-0.0, "9,9,99.99", r#"{"minus-sign": "@"}"#),
+            Ok("@0,0,00.00".to_string())
+        );
+    }
+
+    /// The number-output layer is a different thing from which sub-picture
+    /// `$formatNumber` selects: `$string(-0)` and the JSON writer still print
+    /// "0" (invariant 5, jsntrs-p0v.5), and `$formatNumber` reads the sign bit
+    /// only to choose between the two sub-pictures.
+    #[test]
+    fn negative_zero_still_stringifies_as_zero() {
+        assert_eq!(Value::Number(-0.0).stringify(false).unwrap(), "0");
+        let mut buf = Vec::new();
+        Value::Number(-0.0).write_json(&mut buf);
+        assert_eq!(String::from_utf8(buf).unwrap(), "0");
     }
 
     /// Call the builtin with arbitrary arguments; `Err` carries the code.
