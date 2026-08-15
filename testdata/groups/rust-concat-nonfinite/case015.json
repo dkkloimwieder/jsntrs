@@ -1,0 +1,11 @@
+{
+    "expr": "$string(a)",
+    "data": {
+        "a": [
+            1e400
+        ]
+    },
+    "bindings": {},
+    "code": "D1001",
+    "token": "string"
+}

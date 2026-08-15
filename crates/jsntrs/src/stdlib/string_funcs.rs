@@ -15,12 +15,9 @@ pub fn fn_string(args: &[Value], focus: &Value) -> JsonataResult {
     if arg.is_undefined() {
         return Ok(Value::Undefined);
     }
-    // Check for Inf/NaN numbers → D3001.
-    if let Value::Number(n) = arg
-        && (n.is_infinite() || n.is_nan())
-    {
-        return Err(JsonataError::new("D3001", "Number out of range"));
-    }
+    // The Inf/NaN guard (D3001 bare, D1001 nested) lives in `stringify`
+    // itself, so `$string(1/0)` and `1/0 & ''` — which the reference defines
+    // in terms of the same `string()` — cannot disagree (jsntrs-x0y).
     // Arity enforced by SignedBuiltin signature at call site.
     // When called via HOF, extra args are present — only check arg[1] if it's a bool.
     let prettify = match args.get(1) {

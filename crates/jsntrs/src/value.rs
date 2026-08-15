@@ -449,6 +449,25 @@ impl Value {
         }
     }
 
+    /// A bare non-finite number cannot be stringified: **D3001**.
+    ///
+    /// The rule is the reference's `string()` (jsonata 2.2.2
+    /// `jsonata.js:1484-1490`): a *bare* `Infinity`/`NaN` argument throws
+    /// D3001, while a composite that merely *contains* one goes through
+    /// `JSON.stringify`, whose replacer calls `isNumeric` and throws
+    /// **D1001** instead (`jsonata.js:7497`). Both halves apply to `$string`
+    /// and to `&`, which is defined in terms of it — hence the split
+    /// between this guard and [`Value::contains_non_finite`] below.
+    fn non_finite_guard(&self) -> JsonataResult<()> {
+        match self {
+            Value::Number(n) if !n.is_finite() => Err(JsonataError::new(
+                "D3001",
+                "cannot stringify Infinity or NaN",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     /// Append the stringified form of this value to `buf`.
     ///
     /// Strings append verbatim (unquoted), booleans as `true`/`false`,
@@ -457,7 +476,8 @@ impl Value {
     /// member g15-cast (see [`Value::string_cast`]).
     ///
     /// # Errors
-    /// Returns `D1001` if the value contains non-finite numbers.
+    /// Returns `D3001` for a bare non-finite number and `D1001` for a
+    /// composite value containing one — see [`Value::non_finite_guard`].
     pub fn stringify_into(&self, buf: &mut String) -> JsonataResult<()> {
         match self {
             Value::Undefined | Value::Function(_) | Value::TailCall(_) => Ok(()),
@@ -466,6 +486,7 @@ impl Value {
                 Ok(())
             }
             Value::Number(n) => {
+                self.non_finite_guard()?;
                 buf.push_str(&format_float(*n));
                 Ok(())
             }
@@ -496,12 +517,16 @@ impl Value {
     /// writers themselves stay the exact round-tripping JSON layer.
     ///
     /// # Errors
-    /// Returns `D1001` if the value contains non-finite numbers.
+    /// Returns `D3001` for a bare non-finite number and `D1001` for a
+    /// composite value containing one — see [`Value::non_finite_guard`].
     pub fn stringify(&self, prettify: bool) -> JsonataResult<String> {
         match self {
             Value::Undefined => Ok(String::new()),
             Value::String(s) => Ok(s.to_string()),
-            Value::Number(n) => Ok(format_float(*n)),
+            Value::Number(n) => {
+                self.non_finite_guard()?;
+                Ok(format_float(*n))
+            }
             Value::Bool(true) => Ok("true".into()),
             Value::Bool(false) => Ok("false".into()),
             Value::Function(_) => Ok(String::new()),

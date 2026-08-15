@@ -1,0 +1,14 @@
+{
+    "expr": "$map(items, function($v){ $v.a & $v.b })",
+    "data": {
+        "items": [
+            {
+                "a": "p",
+                "b": 1e400
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "D3001",
+    "token": "&"
+}

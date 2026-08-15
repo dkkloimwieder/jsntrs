@@ -180,7 +180,10 @@ Must match JavaScript's `Number.toString()` behavior.
 | `float64` | `FormatFloat(val)` |
 | `bool true` | `"true"` |
 | `bool false` | `"false"` |
+| `float64` `Inf`/`NaN` | error **D3001** (corrected, jsntrs-x0y) |
 | Other | JSON-serialized via `marshalNoHTMLEscape` (no `&`, `<`, `>` escaping) |
+| Other *containing* `Inf` | error **D1001** (matches jsonata 2.2.2) |
+| Other *containing* `NaN` | error **D1001** — **deviation**: jsonata 2.2.2 serializes the member as `null` |
 
 ## 1.7 DeepEqual
 
@@ -537,6 +540,15 @@ Used by the `&` concatenation operator:
 - `float64` -> `FormatFloat()` (JavaScript-compatible formatting)
 - `bool` -> `"true"` / `"false"`
 - Other (objects, arrays) -> JSON marshal with HTML escaping disabled
+
+**Non-finite operands (corrected, jsntrs-x0y):** a *bare* `Inf`/`NaN` operand
+is **D3001**, matching jsonata 2.2.2 — the Go table above formatted both as
+`"null"`, and the reference wins. A composite *containing* `Inf` is **D1001**,
+also matching. A composite containing `NaN` is **D1001** in jsntrs but
+`"null"` for that member in jsonata 2.2.2 (`isNumeric` returns false for
+`NaN` without throwing): a deliberate, documented deviation, not a rule
+derived from the reference. See `docs/behaviors.md` 1.3 for the full table
+and the rationale.
 
 ### 4.2.6 Number Formatting (`FormatFloat`, line 72)
 

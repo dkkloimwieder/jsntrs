@@ -78,13 +78,49 @@ Source: `internal/evaluator/eval_helpers.go:27-49`
 | `1e21` | float64 | `"1e+21"` | scientific (>= 1e21) |
 | `1e-7` | float64 | `"1e-7"` | scientific (< 5e-7) |
 | `5e-7` | float64 | `"0.0000005"` | decimal (>= 5e-7) |
-| `NaN` | float64 | `"null"` | |
-| `Inf` | float64 | `"null"` | |
+| `NaN` | float64 | error **D3001** | Go said `"null"`; see below |
+| `Inf` | float64 | error **D3001** | Go said `"null"`; see below |
 | `true` | bool | `"true"` | |
 | `false` | bool | `"false"` | |
 | `Null` | null | `"null"` | JSON marshaled |
 | `[1,2]` | []any | `"[1,2]"` | JSON marshaled (no HTML escape) |
 | `{"a":1}` | OrderedMap | `{"a":1}` | JSON marshaled, preserves key order |
+| `[Inf]` | []any | error **D1001** | *contains* `Inf` — matches jsonata 2.2.2 |
+| `{"a":Inf}` | OrderedMap | error **D1001** | *contains* `Inf` — matches jsonata 2.2.2 |
+| `[NaN]` | []any | error **D1001** | **deviation** — jsonata 2.2.2 gives `"[null]"` |
+| `{"a":NaN}` | OrderedMap | error **D1001** | **deviation** — jsonata 2.2.2 gives `{"a":null}` |
+
+**Non-finite numbers (corrected against jsonata 2.2.2, jsntrs-x0y).** The Go
+reference formatted `Inf`/`NaN` as `"null"` here, but jsonata-js defines both
+`$string` and `&` through one `string()` function
+(`jsonata.js:1484-1490`) that throws **D3001** on a *bare* non-finite number —
+`NaN` and `±Infinity` alike, since the guard is `!isFinite(arg)`. jsntrs
+follows it: `1/0 & ''`, `(0/0) & ''`, `$string(1/0)` and `$string(0/0)` are
+all D3001. The split is implemented once, in
+`Value::stringify`/`stringify_into`, so the operator and the function cannot
+disagree.
+
+A *composite* that merely contains a non-finite number takes the
+`JSON.stringify` path instead, and there the two engines part company —
+**a documented, deliberate deviation, not a bug to be read as spec**:
+
+| composite member | jsonata 2.2.2 | jsntrs |
+|---|---|---|
+| `Infinity` / `-Infinity` | **D1001** | **D1001** |
+| `NaN` | member serialized as `null` (`"[null]"`) | **D1001** |
+
+The reference's replacer calls `isNumeric` on every value, and `isNumeric`
+(`jsonata.js:7491-7503`) returns `false` for `NaN` *without* throwing —
+`isNum = !isNaN(n)` is already false, so the `!isFinite` throw is never
+reached — leaving `JSON.stringify`'s own rule (non-finite numbers serialize
+as `null`) to produce `"[null]"`. Only `Infinity` reaches the throw, which is
+why the reference's composite rule is about `Infinity` alone. jsntrs's
+`contains_non_finite` does not make that distinction and raises D1001 for
+either. The behaviour is deliberately left as-is: it is the older, stricter
+rule inherited from the port, refusing to emit a `null` that silently
+destroys a NaN, and no conformance case in the suite depends on the
+reference's answer. Anything relying on `$string`/`&` of a NaN-bearing
+composite must expect D1001 here.
 
 ### 1.4 Number Formatting (`FormatFloat`)
 

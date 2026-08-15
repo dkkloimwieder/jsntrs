@@ -1,0 +1,13 @@
+{
+    "expr": "$map(items, function($v){ $string($v.a) & 'x' })",
+    "data": {
+        "items": [
+            {
+                "a": 1e400
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "D3001",
+    "token": "string"
+}

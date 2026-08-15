@@ -1,0 +1,13 @@
+{
+    "expr": "items.(a & '')",
+    "data": {
+        "items": [
+            {
+                "a": 1e400
+            }
+        ]
+    },
+    "bindings": {},
+    "code": "D3001",
+    "token": "&"
+}
