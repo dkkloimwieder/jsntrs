@@ -1,0 +1,6 @@
+{
+    "expr": "$type(x.(a[]))",
+    "data": {"x":{"a":1}},
+    "bindings": {},
+    "result": "number"
+}

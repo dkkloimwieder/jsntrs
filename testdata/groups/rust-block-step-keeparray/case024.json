@@ -1,0 +1,6 @@
+{
+    "expr": "Account.(Order.Product[].Price)",
+    "data": {"Account":{"Order":{"Product":{"Price":34}}}},
+    "bindings": {},
+    "result": 34
+}

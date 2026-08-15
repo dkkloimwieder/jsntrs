@@ -1,0 +1,6 @@
+{
+    "expr": "$.(a[])",
+    "data": {"a":1},
+    "bindings": {},
+    "result": 1
+}

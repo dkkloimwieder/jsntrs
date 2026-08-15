@@ -672,6 +672,15 @@ const CASES: &[(&str, &str)] = &[
     ("items.$round(x, 1e10)", NUMS),
     ("items.$formatBase(x, 15.5)", CLEAN),
     ("items.$formatBase(x, 2.5)", NUMS),
+    // ── Track block-step-sequence (jsntrs-p0v.19) ─────────────────────
+    // The path's keep-singleton is a lazy flag now, so the wrap happens
+    // wherever the value is collapsed rather than inside the step. These
+    // are the shapes where a lift still fires *under* that flag — the
+    // simple-field sort and the mapped call in a block step — and both
+    // routes have to land on the same singleton.
+    ("a^(b)[]", EMPTY_FIELDS),
+    ("half^(b)[]", EMPTY_FIELDS),
+    ("items.$string(x)[]", KEEP_ARRAY),
 ];
 
 /// (expression, data) pairs where **no** lift may fire.
@@ -1119,6 +1128,27 @@ const GENERAL_ONLY_CASES: &[(&str, &str)] = &[
     ("[**]", POSTFIX),
     ("** ~> $count", POSTFIX),
     ("obj.**", POSTFIX),
+    // ── Track block-step-sequence (jsntrs-p0v.19) ─────────────────────
+    // Declined: a `[]` anywhere in the shape sets `keep_singleton_array`
+    // on the path (or reaches the value through a block step that carries
+    // it), and `collect_pure_path` refuses such a path. The flag is now a
+    // lazy `Sequence` marker the enclosing path drops while re-sequencing,
+    // so these pin the general answer a future lift would have to
+    // reproduce — including the `[]` that survives (`obj.a.(x[])[]`) and
+    // the one that does not (`obj.a.(x[])`).
+    ("obj.a.(x[])", KEEP_ARRAY),
+    ("obj.a.(x[])[]", KEEP_ARRAY),
+    ("obj.(a.x[])", KEEP_ARRAY),
+    ("obj.(a.x[][0])", KEEP_ARRAY),
+    ("obj.($keys(a)[])", KEEP_ARRAY),
+    ("obj.a.(x[]^($))", KEEP_ARRAY),
+    ("$string(obj.b.(x[]))", KEEP_ARRAY),
+    ("items[2].(x[])", KEEP_ARRAY),
+    ("items[2].($string(x[]))", KEEP_ARRAY),
+    ("obj.(x[])", POSTFIX),
+    ("obj.($keys($)[])", POSTFIX),
+    ("obj.($sum(x)[])", POSTFIX),
+    ("items[0].(x[])", SIGNED),
 ];
 
 type EvalResult = Result<Value, JsonataError>;

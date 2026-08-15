@@ -1,0 +1,6 @@
+{
+    "expr": "x.($keys(a)[])",
+    "data": {"x":{"a":{"k":1}}},
+    "bindings": {},
+    "result": "k"
+}

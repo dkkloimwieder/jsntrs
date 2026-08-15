@@ -10,7 +10,7 @@ use crate::parser::BinaryOp;
 use crate::parser::{AstArena, Expr, NodeId};
 use crate::value::{Sequence, Value};
 
-use super::binary::{apply_keep_array, has_keep_array};
+use super::binary::{flag_keep_array, has_keep_array};
 use super::environment::Environment;
 use super::path::node_has_parent_ref;
 use super::{PARENT_BINDING, descendant_lookup, eval_no_stack_check, eval_operand};
@@ -59,7 +59,7 @@ pub(super) fn eval_subscript_binary(
     let keep_array = has_keep_array(arena, node);
     let result = eval_subscript(arena, rhs, &left, input, env, index_var.as_ref())?;
     if keep_array {
-        Ok(apply_keep_array(result, Value::Array(Rc::from(vec![]))))
+        Ok(flag_keep_array(result, Value::Array(Rc::from(vec![]))))
     } else {
         Ok(result)
     }

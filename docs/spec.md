@@ -669,7 +669,7 @@ When Left is a Block containing a single path expression and the predicate refer
    - Normalizes result to `[]any` items.
    - Returns `(nil, nil, nil)` if left is nil.
 
-2. **KeepArray** (line 222): Propagates from `node.KeepArray` or any node in the left chain (via `hasKeepArrayInChain`).
+2. **KeepArray** (line 222): Propagates from `node.KeepArray` or any node in the left chain (via `hasKeepArrayInChain`). jsntrs records it as a deferred flag rather than wrapping on the spot -- see §4.7.3 (jsntrs-p0v.19).
 
 3. **Try numeric indexing** (line 256):
    - Evaluates right with a representative context (first item).
@@ -731,7 +731,7 @@ When Left is a Block containing a single path expression and the predicate refer
 3. **Evaluate arguments** (line 39): Placeholders produce `nil`.
 4. **Signature validation for SignedBuiltins** (line 54): Calls `processCallArgs` with the parsed signature. If validation fails, returns the error. If `returnUndefined`, returns `(nil, nil)`.
 5. **Tail-call optimization** (line 69): If `node.Thunk` is true and `fn` is a `*Lambda`, returns `&TailCall{Fn: fn, Args: args}` instead of calling.
-6. **Call and collapse** (line 75): Calls `callFunction`, then `CollapseAndKeep(result, node.KeepArray)`.
+6. **Call and collapse** (line 75): Calls `callFunction`, then `CollapseAndKeep(result, node.KeepArray)`. jsntrs applies `node.KeepArray` only when the call handed back a sequence, and records it as a deferred flag -- see §4.7.3 (jsntrs-p0v.6, jsntrs-p0v.19).
 
 ### 4.5.2 `evalLambda` (line 82)
 
@@ -820,6 +820,26 @@ Steps are evaluated left-to-right, threading each step's result into the next:
 3. **Empty array pruning** (line 165): Empty arrays from auto-mapping mean "nothing found" -> nil. Exception: `NodeName`/`NodeString` steps preserve empty arrays as genuine values.
 4. **Mapper tracking** (line 170): After each step, `prevWasMapper` is set if the result is `[]any` or `*Sequence`.
 5. **KeepSingletonArray** (line 175): If the path has `[]`, wraps non-nil scalar results in `[]any{result}`.
+   **Deviation from the Go reference** (jsntrs-p0v.19): jsntrs marks the
+   result instead of wrapping it — a `Value::Sequence` carrying
+   `keep_singleton`, which only becomes an array where something collapses
+   it (the `eval()` boundary, an operand, a call argument). jsonata-js's
+   `keepSingleton` is likewise a flag on the sequence, and its
+   `evaluateStep` re-sequences every step result into a fresh sequence, so
+   a flag set *inside* a step does not survive the enclosing path. Wrapping
+   eagerly made the wrap indistinguishable from a real array value and left
+   it in place: `x.(a[])` on `{"x": {"a": 1}}` answered `[1]` where
+   jsonata-js answers `1`, and the whole family with it (`x.(a.b[])`,
+   `x.(a[].b)`, `x.($v := a.b[]; $v)`, `$string(x.(a.b[]))`,
+   `x.(a[]^(b))`). The same deferral applies wherever a node's own
+   `KeepArray` is honoured — §4.3.3 subscript, §4.5.1 function call, and a
+   `~>` chain stage — while a group-by pair's value (§4.12.1 `evalGroupBy`)
+   still materialises on the spot, since it is inserted straight into the
+   output object.
+   *Known remaining gap*: jsonata-js keeps sequence-ness on the array
+   object itself, so the flag also survives a lambda's argument and return
+   (`x.($f := function($v){$v}; $f(a[]))` → `1`). jsntrs collapses at those
+   boundaries (jsntrs-p0v.6) and still answers `[1]` there.
 
 ### 4.7.4 Tuple Path Mode: `evalPathTuple` (line 198)
 

@@ -18,7 +18,7 @@ pub use functions::{
 pub use signature::{ParamSpec, parse_signature, process_call_args};
 
 pub(crate) use binary::apply_arithmetic;
-use binary::{apply_keep_array, eval_binary};
+use binary::{eval_binary, flag_keep_array};
 use group::eval_group_by;
 use path::{
     collapse_val, eval_descendant_step, eval_path, eval_path_step, flatten_to_vec,
@@ -128,6 +128,36 @@ pub(crate) fn eval_operand(
         collapse_sequence_in_place(value);
     }
     result
+}
+
+/// Mark a value as keep-singleton *without* materialising the wrap.
+///
+/// The counterpart of [`collapse_sequence`], and jsntrs's spelling of
+/// jsonata-js's `result.keepSingleton = true` — set by `evaluatePath` for a
+/// path's `keepSingletonArray` and by the tail of `evaluate()` for a node's
+/// own `keepArray`. It is a *flag*, read only when something later collapses
+/// the sequence (the `eval()` boundary, an operand, a call argument).
+///
+/// Wrapping eagerly in a `Value::Array` instead made the wrap
+/// indistinguishable from a real array value, so an enclosing path could no
+/// longer drop it while re-sequencing its steps and `x.(a[])` answered `[1]`
+/// where the reference answers `1` (jsntrs-p0v.19).
+///
+/// `Value::Array` is left alone: the reference sets the property on a plain
+/// array too, but a plain array is not a sequence there, so nothing reads it.
+pub(crate) fn mark_keep_singleton(result: Value) -> Value {
+    match result {
+        Value::Undefined | Value::Array(_) => result,
+        Value::Sequence(mut seq) => {
+            seq.keep_singleton = true;
+            Value::Sequence(seq)
+        }
+        scalar => {
+            let mut seq = Sequence::with_items(vec![scalar]);
+            seq.keep_singleton = true;
+            Value::Sequence(Box::new(seq))
+        }
+    }
 }
 
 /// In-place [`collapse_sequence`], for the hot paths that already hold the
@@ -608,7 +638,7 @@ fn eval_chain_step(
         // (`call_result_is_sequence`), so `x ~> $sum()[]` stays a scalar
         // while `x ~> $map($f)[]` keeps its singleton wrapped.
         if keep_array && functions::call_result_is_sequence(&result) {
-            return Ok(apply_keep_array(result, Value::Undefined));
+            return Ok(flag_keep_array(result, Value::Undefined));
         }
         // A chain stage feeds the next one, so its result is a consumer
         // position too.
@@ -861,11 +891,40 @@ fn eval_sort(
         return eval_sort_with_parent_tracking(arena, sort_expr, &terms, input, env);
     }
 
-    let items = eval_no_stack_check(arena, sort_expr, input, env)?;
+    let mut items = eval_no_stack_check(arena, sort_expr, input, env)?;
     if items.is_undefined() {
         return Ok(Value::Undefined);
     }
 
+    // jsonata-js sorts through `fn.sort`, which hands back the *same* array
+    // when it holds fewer than two items — so a keep-singleton flag on the
+    // sorted sequence survives the sort, and `x.(a[]^(b))` still lets the
+    // enclosing path drop it. Longer inputs come back as a fresh plain array
+    // there, which is what the un-flagged result already is (jsntrs-p0v.19).
+    let keep_singleton = match &mut items {
+        Value::Sequence(seq) if seq.keep_singleton => {
+            seq.keep_singleton = false;
+            true
+        }
+        _ => false,
+    };
+    let sorted = sort_evaluated_items(arena, items, &terms, env)?;
+    Ok(if keep_singleton {
+        mark_keep_singleton(sorted)
+    } else {
+        sorted
+    })
+}
+
+/// Order the values a `^(…)` sort expression produced, applying JSONata's
+/// singleton rules: a non-array input of one item stays unwrapped, anything
+/// array-shaped comes back as an array.
+fn sort_evaluated_items(
+    arena: &AstArena,
+    items: Value,
+    terms: &[crate::parser::SortTerm],
+    env: &Rc<Environment>,
+) -> JsonataResult {
     let (mut arr, was_array) = match items {
         Value::Array(a) => (a.to_vec(), true),
         Value::Sequence(seq) => {
@@ -918,7 +977,7 @@ fn eval_sort(
     } else {
         // Full evaluator path for complex sort term expressions.
         arr = crate::try_sort::try_sort_by(arr, |a, b| {
-            compare_sort_terms(arena, &terms, a, b, env, env).map(|c| c.cmp(&0))
+            compare_sort_terms(arena, terms, a, b, env, env).map(|c| c.cmp(&0))
         })?;
     }
 

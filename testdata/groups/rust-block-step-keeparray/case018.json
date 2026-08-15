@@ -1,0 +1,6 @@
+{
+    "expr": "items[0].(x[])",
+    "data": {"items":[{"x":1},{"x":5}]},
+    "bindings": {},
+    "result": 1
+}

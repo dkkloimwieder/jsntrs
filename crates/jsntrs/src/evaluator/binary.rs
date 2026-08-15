@@ -343,17 +343,30 @@ fn apply_range(left: &Value, right: &Value) -> JsonataResult {
     Ok(Value::Array(Rc::from(arr)))
 }
 
-/// Apply the `[]` keep-array suffix to an evaluation result: sequences
-/// collapse with keep-singleton, arrays pass through, scalars are wrapped.
-/// `undefined` is what Undefined becomes — the suffix yields Undefined on
-/// function results but an empty array in subscript/group-value positions.
-pub(crate) fn apply_keep_array(result: Value, undefined: Value) -> Value {
+/// Record the `[]` keep-array suffix on an evaluation result *lazily*, the
+/// way the tail of jsonata-js `evaluate()` does (`result.keepSingleton =
+/// true`): the value comes back as a flagged [`Value::Sequence`], and the
+/// singleton is only promoted to an array where something collapses it.
+/// Arrays pass through; `undefined` is what Undefined becomes — the suffix
+/// yields Undefined on function results but an empty array in
+/// subscript/group-value positions.
+///
+/// Deferring the wrap is what lets an enclosing path drop the flag while
+/// re-sequencing, so `x.($keys(a)[])` answers `"k"` and not `["k"]`
+/// (jsntrs-p0v.19).
+pub(crate) fn flag_keep_array(result: Value, undefined: Value) -> Value {
     match result {
-        Value::Sequence(seq) => seq.collapse_and_keep(true),
-        Value::Array(_) => result,
         Value::Undefined => undefined,
-        scalar => Value::Array(Rc::from(vec![scalar])),
+        other => super::mark_keep_singleton(other),
     }
+}
+
+/// [`flag_keep_array`] followed immediately by the collapse, for the one
+/// position whose result is user-visible on the spot and can never hold a
+/// sequence: a group-by pair's value, which is inserted straight into the
+/// output object.
+pub(crate) fn apply_keep_array(result: Value, undefined: Value) -> Value {
+    super::collapse_sequence(flag_keep_array(result, undefined))
 }
 
 /// Walk the left chain of a Binary "[" node to check if keep_array is set

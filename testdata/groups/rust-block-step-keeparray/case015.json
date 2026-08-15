@@ -1,0 +1,6 @@
+{
+    "expr": "x.($filter(a, function($v){$v > 0})[])",
+    "data": {"x":{"a":[1]}},
+    "bindings": {},
+    "result": 1
+}

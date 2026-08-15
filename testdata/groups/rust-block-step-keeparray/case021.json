@@ -1,0 +1,6 @@
+{
+    "expr": "x.($$.y[])",
+    "data": {"x":1,"y":2},
+    "bindings": {},
+    "result": 2
+}

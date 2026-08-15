@@ -345,9 +345,11 @@ pub enum Expr {
         /// Index binding (`#$var`) when the block is a path step.
         index: Option<String>,
         /// `[]` suffix (`(…)[]`). Only observable when the block is a path
-        /// step, where it promotes the whole path to keep singletons; a
-        /// top-level block never yields a sequence for it to mark, so the
-        /// flag is inert there — exactly as in jsonata-js.
+        /// step, where it promotes the whole path to keep singletons.
+        /// Outside a path the flag is inert, exactly as in jsonata-js:
+        /// there it marks the block's result only when that result is a
+        /// sequence, and a sequence is either already marked (`(a[])[]`) or
+        /// long enough that marking changes nothing (jsntrs-p0v.19).
         keep_array: bool,
         pos: usize,
     },

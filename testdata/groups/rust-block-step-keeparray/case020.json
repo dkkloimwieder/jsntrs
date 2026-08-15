@@ -1,0 +1,6 @@
+{
+    "expr": "x.(b; a[])",
+    "data": {"x":{"a":1,"b":2}},
+    "bindings": {},
+    "result": 1
+}

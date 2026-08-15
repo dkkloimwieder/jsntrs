@@ -15,7 +15,8 @@ use super::environment::Environment;
 use super::group::eval_tuple_group;
 use super::{
     FunctionValue, JOIN_FLAG, PARENT_BINDING, PARENT_SHADOW, call_function, compare_sort_terms,
-    descendant_lookup, eval_name, eval_no_stack_check, eval_variable, parent_out_of_context,
+    descendant_lookup, eval_name, eval_no_stack_check, eval_variable, mark_keep_singleton,
+    parent_out_of_context,
 };
 
 // ── Path evaluation (simplified for Phase 5) ────────────────────────
@@ -652,10 +653,7 @@ fn collect_tuple_results(ctxs: &[TupleCtx], keep_singleton_array: bool) -> Value
     }
     let result = seq.into_value();
     if keep_singleton_array {
-        return match result {
-            Value::Array(_) | Value::Undefined => result,
-            other => Value::Array(Rc::from(vec![other])),
-        };
+        return mark_keep_singleton(result);
     }
     result
 }
@@ -878,6 +876,7 @@ fn eval_path_simple(
             prev_was_mapper,
             keep_singleton_array,
         )?;
+        drop_step_keep_singleton(&mut result);
 
         // Empty arrays produced by auto-mapping mean "nothing found" → undefined,
         // UNLESS the previous step was NOT a mapper (the empty array is a genuine field value).
@@ -893,17 +892,28 @@ fn eval_path_simple(
     }
 
     if keep_singleton_array {
-        match result {
-            // A `**` last step hands back an un-collapsed sequence; collapsing
-            // it here is what keeps `x.**[]` a flat `[{…}, 1]` instead of the
-            // sequence re-wrapped whole (jsntrs-p0v.20).
-            Value::Sequence(seq) => return Ok(seq.collapse_and_keep(true)),
-            Value::Array(_) => return Ok(result),
-            Value::Undefined => return Ok(Value::Undefined),
-            _ => return Ok(Value::Array(Rc::from(vec![result]))),
-        }
+        // A `**` last step hands back an un-collapsed sequence; the flag
+        // rides on it and the boundary collapse flattens the items, which
+        // keeps `x.**[]` a flat `[{…}, 1]` (jsntrs-p0v.20) without the
+        // eager wrap a block step could no longer drop (jsntrs-p0v.19).
+        return Ok(mark_keep_singleton(result));
     }
     Ok(result)
+}
+
+/// Drop a keep-singleton flag a *step* produced.
+///
+/// jsonata-js `evaluateStep` pushes every step result into a freshly
+/// `createSequence()`d array and flattens sequences into it, so a
+/// `keepSingleton` set inside the step — `x.(a[])`, where the `[]` belongs
+/// to the block's inner path and not to the enclosing one — never survives
+/// into the enclosing path's result. jsntrs hands the inner sequence back
+/// uncollapsed, so the flag has to be cleared here instead
+/// (jsntrs-p0v.19).
+fn drop_step_keep_singleton(result: &mut Value) {
+    if let Value::Sequence(seq) = result {
+        seq.keep_singleton = false;
+    }
 }
 
 /// Evaluate a single path step, handling auto-mapping over arrays.
@@ -1133,4 +1143,76 @@ fn eval_path_function_step(
     }
 
     call_function(&func, &args, item, env, arena)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Expression;
+
+    fn eval(expr: &str, data: &str) -> String {
+        Expression::compile(expr)
+            .unwrap_or_else(|e| panic!("compile {expr}: {e}"))
+            .evaluate(data)
+            .unwrap_or_else(|e| panic!("evaluate {expr}: {e}"))
+            .to_json_string()
+    }
+
+    /// A `[]` inside a block path step marks the *inner* path's sequence.
+    /// The enclosing path re-sequences every step result, which drops the
+    /// flag exactly as jsonata-js `evaluateStep` does — so the singleton
+    /// comes back unwrapped, while the same `[]` written on the enclosing
+    /// path still wraps it (jsntrs-p0v.19).
+    #[test]
+    fn a_block_step_does_not_export_its_keep_singleton() {
+        let cases = [
+            // `[]` inside the block: the enclosing path drops it.
+            ("x.(a[])", r#"{"x": {"a": 1}}"#, "1"),
+            ("x.(a.b[])", r#"{"x": {"a": {"b": 1}}}"#, "1"),
+            ("x.(a[].b)", r#"{"x": {"a": {"b": 1}}}"#, "1"),
+            ("x.($v := a[]; $v)", r#"{"x": {"a": 1}}"#, "1"),
+            ("x.(a[]^(b))", r#"{"x": {"a": {"b": 1}}}"#, r#"{"b":1}"#),
+            ("x.(a[][0])", r#"{"x": {"a": [1, 2]}}"#, "1"),
+            ("x.($keys(a)[])", r#"{"x": {"a": {"k": 1}}}"#, r#""k""#),
+            ("$string(x.(a[]))", r#"{"x": {"a": 1}}"#, r#""1""#),
+            // `[]` on the enclosing path, or with no enclosing path at
+            // all: still wrapped.
+            ("a[]", r#"{"a": 1}"#, "[1]"),
+            ("(a[])", r#"{"a": 1}"#, "[1]"),
+            ("x.(a[])[]", r#"{"x": {"a": 1}}"#, "[1]"),
+            ("x.(a)[]", r#"{"x": {"a": 1}}"#, "[1]"),
+            ("x.(a[]).b[]", r#"{"x": {"a": {"b": 1}}}"#, "[1]"),
+            // The flag is dropped, not the value: a real array field and a
+            // multi-item sequence are unaffected either way.
+            ("x.(a[])", r#"{"x": {"a": [1]}}"#, "[1]"),
+            ("x.(a[])", r#"{"x": {"a": [1, 2]}}"#, "[1,2]"),
+            ("x.(a[])", r#"{"x": {"a": null}}"#, "null"),
+        ];
+        for (expr, data, want) in cases {
+            assert_eq!(eval(expr, data), want, "{expr} on {data}");
+        }
+    }
+
+    /// A `[]` that reaches a *consumer* — a call argument, an operand, the
+    /// evaluation boundary — is still honoured: the lazy flag only defers
+    /// the wrap, it never discards it (jsntrs-p0v.19).
+    #[test]
+    fn a_deferred_keep_singleton_still_wraps_at_a_consumer() {
+        let cases = [
+            ("$string(a[])", r#"{"a": 1}"#, r#""[1]""#),
+            (
+                "items.($string(x[]))",
+                r#"{"items": [{"x": 1}]}"#,
+                r#""[1]""#,
+            ),
+            ("$count(a[])", r#"{"a": 1}"#, "1"),
+            ("$type(a[])", r#"{"a": 1}"#, r#""array""#),
+            (r#"{"k": a[]}"#, r#"{"a": 1}"#, r#"{"k":[1]}"#),
+            ("a[] ~> $string()", r#"{"a": 1}"#, r#""[1]""#),
+            ("a[] = [1]", r#"{"a": 1}"#, "true"),
+            ("($v := a[]; $v)", r#"{"a": 1}"#, "[1]"),
+        ];
+        for (expr, data, want) in cases {
+            assert_eq!(eval(expr, data), want, "{expr} on {data}");
+        }
+    }
 }
