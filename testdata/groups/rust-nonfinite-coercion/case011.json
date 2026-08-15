@@ -1,0 +1,6 @@
+{
+    "expr": "1/0 or false",
+    "dataset": null,
+    "bindings": {},
+    "code": "D1001"
+}

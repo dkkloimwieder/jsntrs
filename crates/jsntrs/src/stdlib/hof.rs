@@ -183,7 +183,7 @@ pub fn fn_filter(
                     env.poll_cancelled(i)?;
                     let fv = hof_fast::get_field(item, field);
                     let val = hof_fast::eval_binary_simple(&fv, *op, literal)?;
-                    if val.to_boolean() {
+                    if val.to_boolean()? {
                         result.push(item.clone());
                     }
                 }
@@ -198,7 +198,7 @@ pub fn fn_filter(
                     let fv1 = hof_fast::get_field(item, field1);
                     let fv2 = hof_fast::get_field(item, field2);
                     let val = hof_fast::eval_binary_simple(&fv1, *op, &fv2)?;
-                    if val.to_boolean() {
+                    if val.to_boolean()? {
                         result.push(item.clone());
                     }
                 }
@@ -214,7 +214,7 @@ pub fn fn_filter(
                     for clause in clauses {
                         let fv = hof_fast::get_field(item, &clause.field);
                         let pass = hof_fast::eval_binary_simple(&fv, clause.op, &clause.literal)?
-                            .to_boolean();
+                            .to_boolean()?;
                         if is_and && !pass {
                             continue 'outer;
                         }
@@ -238,7 +238,7 @@ pub fn fn_filter(
     for (i, item) in arr.iter().enumerate() {
         let call_args = hof_args(&func, item.clone(), || Value::Number(i as f64), &arr_val);
         let val = call_function(&func, &call_args, item, env, arena)?;
-        if val.to_boolean() {
+        if val.to_boolean()? {
             result.push(item.clone());
         }
     }
@@ -480,7 +480,7 @@ pub fn fn_sort(
             let lhs = hof_fast::get_field(b, &field);
             let rhs = hof_fast::get_field(a, &field);
             let val = hof_fast::eval_binary_simple(&lhs, op, &rhs)?;
-            Ok(if val.to_boolean() {
+            Ok(if val.to_boolean()? {
                 std::cmp::Ordering::Less
             } else {
                 std::cmp::Ordering::Equal
@@ -497,7 +497,7 @@ pub fn fn_sort(
             // By calling fn(b,a): true means b sorts after a → a < b → Less.
             // false means equal or a sorts after b → preserve order → Equal.
             let val = call_function(func, &[b.clone(), a.clone()], a, env, arena)?;
-            Ok(if val.to_boolean() {
+            Ok(if val.to_boolean()? {
                 std::cmp::Ordering::Less
             } else {
                 std::cmp::Ordering::Equal
@@ -530,7 +530,7 @@ fn fast_single_predicate(fast: &SimpleLambda) -> Option<FastPredicate> {
             let literal = literal.clone();
             Some(Box::new(move |item: &Value| {
                 let fv = hof_fast::get_field(item, &field);
-                Ok(hof_fast::eval_binary_simple(&fv, op, &literal)?.to_boolean())
+                hof_fast::eval_binary_simple(&fv, op, &literal)?.to_boolean()
             }))
         }
         SimpleLambda::CompoundPredicate {
@@ -541,8 +541,8 @@ fn fast_single_predicate(fast: &SimpleLambda) -> Option<FastPredicate> {
             Some(Box::new(move |item: &Value| {
                 for clause in &clauses {
                     let fv = hof_fast::get_field(item, &clause.field);
-                    let pass =
-                        hof_fast::eval_binary_simple(&fv, clause.op, &clause.literal)?.to_boolean();
+                    let pass = hof_fast::eval_binary_simple(&fv, clause.op, &clause.literal)?
+                        .to_boolean()?;
                     if is_and && !pass {
                         return Ok(false);
                     }
@@ -617,7 +617,7 @@ pub fn fn_single(
         let keep = match &func {
             Some(f) => {
                 let call_args = hof_args(f, item.clone(), || Value::Number(i as f64), &arr_val);
-                call_function(f, &call_args, item, env, arena)?.to_boolean()
+                call_function(f, &call_args, item, env, arena)?.to_boolean()?
             }
             None => true,
         };
@@ -660,7 +660,7 @@ fn sift_object(
             obj_val,
         );
         let keep = call_function(func, &call_args, val, env, arena)?;
-        if keep.to_boolean() {
+        if keep.to_boolean()? {
             result.insert(key.clone(), val.clone());
         }
     }

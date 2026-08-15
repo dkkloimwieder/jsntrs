@@ -35,7 +35,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let typ = results[1]
             .as_ref()
             .map_or("?", |v| v.as_str().unwrap_or("?"));
-        let is_buy = results[2].as_ref().is_some_and(Value::to_boolean);
+        // `to_boolean` is fallible (D1001 on an infinity); nothing in this
+        // feed carries one, so treat a failure as "not a purchase".
+        let is_buy = results[2]
+            .as_ref()
+            .is_some_and(|v| v.to_boolean().unwrap_or(false));
         let amount = results[3].as_ref().and_then(Value::as_f64);
 
         print!("  {user:8} {typ:10}");

@@ -150,7 +150,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "  {label:12} is_number={:5} is_string={:5} to_boolean={:5}",
             v.is_number(),
             v.is_string(),
-            v.to_boolean(),
+            // Coercion is fallible: an infinity is D1001, not a truth value.
+            v.to_boolean()?,
         );
     }
 

@@ -1,0 +1,6 @@
+{
+    "expr": "$filter([1, 2, 3], function($v) { 1/0 })",
+    "dataset": null,
+    "bindings": {},
+    "code": "D1001"
+}

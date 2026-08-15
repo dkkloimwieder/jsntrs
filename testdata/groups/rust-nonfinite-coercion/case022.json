@@ -1,0 +1,10 @@
+{
+    "expr": "$map(list, $type)",
+    "data": {
+        "list": [
+            1,
+            1e400
+        ]
+    },
+    "code": "D1001"
+}

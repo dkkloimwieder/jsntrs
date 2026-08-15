@@ -1,0 +1,6 @@
+{
+    "expr": "$not(1/0)",
+    "dataset": null,
+    "bindings": {},
+    "code": "D1001"
+}

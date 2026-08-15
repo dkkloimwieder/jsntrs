@@ -1,0 +1,6 @@
+{
+    "expr": "$boolean({\"a\": 1/0})",
+    "dataset": null,
+    "bindings": {},
+    "result": true
+}

@@ -11,6 +11,17 @@ pub fn fn_type_of(args: &[Value], _focus: &Value) -> JsonataResult {
         Value::Undefined => return Ok(Value::Undefined),
         Value::Null => "null",
         Value::Bool(_) => "boolean",
+        // The reference asks `utils.isNumeric` whether this is a number, and
+        // that helper throws D1001 on an infinity instead of answering
+        // (jsntrs-p0v.25). A NaN gets a plain `false` — no throw — so the
+        // reference's `type()` walks past its string, boolean, array and
+        // function branches and lands on the "object" default. Odd, but it
+        // is the observable answer, and Infinity is the case that matters:
+        // `1/0` and a JSON `1e400` literal both reach here.
+        Value::Number(n) if n.is_infinite() => {
+            return Err(JsonataError::with_code("D1001").with_value(crate::value::format_float(*n)));
+        }
+        Value::Number(n) if n.is_nan() => "object",
         Value::Number(_) => "number",
         Value::String(_) => "string",
         Value::Array(_) => "array",
@@ -85,6 +96,32 @@ mod tests {
             fn_type_of(&[Value::Undefined], U),
             Ok(Value::Undefined)
         ));
+    }
+
+    /// jsonata-js 2.2.2-verified (2026-08-15, jsntrs-p0v.25): `type()` asks
+    /// `utils.isNumeric`, which throws D1001 on an infinity. NaN gets a plain
+    /// `false`, so the reference falls past every branch to its "object"
+    /// default — surprising, but that is the observable answer.
+    #[test]
+    fn type_of_rejects_infinity_and_calls_nan_an_object() {
+        let err = match fn_type_of(&[Value::Number(f64::INFINITY)], U) {
+            Err(e) => e,
+            other => panic!("expected an error, got {other:?}"),
+        };
+        assert_eq!(err.code, "D1001");
+        assert_eq!(
+            match fn_type_of(&[Value::Number(f64::NEG_INFINITY)], U) {
+                Err(e) => e.code,
+                other => panic!("expected an error, got {other:?}"),
+            },
+            "D1001"
+        );
+        assert_eq!(type_name(Value::Number(f64::NAN)), "object");
+        // An infinity nested in a container is not the container's type.
+        assert_eq!(
+            type_name(Value::Array(Rc::from(vec![Value::Number(f64::INFINITY)]))),
+            "array"
+        );
     }
 
     #[test]

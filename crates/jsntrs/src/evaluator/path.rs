@@ -504,7 +504,7 @@ fn eval_tuple_parent_pred_step(
             .cloned()
             .unwrap_or_else(|| binding_env.clone());
         let pred_result = eval_no_stack_check(arena, rhs, &parent_val, &parent_env)?;
-        if pred_result.to_boolean() {
+        if pred_result.to_boolean()? {
             next_ctxs.push((parent_val, parent_env));
         }
     }
@@ -553,7 +553,7 @@ fn eval_tuple_block_pred_step(
         }
         for (tval, tenv) in &tuple_ctxs {
             let pred_result = eval_no_stack_check(arena, rhs, tval, tenv)?;
-            if pred_result.to_boolean() {
+            if pred_result.to_boolean()? {
                 next_ctxs.push((tval.clone(), tenv.clone()));
             }
         }
@@ -736,7 +736,7 @@ fn eval_join_filter(
             }
             let child_rc = Rc::new(child_env);
             let pred_result = eval_no_stack_check(arena, predicate, item, &child_rc)?;
-            if pred_result.to_boolean() {
+            if pred_result.to_boolean()? {
                 dst.push((val.clone(), child_rc));
             }
         }

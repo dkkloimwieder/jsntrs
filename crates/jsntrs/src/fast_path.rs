@@ -801,6 +801,10 @@ fn apply_func(func: &FuncFastPath, val: &Value) -> Option<Value> {
         FuncFastKind::Type => {
             let t = match val {
                 Value::String(_) => "string",
+                // Non-finite numbers are not "number" to the reference —
+                // D1001 for an infinity, "object" for a NaN — so leave them
+                // to `fn_type_of` (jsntrs-p0v.25).
+                Value::Number(n) if !n.is_finite() => return None,
                 Value::Number(_) => "number",
                 Value::Bool(_) => "boolean",
                 Value::Null => "null",
@@ -814,6 +818,11 @@ fn apply_func(func: &FuncFastPath, val: &Value) -> Option<Value> {
 
         FuncFastKind::String => match val {
             Value::String(_) => Some(val.clone()),
+            // `fn_string` answers D3001 for a non-finite number; formatting
+            // it here as "null" walked straight past that guard, so
+            // `$string(x)` disagreed with `$string(1/0)` on the same value
+            // (jsntrs-p0v.25).
+            Value::Number(n) if !n.is_finite() => None,
             Value::Number(n) => Some(Value::String(crate::value::format_float(*n).into())),
             Value::Bool(b) => Some(Value::String(if *b { "true" } else { "false" }.into())),
             Value::Null => Some(Value::String("null".into())),
@@ -823,6 +832,9 @@ fn apply_func(func: &FuncFastPath, val: &Value) -> Option<Value> {
         FuncFastKind::Boolean => match val {
             Value::Bool(_) => Some(val.clone()),
             Value::String(s) => Some(Value::Bool(!s.is_empty())),
+            // A non-finite number is D1001 (infinity) or falsy (NaN), not
+            // "non-zero"; `fn_boolean` owns both (jsntrs-p0v.25).
+            Value::Number(n) if !n.is_finite() => None,
             Value::Number(n) => Some(Value::Bool(*n != 0.0)),
             Value::Null => Some(Value::Bool(false)),
             _ => None,
@@ -841,7 +853,9 @@ fn apply_func(func: &FuncFastPath, val: &Value) -> Option<Value> {
             _ => None,
         },
 
-        FuncFastKind::Not => Some(Value::Bool(!val.to_boolean())),
+        // `to_boolean` can now fail (D1001 on an infinity); hand those back
+        // to `fn_not` rather than swallowing the error (jsntrs-p0v.25).
+        FuncFastKind::Not => val.to_boolean().ok().map(|b| Value::Bool(!b)),
 
         FuncFastKind::Lowercase => match val {
             Value::String(s) => Some(Value::String(s.to_lowercase())),

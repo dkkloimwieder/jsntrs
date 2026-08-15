@@ -1,0 +1,6 @@
+{
+    "expr": "$type(0/0)",
+    "dataset": null,
+    "bindings": {},
+    "result": "object"
+}

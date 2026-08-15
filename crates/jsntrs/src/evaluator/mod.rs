@@ -290,7 +290,7 @@ fn eval_inner(
             } => {
                 let (cond_id, then_id, else_id) = (*condition, *then, *else_);
                 let cond_val = eval_no_stack_check(arena, cond_id, input, cur_env)?;
-                if cond_val.to_boolean() {
+                if cond_val.to_boolean()? {
                     cur_node = then_id;
                     continue;
                 } else if let Some(e) = else_id {
@@ -311,7 +311,7 @@ fn eval_inner(
                 match op {
                     BinaryOp::CondTern => {
                         let left = eval_operand(arena, lhs, input, cur_env)?;
-                        if left.to_boolean() {
+                        if left.to_boolean()? {
                             return Ok(left);
                         }
                         cur_node = rhs;

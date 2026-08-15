@@ -164,7 +164,7 @@ fn eval_subscript(
             return Ok(Value::Undefined);
         }
         // Boolean predicate — keep item if truthy.
-        if test.to_boolean() {
+        if test.to_boolean()? {
             seq.values.push(item.clone());
         }
     }
@@ -201,7 +201,7 @@ fn eval_subscript_single(
         return Ok(Value::Undefined);
     }
     // Boolean predicate on single value.
-    if index.to_boolean() {
+    if index.to_boolean()? {
         return Ok(left.clone());
     }
     Ok(Value::Undefined)

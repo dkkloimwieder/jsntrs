@@ -119,8 +119,11 @@ proptest! {
 proptest! {
     #[test]
     fn to_boolean_idempotent(val in arb_value()) {
-        let b = val.to_boolean();
-        prop_assert_eq!(Value::Bool(b).to_boolean(), b);
+        // Coercion is fallible (D1001 on an infinity, jsntrs-p0v.25), so the
+        // property only claims idempotence for values that do coerce.
+        if let Ok(b) = val.to_boolean() {
+            prop_assert_eq!(Value::Bool(b).to_boolean().unwrap(), b);
+        }
     }
 }
 

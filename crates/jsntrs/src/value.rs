@@ -247,25 +247,48 @@ impl Value {
     /// - Undefined/Null → false
     /// - Bool → value
     /// - String → non-empty
-    /// - Number → non-zero
+    /// - Number → non-zero, but `Inf` is **D1001** and `NaN` is false
     /// - Object → non-empty
     /// - Array: len 0 → false, len 1 → recurse, len > 1 → any truthy
     /// - Sequence → collapse then recurse
-    pub fn to_boolean(&self) -> bool {
-        match self {
+    ///
+    /// # Errors
+    /// Returns `D1001` if the value is — or contains — an infinity. The
+    /// reference reaches its number branch through `utils.isNumeric`, which
+    /// throws on a non-finite number rather than answering the question
+    /// (jsntrs-p0v.25).
+    pub fn to_boolean(&self) -> JsonataResult<bool> {
+        Ok(match self {
             Value::Undefined | Value::Null => false,
             Value::Bool(b) => *b,
             Value::String(s) => !s.is_empty(),
-            Value::Number(n) => *n != 0.0,
+            Value::Number(n) => {
+                if n.is_infinite() {
+                    return Err(JsonataError::with_code("D1001").with_value(format_float(*n)));
+                }
+                // `isNumeric(NaN)` is false without throwing, so the
+                // reference's `boolean()` walks past its number branch and
+                // every branch after it — a NaN is falsy, not "non-zero".
+                !n.is_nan() && *n != 0.0
+            }
             Value::Object(m) => !m.is_empty(),
             Value::Array(arr) => match arr.len() {
                 0 => false,
-                1 => arr[0].to_boolean(),
-                _ => arr.iter().any(Value::to_boolean),
+                1 => arr[0].to_boolean()?,
+                // The reference filters the whole array instead of
+                // short-circuiting, so an infinity anywhere in it raises
+                // D1001 even when an earlier element is already truthy.
+                _ => {
+                    let mut any = false;
+                    for item in arr.iter() {
+                        any |= item.to_boolean()?;
+                    }
+                    any
+                }
             },
-            Value::Sequence(seq) => seq.collapse().to_boolean(),
+            Value::Sequence(seq) => seq.collapse().to_boolean()?,
             Value::Function(_) | Value::TailCall(_) => false,
-        }
+        })
     }
 
     // ── Equality ─────────────────────────────────────────────────────
@@ -1287,29 +1310,80 @@ mod tests {
 
     #[test]
     fn boolean_coercion() {
-        assert!(!Value::Undefined.to_boolean());
-        assert!(!Value::Null.to_boolean());
-        assert!(Value::Bool(true).to_boolean());
-        assert!(!Value::Bool(false).to_boolean());
-        assert!(Value::String("hello".into()).to_boolean());
-        assert!(!Value::String("".into()).to_boolean());
+        assert!(!Value::Undefined.to_boolean().unwrap());
+        assert!(!Value::Null.to_boolean().unwrap());
+        assert!(Value::Bool(true).to_boolean().unwrap());
+        assert!(!Value::Bool(false).to_boolean().unwrap());
+        assert!(Value::String("hello".into()).to_boolean().unwrap());
+        assert!(!Value::String("".into()).to_boolean().unwrap());
         // "0" is truthy, "" is falsy, "false" is truthy
-        assert!(Value::String("0".into()).to_boolean());
-        assert!(Value::String("false".into()).to_boolean());
-        assert!(Value::Number(1.0).to_boolean());
-        assert!(!Value::Number(0.0).to_boolean());
+        assert!(Value::String("0".into()).to_boolean().unwrap());
+        assert!(Value::String("false".into()).to_boolean().unwrap());
+        assert!(Value::Number(1.0).to_boolean().unwrap());
+        assert!(!Value::Number(0.0).to_boolean().unwrap());
+    }
+
+    /// jsonata-js 2.2.2-verified (2026-08-15, jsntrs-p0v.25): the reference's
+    /// `boolean()` reaches its number branch through `utils.isNumeric`, which
+    /// throws D1001 on an infinity and answers a plain `false` for NaN — so a
+    /// NaN falls past every remaining branch and comes out falsy rather than
+    /// "non-zero".
+    #[test]
+    fn boolean_coercion_rejects_infinity_and_reads_nan_as_false() {
+        assert_eq!(
+            Value::Number(f64::INFINITY).to_boolean().unwrap_err().code,
+            "D1001"
+        );
+        assert_eq!(
+            Value::Number(f64::NEG_INFINITY)
+                .to_boolean()
+                .unwrap_err()
+                .code,
+            "D1001"
+        );
+        assert!(!Value::Number(f64::NAN).to_boolean().unwrap());
+        // An infinity nested in an array is still D1001, and the reference
+        // filters the whole array, so an earlier truthy element does not
+        // short-circuit past it.
+        let nested = Value::Array(Rc::from(vec![Value::Number(f64::INFINITY)]));
+        assert_eq!(nested.to_boolean().unwrap_err().code, "D1001");
+        let late = Value::Array(Rc::from(vec![
+            Value::Bool(true),
+            Value::Number(f64::INFINITY),
+        ]));
+        assert_eq!(late.to_boolean().unwrap_err().code, "D1001");
+        // An object holding one is not: the reference only counts its keys.
+        let mut obj = ObjectMap::default();
+        obj.insert("a".into(), Value::Number(f64::INFINITY));
+        assert!(Value::Object(Rc::new(obj)).to_boolean().unwrap());
     }
 
     #[test]
     fn boolean_array_coercion() {
         // Empty array → false
-        assert!(!Value::Array(Rc::from(vec![])).to_boolean());
+        assert!(!Value::Array(Rc::from(vec![])).to_boolean().unwrap());
         // Single element → recurse
-        assert!(Value::Array(Rc::from(vec![Value::Bool(true)])).to_boolean());
-        assert!(!Value::Array(Rc::from(vec![Value::Bool(false)])).to_boolean());
+        assert!(
+            Value::Array(Rc::from(vec![Value::Bool(true)]))
+                .to_boolean()
+                .unwrap()
+        );
+        assert!(
+            !Value::Array(Rc::from(vec![Value::Bool(false)]))
+                .to_boolean()
+                .unwrap()
+        );
         // Multiple → any truthy
-        assert!(Value::Array(Rc::from(vec![Value::Bool(false), Value::Bool(true)])).to_boolean());
-        assert!(!Value::Array(Rc::from(vec![Value::Bool(false), Value::Bool(false)])).to_boolean());
+        assert!(
+            Value::Array(Rc::from(vec![Value::Bool(false), Value::Bool(true)]))
+                .to_boolean()
+                .unwrap()
+        );
+        assert!(
+            !Value::Array(Rc::from(vec![Value::Bool(false), Value::Bool(false)]))
+                .to_boolean()
+                .unwrap()
+        );
     }
 
     // ── Deep equality ────────────────────────────────────────────────

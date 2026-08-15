@@ -109,21 +109,21 @@ fn apply_binary_op(
     match op {
         // Short-circuit operators.
         BinaryOp::And => {
-            if !left.to_boolean() {
+            if !left.to_boolean()? {
                 return Ok(Value::Bool(false));
             }
             let right = eval_operand(arena, rhs, input, env)?;
-            Ok(Value::Bool(right.to_boolean()))
+            Ok(Value::Bool(right.to_boolean()?))
         }
         BinaryOp::Or => {
-            if left.to_boolean() {
+            if left.to_boolean()? {
                 return Ok(Value::Bool(true));
             }
             let right = eval_operand(arena, rhs, input, env)?;
-            Ok(Value::Bool(right.to_boolean()))
+            Ok(Value::Bool(right.to_boolean()?))
         }
         BinaryOp::CondTern => {
-            if left.to_boolean() {
+            if left.to_boolean()? {
                 Ok(left)
             } else {
                 eval_operand(arena, rhs, input, env)

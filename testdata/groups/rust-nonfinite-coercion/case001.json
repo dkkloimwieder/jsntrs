@@ -1,0 +1,5 @@
+{
+    "expr": "$boolean($)",
+    "data": 1e400,
+    "code": "D1001"
+}

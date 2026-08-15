@@ -3,10 +3,6 @@
 use crate::error::{JsonataError, JsonataResult};
 use crate::value::Value;
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "must match the BuiltinFn signature"
-)]
 pub fn fn_boolean(args: &[Value], focus: &Value) -> JsonataResult {
     // Note: don't enforce arity — HOF callbacks like $filter($boolean)
     // pass 3 args (value, index, array). Only use the first arg.
@@ -14,7 +10,7 @@ pub fn fn_boolean(args: &[Value], focus: &Value) -> JsonataResult {
     if arg.is_undefined() {
         return Ok(Value::Undefined);
     }
-    Ok(Value::Bool(arg.to_boolean()))
+    Ok(Value::Bool(arg.to_boolean()?))
 }
 
 pub fn fn_not(args: &[Value], _focus: &Value) -> JsonataResult {
@@ -24,7 +20,7 @@ pub fn fn_not(args: &[Value], _focus: &Value) -> JsonataResult {
     if args[0].is_undefined() {
         return Ok(Value::Undefined);
     }
-    Ok(Value::Bool(!args[0].to_boolean()))
+    Ok(Value::Bool(!args[0].to_boolean()?))
 }
 
 pub fn fn_exists(args: &[Value], _focus: &Value) -> JsonataResult {
@@ -90,6 +86,42 @@ mod tests {
             fn_boolean(&[Value::Undefined], U),
             Ok(Value::Undefined)
         ));
+    }
+
+    /// jsonata-js 2.2.2-verified (2026-08-15, jsntrs-p0v.25): `$boolean` and
+    /// `$not` reach their number branch through `utils.isNumeric`, which
+    /// throws D1001 on an infinity rather than answering. A NaN gets a plain
+    /// `false` from it and falls through to a falsy result.
+    #[test]
+    fn boolean_rejects_infinity_and_reads_nan_as_false() {
+        let err = |r: JsonataResult| match r {
+            Err(e) => e.code,
+            other => panic!("expected an error, got {other:?}"),
+        };
+        assert_eq!(err(fn_boolean(&[Value::Number(f64::INFINITY)], U)), "D1001");
+        assert_eq!(
+            err(fn_boolean(&[Value::Number(f64::NEG_INFINITY)], U)),
+            "D1001"
+        );
+        assert_eq!(err(fn_not(&[Value::Number(f64::INFINITY)], U)), "D1001");
+        assert!(!b(fn_boolean(&[Value::Number(f64::NAN)], U)));
+        assert!(b(fn_not(&[Value::Number(f64::NAN)], U)));
+        // The reference filters the whole array, so a truthy element ahead of
+        // the infinity does not short-circuit the D1001 away.
+        assert_eq!(
+            err(fn_boolean(
+                &[Value::Array(Rc::from(vec![
+                    Value::Number(1.0),
+                    Value::Number(f64::INFINITY),
+                ]))],
+                U
+            )),
+            "D1001"
+        );
+        // An object only has its keys counted, so an infinity inside is fine.
+        let mut obj = crate::value::ObjectMap::default();
+        obj.insert("a".into(), Value::Number(f64::INFINITY));
+        assert!(b(fn_boolean(&[Value::Object(Rc::new(obj))], U)));
     }
 
     #[test]
