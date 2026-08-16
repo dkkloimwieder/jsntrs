@@ -1,0 +1,7 @@
+{
+    "expr": "$formatNumber(1234.5678, \"#ʹ##0·00\", {\"grouping-separator\": \"ʹ\", \"decimal-separator\": \"·\"})",
+    "dataset": null,
+    "bindings": {},
+    "result": "1ʹ234·57",
+    "authority": "XPath 3.1 F&O 4.7.2's own worked example: \"The following example assumes the existence of a decimal format named 'ch' in which the grouping separator is ʹ and the decimal separator is ·: The expression format-number(1234.5678, '#ʹ##0·00', 'ch') returns \\\"1ʹ234·57\\\"\". XPath names a decimal format declared in the static context; JSONata passes the same properties as the options object, which jsonata.org defines as \"name/value pairs specified in the decimal format section of the XPath F&O 3.1 specification\". Added by the jsntrs-qr9 audit (wave 8): fifty-eight cases in this group probed option values F&O 4.7.1 forbids, and none of them pinned a well-formed multi-property decimal format actually producing output — case027 with the same two properties only pins an error, and case035 overrides one property."
+}
