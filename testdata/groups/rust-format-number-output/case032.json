@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1.125, \"0.00\")",
     "dataset": null,
     "bindings": {},
-    "result": "1.12"
+    "result": "1.12",
+    "authority": "XPath 3.1 F&O 4.7.5: 1.125 is exactly representable, so this is a true tie and fn:round-half-to-even resolves it towards the even digit — 1.12, not 1.13."
 }

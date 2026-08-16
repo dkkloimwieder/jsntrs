@@ -2,11 +2,13 @@
     {
         "expr": "$formatNumber(2.675, \"0.00\")",
         "data": {},
-        "result": "2.68"
+        "result": "2.68",
+        "authority": "XPath 3.1 F&O 4.7.5 converts the mantissa to an xs:decimal and, where several are numerically equal to it, \"the one that is chosen should be one with the smallest possible number of digits\" — 2.675, not the double's exact 2.67499999999999982236…; fn:round-half-to-even at 2 digits then gives 2.68. This is the case that separates the specified algorithm from a naive toFixed(2), which answers \"2.67\"."
     },
     {
         "expr": "$formatNumber(1.115, \"0.00\")",
         "data": {},
-        "result": "1.12"
+        "result": "1.12",
+        "authority": "XPath 3.1 F&O 4.7.5, same rule as the case above: the shortest xs:decimal numerically equal to the double is 1.115, and fn:round-half-to-even at 2 digits resolves the tie towards the even digit."
     }
 ]

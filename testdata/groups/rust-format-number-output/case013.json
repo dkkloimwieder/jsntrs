@@ -2,5 +2,6 @@
     "expr": "$formatNumber(0, \"#.#\")",
     "dataset": null,
     "bindings": {},
-    "result": ".0"
+    "result": ".0",
+    "authority": "XPath 3.1 F&O 4.7.4: \"If (after making the above adjustments) the minimum-integer-part-size and the minimum-fractional-part-size are both zero, then the minimum-fractional-part-size is set to 1 (one)\". minimum-integer-part-size stays 0, so the leading zero is not written and the result begins with the decimal-separator."
 }

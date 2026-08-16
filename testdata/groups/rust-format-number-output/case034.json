@@ -2,5 +2,6 @@
     "expr": "$formatNumber(0.000012345, \"#.‰\")",
     "dataset": null,
     "bindings": {},
-    "result": "0‰"
+    "result": "0‰",
+    "authority": "XPath 3.1 F&O 4.7.5 multiplies by 1000 for the per-mille character; the fractional part of the sub-picture holds no optional-digit or decimal-digit-family character, so maximum-fractional-part-size is 0, the value rounds to zero, and the decimal-separator is removed because no digits follow it. The per-mille sign is the passive suffix (4.7.4)."
 }

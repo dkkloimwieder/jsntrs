@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"0.0,0\")",
     "dataset": null,
     "bindings": {},
-    "result": "1234.5,7"
+    "result": "1234.5,7",
+    "authority": "XPath 3.1 F&O 4.7.4 records fractional-part-grouping-positions as \"the total number of optional digit character and decimal digit family characters that appear within the fractional part of the sub-picture and to the left of the grouping-separator character\" — here {1}. 4.7.5 inserts the separator \"immediately before that digit that appears in the fractional part of the number and has N digits between it and the decimal-separator character, if there is such a digit\"."
 }

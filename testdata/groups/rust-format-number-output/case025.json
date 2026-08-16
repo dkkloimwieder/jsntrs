@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.56789, \"9,999.999,999\")",
     "dataset": null,
     "bindings": {},
-    "result": "1,234.567,890"
+    "result": "1,234.567,890",
+    "authority": "XPath 3.1 F&O 4.7.4 on both sides: the integer part groups regularly at G=3, and the fractional part records position {3}, which 4.7.5 fills because the six-digit fraction has a digit that far from the decimal separator. F&O 4.7.3 also notes that \"any digit can be used in the picture string to represent a mandatory digit\", so '9' and '0' are interchangeable."
 }

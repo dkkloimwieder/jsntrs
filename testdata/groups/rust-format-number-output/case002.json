@@ -2,5 +2,6 @@
     "expr": "$formatNumber(-7, \"#.\")",
     "dataset": null,
     "bindings": {},
-    "result": "-7"
+    "result": "-7",
+    "authority": "XPath 3.1 F&O 4.7.4: \"If the picture string contains only one sub-picture, the prefix for the negative sub-picture is set by concatenating the minus-sign character and the prefix for the positive sub-picture (if any), in that order\". XPath 3.1 F&O 4.7.5: \"If there is no decimal-separator character in the sub-picture, or if there are no digits to the right of the decimal-separator character in the string, then the decimal-separator character is removed from the string\"."
 }

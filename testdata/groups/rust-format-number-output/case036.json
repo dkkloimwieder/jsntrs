@@ -2,5 +2,6 @@
     "expr": "$formatNumber(0.000012345, \"e.#,\", {\"exponent-separator\": \".\"})",
     "dataset": null,
     "bindings": {},
-    "result": "e.0,"
+    "result": "e.0,",
+    "unresolved": "The exponent-separator option is set to \".\", which is also the decimal-separator. XPath 3.1 F&O 4.7.1 forbids that: \"For any named or unnamed decimal format, the properties representing characters used in a picture string must have distinct values. These properties are decimal-separator, grouping-separator, exponent-separator, percent, per-mille, digit, and pattern-separator.\" No authority says what a JSONata engine should do with a decimal format that breaks the rule, so this expectation is a regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9."
 }

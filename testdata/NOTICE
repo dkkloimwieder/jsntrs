@@ -22,6 +22,22 @@ Grep for it to find every deliberate departure from upstream. Groups named
 `rust-*` were written for this project and were never part of the upstream
 suite.
 
+Two more note fields record where an expectation comes from. Neither is read
+by the harness; both exist so that a later reader can tell a derived answer
+from a recorded one without redoing the derivation:
+
+    "authority":  the ranked source the expectation was derived from — a
+                  quoted F&O or jsonata.org rule, or a W3C QT3 case id (see
+                  testdata/oracles/qt3/). Check the citation, not the answer.
+
+    "unresolved": no authority fixes this answer. The case is a regression pin
+                  over jsntrs' current behavior and must never be cited as
+                  evidence that the behavior is correct. Changing it needs a
+                  decision, not a bug report.
+
+A `rust-*` group whose cases carry `unresolved` notes also carries a README.md
+stating the open question once, so the per-case notes can stay short.
+
 The upstream license below governs the inherited material regardless.
 
 The original test suite is licensed under the MIT License. The upstream LICENSE

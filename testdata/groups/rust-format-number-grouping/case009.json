@@ -2,5 +2,6 @@
     "expr": "$formatNumber(123456, \"#,##,#\")",
     "dataset": null,
     "bindings": {},
-    "result": "123,45,6"
+    "result": "123,45,6",
+    "authority": "XPath 3.1 F&O 4.7.4: the integer part of the sub-picture records grouping positions {1, 3}, and the grouping is not regular — the only G dividing both is 1, and position 2 is unoccupied — so the recorded positions are applied literally rather than extrapolated. 4.7.5 then inserts a separator \"immediately after that digit that appears in the integer part of the number and has N digits between it and the decimal-separator character, if there is such a digit\"."
 }

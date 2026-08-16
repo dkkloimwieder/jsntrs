@@ -2,5 +2,6 @@
     "expr": "$formatNumber(99.5, \"#.\")",
     "dataset": null,
     "bindings": {},
-    "result": "100"
+    "result": "100",
+    "authority": "XPath 3.1 F&O 4.7.4 adjusts a sub-picture whose minimum-integer-part-size and maximum-fractional-part-size are both zero: with no exponent separator present, \"minimum-integer-part-size is changed to 1 (one)\". 4.7.5 then rounds with fn:round-half-to-even to maximum-fractional-part-size = 0 digits, which takes 99.5 to the even 100. XPath 3.1 F&O 4.7.5: \"If there is no decimal-separator character in the sub-picture, or if there are no digits to the right of the decimal-separator character in the string, then the decimal-separator character is removed from the string\"."
 }

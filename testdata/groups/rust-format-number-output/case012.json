@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \".#%\")",
     "dataset": null,
     "bindings": {},
-    "result": "700.0%"
+    "result": "700.0%",
+    "authority": "XPath 3.1 F&O 4.7.5: \"If the sub-picture contains a percent character, the adjusted number is the input number multiplied by 100\". XPath 3.1 F&O 4.7.4: \"If (after making the above adjustments) the minimum-integer-part-size and the minimum-fractional-part-size are both zero, then the minimum-fractional-part-size is set to 1 (one)\"."
 }

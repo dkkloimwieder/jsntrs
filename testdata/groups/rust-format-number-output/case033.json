@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"#,##0\")",
     "dataset": null,
     "bindings": {},
-    "result": "1,235"
+    "result": "1,235",
+    "authority": "XPath 3.1 F&O 4.7.4 regular grouping at G=3, and 4.7.5 fn:round-half-to-even at maximum-fractional-part-size 0."
 }

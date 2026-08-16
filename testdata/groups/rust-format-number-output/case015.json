@@ -2,5 +2,6 @@
     "expr": "$formatNumber(0, \"#\")",
     "dataset": null,
     "bindings": {},
-    "result": "0"
+    "result": "0",
+    "authority": "XPath 3.1 F&O 4.7.4 states this case in its own note: \"This has the effect that with the picture #, the value 0.23 is formatted as 0\"; zero takes the same path."
 }

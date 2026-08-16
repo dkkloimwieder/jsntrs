@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"#,##0.00\")",
     "dataset": null,
     "bindings": {},
-    "result": "1,234.57"
+    "result": "1,234.57",
+    "authority": "The same rules as F&O 4.7.2's own example, \"The expression format-number(12345.6, '#,###.00') returns \\\"12,345.60\\\"\": regular grouping at G=3 and fn:round-half-to-even to maximum-fractional-part-size 2."
 }

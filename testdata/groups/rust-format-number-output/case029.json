@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"9,9,99.99\")",
     "dataset": null,
     "bindings": {},
-    "result": "1,2,34.57"
+    "result": "1,2,34.57",
+    "authority": "XPath 3.1 F&O 4.7.4: the recorded integer grouping positions are {2, 3} and the grouping is not regular — the only G dividing both is 1, and position 1 is unoccupied — so the two positions are used literally rather than extrapolated."
 }

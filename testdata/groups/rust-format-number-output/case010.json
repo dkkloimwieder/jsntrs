@@ -2,5 +2,6 @@
     "expr": "$formatNumber(0.000012345, \".0\")",
     "dataset": null,
     "bindings": {},
-    "result": ".0"
+    "result": ".0",
+    "authority": "XPath 3.1 F&O 4.7.5: the rounded value is zero, and \"The value zero will at this stage be represented by a decimal-separator on its own\"; minimum-integer-part-size is 0 so no leading digit is added, and minimum-fractional-part-size 1 pads one trailing zero digit."
 }

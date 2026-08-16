@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"‰0.\", {\"exponent-separator\": \"E\"})",
     "dataset": null,
     "bindings": {},
-    "result": "‰1234568"
+    "result": "‰1234568",
+    "authority": "XPath 3.1 F&O 4.7.5: \"If the sub-picture contains a per-mille character, the adjusted number is the input number multiplied by 1000\", giving 1234567.8, which rounds to 1234568 at maximum-fractional-part-size 0. The per-mille sign is passive and stands left of the leftmost active character, so 4.7.4 makes it the prefix."
 }

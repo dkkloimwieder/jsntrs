@@ -2,5 +2,6 @@
     "expr": "$formatNumber(99.5, \"0.e\", {\"exponent-separator\": \"E\"})",
     "dataset": null,
     "bindings": {},
-    "result": "100e"
+    "result": "100e",
+    "authority": "The exponent-separator property is \"E\" here, so \"e\" is passive; F&O 4.7.3 treats a matching character as an exponent-separator-sign only \"if it is both preceded and followed within the sub-picture by an active character\", and nothing follows this one. XPath 3.1 F&O 4.7.4: \"The suffix is set to contain all passive characters to the right of the rightmost active character in the sub-picture\". 99.5 rounds half-to-even to 100, and XPath 3.1 F&O 4.7.5: \"If there is no decimal-separator character in the sub-picture, or if there are no digits to the right of the decimal-separator character in the string, then the decimal-separator character is removed from the string\"."
 }

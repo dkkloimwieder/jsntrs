@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \".###\")",
     "dataset": null,
     "bindings": {},
-    "result": "7.0"
+    "result": "7.0",
+    "authority": "XPath 3.1 F&O 4.7.4: \"If (after making the above adjustments) the minimum-integer-part-size and the minimum-fractional-part-size are both zero, then the minimum-fractional-part-size is set to 1 (one)\". maximum-fractional-part-size is 3 here, so the earlier \"both zero\" adjustment does not fire; this final one does, and 4.7.5 pads the single fractional zero digit."
 }

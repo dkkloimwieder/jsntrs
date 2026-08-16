@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1.115, \"0.00\")",
     "dataset": null,
     "bindings": {},
-    "result": "1.12"
+    "result": "1.12",
+    "authority": "XPath 3.1 F&O 4.7.5 converts the mantissa to an xs:decimal and, where several are numerically equal to it, \"the one that is chosen should be one with the smallest possible number of digits\", i.e. 1.115 rather than the double's exact 1.11499999999999999111…; fn:round-half-to-even at 2 digits then gives 1.12. Rounding the exact binary expansion instead would give 1.11."
 }

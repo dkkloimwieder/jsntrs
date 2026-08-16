@@ -2,5 +2,6 @@
     "expr": "$formatNumber(0.000012345, \"E000.\")",
     "dataset": null,
     "bindings": {},
-    "result": "E000"
+    "result": "E000",
+    "authority": "XPath 3.1 F&O 4.7.3 classifies \"E\" as passive here — the exponent-separator property is \"e\" — and 4.7.4 sets \"The prefix ... to contain all passive characters in the sub-picture to the left of the leftmost active character\", so \"E\" is the prefix. 4.7.5 pads the rounded 0 with leading zero digits to the minimum-integer-part-size of 3, then removes the decimal-separator because no digits follow it."
 }
