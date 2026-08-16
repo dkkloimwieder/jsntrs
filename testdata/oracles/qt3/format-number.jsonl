@@ -1,0 +1,253 @@
+{"qt3":"cbcl-fn-format-number-001","value":"number(\"abc\")","picture":"PREFIX#SUFFIX","expect":{"string":"NaN"},"query":"format-number(number(\"abc\"),'PREFIX#SUFFIX')"}
+{"qt3":"cbcl-fn-format-number-002","value":"0 div xs:double(\"INF\")","picture":"#","expect":{"string":"0"},"query":"format-number(0 div xs:double(\"INF\"), '#')"}
+{"qt3":"cbcl-fn-format-number-003","value":"0 div xs:double(\"-INF\")","picture":"#","expect":{"string":"-0"},"query":"format-number(0 div xs:double(\"-INF\"), '#')"}
+{"qt3":"cbcl-fn-format-number-004","value":"1 div 0e0","picture":"PREFIX#SUFFIX","decimal_format":{"infinity":"INF"},"expect":{"string":"PREFIXINFSUFFIX"},"query":"format-number(1 div 0e0,'PREFIX#SUFFIX')"}
+{"qt3":"cbcl-fn-format-number-005","value":"-1 div 0e0","picture":"PREFIX#SUFFIX","decimal_format":{"infinity":"INF"},"expect":{"string":"-PREFIXINFSUFFIX"},"query":"format-number(-1 div 0e0,'PREFIX#SUFFIX')"}
+{"qt3":"cbcl-fn-format-number-006","value":"-1 div 0e0","picture":"PREFIX#SUFFIX;prefix#suffix","decimal_format":{"infinity":"INF"},"expect":{"string":"prefixINFsuffix"},"query":"format-number(-1 div 0e0,'PREFIX#SUFFIX;prefix#suffix')"}
+{"qt3":"cbcl-fn-format-number-007","value":"-1 div 0e0","picture":"PREFIX#SUFFIX;prefix#suffix","decimal_format":{"infinity":"INF"},"expect":{"string":"prefixINFsuffix"},"query":"format-number(-1 div 0e0,'PREFIX#SUFFIX;prefix#suffix')"}
+{"qt3":"cbcl-fn-format-number-008","value":"1e2","picture":"#,000","decimal_format":{"infinity":"INF"},"expect":{"string":"100"},"query":"format-number(1e2,'#,000')"}
+{"qt3":"cbcl-fn-format-number-009","value":"100","picture":"#,000","decimal_format":{"infinity":"INF"},"expect":{"string":"100"},"query":"format-number(100,'#,000')"}
+{"qt3":"cbcl-fn-format-number-010","value":"xs:double('0.9952832031249997')","picture":"###,##0.00","expect":{"string":"1.00"},"query":"format-number(xs:double('0.9952832031249997'), '###,##0.00')"}
+{"qt3":"cbcl-fn-format-number-011","value":"xs:decimal('123456789')","picture":"#,#","expect":{"string":"1,2,3,4,5,6,7,8,9"},"query":"format-number(xs:decimal('123456789'), '#,#')"}
+{"qt3":"cbcl-fn-format-number-012","value":"xs:decimal('123456789')","picture":"#,##,00","expect":{"string":"1,23,45,67,89"},"query":"format-number(xs:decimal('123456789'), '#,##,00')"}
+{"qt3":"cbcl-fn-format-number-013","value":"xs:decimal('123456789')","picture":"##,##,00","expect":{"string":"1,23,45,67,89"},"query":"format-number(xs:decimal('123456789'), '##,##,00')"}
+{"qt3":"cbcl-fn-format-number-014","value":"xs:decimal('123456789')","picture":"#,##,##,00","expect":{"string":"1,23,45,67,89"},"query":"format-number(xs:decimal('123456789'), '#,##,##,00')"}
+{"qt3":"cbcl-fn-format-number-015","value":"xs:decimal('123456789')","picture":"###,##,00","expect":{"string":"12345,67,89"},"query":"format-number(xs:decimal('123456789'), '###,##,00')"}
+{"qt3":"cbcl-fn-format-number-016","value":"xs:decimal('123456789')","picture":"####,###,##,0","expect":{"string":"123,456,78,9"},"query":"format-number(xs:decimal('123456789'), '####,###,##,0')"}
+{"qt3":"cbcl-fn-format-number-017","value":"xs:decimal('79228162514264337593543950335')","picture":"0%","expect":{"any_of":[{"error":"FOCA0001"},{"string":"Infinity%"},{"string":"7922816251426433759354395033500%"}]},"query":"format-number(xs:decimal('79228162514264337593543950335'), '0%')"}
+{"qt3":"cbcl-fn-format-number-018","value":"xs:decimal('0')","picture":".#","expect":{"string":".0"},"query":"format-number(xs:decimal('0'), '.#')"}
+{"qt3":"cbcl-fn-format-number-019","value":"xs:decimal('0')","picture":"#.","expect":{"string":"0"},"query":"format-number(xs:decimal('0'), '#.')"}
+{"qt3":"cbcl-fn-format-number-020","value":"xs:decimal('0')","picture":".0","expect":{"string":".0"},"query":"format-number(xs:decimal('0'), '.0')"}
+{"qt3":"cbcl-fn-format-number-021","value":"xs:decimal('0')","picture":"0.","expect":{"string":"0"},"query":"format-number(xs:decimal('0'), '0.')"}
+{"qt3":"cbcl-fn-format-number-022","value":"xs:decimal('1.10203040506070809')","picture":"0.00000000000000000%","expect":{"string":"110.20304050607080900%"},"query":"format-number(xs:decimal('1.10203040506070809'), '0.00000000000000000%')"}
+{"qt3":"cbcl-fn-format-number-023","value":"xs:double('123456789')","picture":"#,#","expect":{"string":"1,2,3,4,5,6,7,8,9"},"query":"format-number(xs:double('123456789'), '#,#')"}
+{"qt3":"cbcl-fn-format-number-024","value":"xs:double('123456789')","picture":"#,##,00","expect":{"string":"1,23,45,67,89"},"query":"format-number(xs:double('123456789'), '#,##,00')"}
+{"qt3":"cbcl-fn-format-number-025","value":"xs:double('123456789')","picture":"##,##,00","expect":{"string":"1,23,45,67,89"},"query":"format-number(xs:double('123456789'), '##,##,00')"}
+{"qt3":"cbcl-fn-format-number-026","value":"xs:double('123456789')","picture":"#,##,##,00","expect":{"string":"1,23,45,67,89"},"query":"format-number(xs:double('123456789'), '#,##,##,00')"}
+{"qt3":"cbcl-fn-format-number-027","value":"xs:double('123456789')","picture":"###,##,00","expect":{"string":"12345,67,89"},"query":"format-number(xs:double('123456789'), '###,##,00')"}
+{"qt3":"cbcl-fn-format-number-028","value":"xs:double('123456789')","picture":"####,###,##,0","expect":{"string":"123,456,78,9"},"query":"format-number(xs:double('123456789'), '####,###,##,0')"}
+{"qt3":"cbcl-fn-format-number-029","value":"xs:double('123456789')","picture":"####,###,##,0","expect":{"string":"123,456,78,9"},"query":"format-number(xs:double('123456789'), '####,###,##,0')"}
+{"qt3":"cbcl-fn-format-number-030","value":"xs:double('0')","picture":".#","expect":{"string":".0"},"query":"format-number(xs:double('0'), '.#')"}
+{"qt3":"cbcl-fn-format-number-031","value":"xs:double('0')","picture":"#.","expect":{"string":"0"},"query":"format-number(xs:double('0'), '#.')"}
+{"qt3":"cbcl-fn-format-number-032","value":"xs:double('0')","picture":".0","expect":{"string":".0"},"query":"format-number(xs:double('0'), '.0')"}
+{"qt3":"cbcl-fn-format-number-033","value":"xs:double('0')","picture":"0.","expect":{"string":"0"},"query":"format-number(xs:double('0'), '0.')"}
+{"qt3":"cbcl-fn-format-number-034","value":"xs:double('1e308')","picture":"0%","expect":{"string":"Infinity%"},"query":"format-number(xs:double('1e308'), '0%')"}
+{"qt3":"cbcl-fn-format-number-036","value":"xs:double('-1e308')","picture":"0%","expect":{"string":"-Infinity%"},"query":"format-number(xs:double('-1e308'), '0%')"}
+{"qt3":"cbcl-fn-format-number-037","value":"xs:decimal('-79228162514264337593543950335')","picture":"0%","expect":{"any_of":[{"error":"FOCA0001"},{"string":"-Infinity%"},{"string":"-7922816251426433759354395033500%"}]},"query":"format-number(xs:decimal('-79228162514264337593543950335'), '0%')"}
+{"qt3":"cbcl-fn-format-number-038","value":"xs:double('0.1')","picture":"0.00","expect":{"string":"0.10"},"query":"format-number(xs:double('0.1'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-039","value":"xs:double('0.01')","picture":"0.00","expect":{"string":"0.01"},"query":"format-number(xs:double('0.01'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-040","value":"xs:double('0')","picture":"#.00","expect":{"string":".00"},"query":"format-number(xs:double('0'), '#.00')"}
+{"qt3":"cbcl-fn-format-number-041","value":"xs:double('0')","picture":"#.##","expect":{"string":".0"},"query":"format-number(xs:double('0'), '#.##')"}
+{"qt3":"cbcl-fn-format-number-042","value":"xs:double('0')","picture":"0.00","expect":{"string":"0.00"},"query":"format-number(xs:double('0'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-043","value":"xs:double('0.1')","picture":"0.00","expect":{"string":"0.10"},"query":"format-number(xs:double('0.1'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-044","value":"xs:double('0.01')","picture":"0.00","expect":{"string":"0.01"},"query":"format-number(xs:double('0.01'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-045","value":"xs:double('0.01')","picture":"0.00","expect":{"string":"0.01"},"query":"format-number(xs:double('0.01'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-046","value":"xs:double('0.01')","picture":"0.00","expect":{"string":"0.01"},"query":"format-number(xs:double('0.01'), '0.00')"}
+{"qt3":"cbcl-fn-format-number-047","value":"xs:double('0')","picture":"#.00","expect":{"string":".00"},"query":"format-number(xs:double('0'), '#.00')"}
+{"qt3":"cbcl-fn-format-number-048","value":"xs:decimal('0')","picture":"#.00","expect":{"string":".00"},"query":"format-number(xs:decimal('0'), '#.00')"}
+{"qt3":"cbcl-fn-format-number-049","value":"xs:decimal('0')","picture":"###,###.##","expect":{"string":".0"},"query":"format-number(xs:decimal('0'), '###,###.##')"}
+{"qt3":"cbcl-fn-format-number-050","value":"xs:double('0')","picture":"###,###.##","expect":{"string":".0"},"query":"format-number(xs:double('0'), '###,###.##')"}
+{"qt3":"cbcl-fn-format-number-051","value":"xs:decimal('0.1')","picture":"###,###.##","expect":{"string":".1"},"query":"format-number(xs:decimal('0.1'), '###,###.##')"}
+{"qt3":"cbcl-fn-format-number-052","value":"xs:double('0.1')","picture":"###,###.##","expect":{"string":".1"},"query":"format-number(xs:double('0.1'), '###,###.##')"}
+{"qt3":"numberformat01","value":"2392.14*36.58","picture":"000,000.000000","expect":{"string":"087,504.481200"},"query":"format-number(2392.14*36.58,'000,000.000000')"}
+{"qt3":"numberformat02","value":"12792.14*96.58","picture":"##,###,000.000###","expect":{"string":"1,235,464.8812"},"query":"format-number(12792.14*96.58,'##,###,000.000###')"}
+{"qt3":"numberformat03","value":"2792.14*(-36.58)","picture":"000,000.000###","expect":{"string":"-102,136.4812"},"query":"format-number(2792.14*(-36.58),'000,000.000###')"}
+{"qt3":"numberformat04","value":"2392.14*(-36.58)","picture":"000,000.000###;###,###.000###","expect":{"string":"87,504.4812"},"query":"format-number(2392.14*(-36.58),'000,000.000###;###,###.000###')"}
+{"qt3":"numberformat05","value":"0.4857","picture":"###.###%","expect":{"string":"48.57%"},"query":"format-number(0.4857,'###.###%')"}
+{"qt3":"numberformat06","value":"0.4857","picture":"###.###‰","expect":{"string":"485.7‰"},"query":"format-number(0.4857,'###.###‰')"}
+{"qt3":"numberformat07","value":"95.4857","picture":"¤###.####","expect":{"string":"¤95.4857"},"query":"format-number(95.4857,'¤###.####')"}
+{"qt3":"numberformat08","value":"2.14*86.58","picture":"PREFIX##00.000###SUFFIX","expect":{"string":"PREFIX185.2812SUFFIX"},"query":"format-number(2.14*86.58,'PREFIX##00.000###SUFFIX')"}
+{"qt3":"numberformat09","value":"931.4857","picture":"000.000|###","decimal_format":{"decimal-separator":"|","grouping-separator":"."},"expect":{"string":"000.931|486"},"query":"format-number(931.4857,'000.000|###')"}
+{"qt3":"numberformat11","value":"26931.4","picture":"+!!!,!!!.!!!\\-!!,!!!.!!!","decimal_format":{"digit":"!","pattern-separator":"\\"},"expect":{"string":"+26,931.4"},"query":"format-number(26931.4,'+!!!,!!!.!!!\\-!!,!!!.!!!')"}
+{"qt3":"numberformat12","value":"-26931.4","picture":"+!!,!!!.!!!\\-!!!,!!!.!!!","decimal_format":{"digit":"!","pattern-separator":"\\"},"expect":{"string":"-26,931.4"},"query":"format-number(-26931.4,'+!!,!!!.!!!\\-!!!,!!!.!!!')"}
+{"qt3":"numberformat13","value":"-26931.4","picture":"!!!,!!!.!!!","decimal_format":{"digit":"!","pattern-separator":"\\"},"expect":{"string":"-26,931.4"},"query":"format-number(-26931.4,'!!!,!!!.!!!')"}
+{"qt3":"numberformat14","value":"1 div 0e0","picture":"###############################","decimal_format":{"infinity":"off-the-scale"},"expect":{"string":"off-the-scale"},"query":"format-number(1 div 0e0,'###############################')"}
+{"qt3":"numberformat15","value":"'foo'","picture":"#############","decimal_format":{"NaN":"non-numeric"},"expect":{"string":"non-numeric"},"dependency":[{"type":"feature","value":"xpath-1.0-compatibility"},{"type":"spec","value":"XP30+"}],"query":"format-number('foo','#############')"}
+{"qt3":"numberformat16","value":"0.4857","picture":"###.###m","decimal_format":{"per-mille":"m"},"expect":{"string":"485.7m"},"query":"format-number(0.4857,'###.###m')"}
+{"qt3":"numberformat17","value":"-26931.4","picture":"+###,###.###;-###,###.###","decimal_format":{"minus-sign":"_"},"expect":{"string":"-26,931.4"},"query":"format-number(-26931.4,'+###,###.###;-###,###.###')"}
+{"qt3":"numberformat18","value":"-26931.4","picture":"###,###.###","decimal_format":{"minus-sign":"_"},"expect":{"string":"_26,931.4"},"query":"format-number(-26931.4,'###,###.###')"}
+{"qt3":"numberformat20","value":"1234.567","picture":"#*###*###!###","decimal_format_name":"foo:decimal1","decimal_format":{"decimal-separator":"!","grouping-separator":"*"},"expect":{"string":"1*234!567"},"query":"format-number(1234.567,'#*###*###!###','foo:decimal1')"}
+{"qt3":"numberformat26","value":"7654321.4857","picture":"### ### ###,#####","decimal_format":{"decimal-separator":",","grouping-separator":" "},"expect":{"string":"7 654 321,4857"},"query":"format-number(7654321.4857,'### ### ###,#####')"}
+{"qt3":"numberformat28","value":"2392.14*(-36.58)","picture":"000,000.000###;-###,###.000###","expect":{"string":"-87,504.4812"},"query":"format-number(2392.14*(-36.58),'000,000.000###;-###,###.000###')"}
+{"qt3":"numberformat29","value":"-26931.4","picture":"+###,###.###;_###,###.###","decimal_format":{"minus-sign":"_"},"expect":{"string":"_26,931.4"},"query":"format-number(-26931.4,'+###,###.###;_###,###.###')"}
+{"qt3":"numberformat31","value":"-26931.4","picture":"###,###.###;###,###.###","decimal_format":{"minus-sign":"_"},"expect":{"string":"26,931.4"},"query":"format-number(-26931.4,'###,###.###;###,###.###')"}
+{"qt3":"numberformat32","value":"0.4857","picture":"###.###c","decimal_format":{"percent":"c"},"expect":{"string":"48.57c"},"query":"format-number(0.4857,'###.###c')"}
+{"qt3":"numberformat34","value":"4030201.0506","picture":"#!!!,!!!,٠٠٠.٠٠٠٠٠٠0","decimal_format":{"digit":"!","zero-digit":"٠"},"expect":{"string":"#٤,٠٣٠,٢٠١.٠٥٠٦٠٠0"},"query":"format-number(4030201.0506,'#!!!,!!!,٠٠٠.٠٠٠٠٠٠0')"}
+{"qt3":"numberformat35","value":"987654321","picture":"###,##0,00.00","expect":{"string":"9876,543,21.00"},"query":"format-number(987654321,'###,##0,00.00')"}
+{"qt3":"numberformat36","value":"239236.588","picture":"00000.00","expect":{"string":"239236.59"},"query":"format-number(239236.588,'00000.00')"}
+{"qt3":"numberformat37","value":"1 div 0e0","picture":"###############################","expect":{"string":"Infinity"},"query":"format-number(1 div 0e0,'###############################')"}
+{"qt3":"numberformat38","value":"'foo'","picture":"#############","expect":{"string":"NaN"},"dependency":[{"type":"feature","value":"xpath-1.0-compatibility"},{"type":"spec","value":"XP30+"}],"query":"format-number('foo','#############')"}
+{"qt3":"numberformat39","value":"-1 div 0e0","picture":"###############################","expect":{"string":"-Infinity"},"query":"format-number(-1 div 0e0,'###############################')"}
+{"qt3":"numberformat40","value":"-1 div 0e0","picture":"###############################","decimal_format":{"infinity":"huge"},"expect":{"string":"-huge"},"query":"format-number(-1 div 0e0,'###############################')"}
+{"qt3":"numberformat60a","value":"1E25","picture":"#,######","expect":{"string":"10,000000,000000,000000,000000"},"query":"format-number(1E25,'#,######')"}
+{"qt3":"numberformat60b","value":"1E10","picture":"#####################","expect":{"string":"10000000000"},"query":"format-number(1E10,'#####################')"}
+{"qt3":"numberformat60c","value":"1E11","picture":"#####################","expect":{"string":"100000000000"},"query":"format-number(1E11,'#####################')"}
+{"qt3":"numberformat60d","value":"1E12","picture":"#####################","expect":{"string":"1000000000000"},"query":"format-number(1E12,'#####################')"}
+{"qt3":"numberformat60e","value":"1E13","picture":"#####################","expect":{"string":"10000000000000"},"query":"format-number(1E13,'#####################')"}
+{"qt3":"numberformat60f","value":"1E14","picture":"#####################","expect":{"string":"100000000000000"},"query":"format-number(1E14,'#####################')"}
+{"qt3":"numberformat60g","value":"1E15","picture":"#####################","expect":{"string":"1000000000000000"},"query":"format-number(1E15,'#####################')"}
+{"qt3":"numberformat60h","value":"1E16","picture":"#####################","expect":{"string":"10000000000000000"},"query":"format-number(1E16,'#####################')"}
+{"qt3":"numberformat60i","value":"1E17","picture":"#####################","expect":{"string":"100000000000000000"},"query":"format-number(1E17,'#####################')"}
+{"qt3":"numberformat60j","value":"1E18","picture":"#####################","expect":{"string":"1000000000000000000"},"query":"format-number(1E18,'#####################')"}
+{"qt3":"numberformat60k","value":"1E19","picture":"#####################","expect":{"string":"10000000000000000000"},"query":"format-number(1E19,'#####################')"}
+{"qt3":"numberformat60l","value":"1E20","picture":"#####################","expect":{"string":"100000000000000000000"},"query":"format-number(1E20,'#####################')"}
+{"qt3":"numberformat60m","value":"1E25","picture":"#####################","expect":{"string":"10000000000000000000000000"},"query":"format-number(1E25,'#####################')"}
+{"qt3":"numberformat60n","value":"1E30","picture":"#####################","expect":{"string":"1000000000000000000000000000000"},"query":"format-number(1E30,'#####################')"}
+{"qt3":"numberformat60o","value":"1E35","picture":"#####################","expect":{"string":"100000000000000000000000000000000000"},"query":"format-number(1E35,'#####################')"}
+{"qt3":"numberformat60p","value":"1E100","picture":"#####################","expect":{"string":"10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"},"query":"format-number(1E100,'#####################')"}
+{"qt3":"numberformat60q","value":"1E100 div 3","picture":"#####################","expect":{"any_of":[{"string":"3333333333333333000000000000000000000000000000000000000000000000000000000000000000000000000000000000"},{"string":"3333333333333330000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}]},"query":"format-number(1E100 div 3,'#####################')"}
+{"qt3":"numberformat61","value":"()","picture":"###.###","expect":{"string":"NaN"},"query":"format-number((),'###.###')"}
+{"qt3":"numberformat63","value":"000123456789012345678901234567890.123456789012345678900000","picture":"##0.0####################################################","expect":{"any_of":[{"string":"123456789012345678901234567890.1234567890123456789"},{"error":"FOAR0002"}]},"query":"format-number(000123456789012345678901234567890.123456789012345678900000, '##0.0####################################################')"}
+{"qt3":"numberformat64","value":"000123456789012345678901234567890123456789012345678900000","picture":"# #0.0####################################################","decimal_format":{"grouping-separator":" "},"expect":{"any_of":[{"string":"12 34 56 78 90 12 34 56 78 90 12 34 56 78 90 12 34 56 78 90 12 34 56 78 90 00 00.0"},{"error":"FOAR0002"}]},"query":"format-number(000123456789012345678901234567890123456789012345678900000, '# #0.0####################################################')"}
+{"qt3":"numberformat70","value":"1234567890.123456","picture":"𚶱000𚶰000","decimal_format":{"decimal-separator":"𚶰","grouping-separator":"𚶱"},"expect":{"string":"1𚶱234𚶱567𚶱890𚶰123"},"query":"format-number(1234567890.123456,'𚶱000𚶰000')"}
+{"qt3":"numberformat71","value":"1234567890.123456","picture":"##########𐒠.𐒠#####","decimal_format":{"zero-digit":"𐒠"},"expect":{"string":"𐒡𐒢𐒣𐒤𐒥𐒦𐒧𐒨𐒩𐒠.𐒡𐒢𐒣𐒤𐒥𐒦"},"query":"format-number(1234567890.123456,'##########𐒠.𐒠#####')"}
+{"qt3":"numberformat72","value":"1234567890.123456","picture":"000.000","expect":{"string":"1234567890.123"},"query":"format-number(1234567890.123456,'000.000')"}
+{"qt3":"numberformat80","value":"12.34","picture":"##.##","expect":{"string":"12.34"},"query":"format-number(12.34, '##.##')"}
+{"qt3":"numberformat81","value":"12.34","picture":"0.000,00","decimal_format_name":" b:test ","decimal_format_undeclared":true,"expect":{"string":"0.012,34"},"query":"format-number(12.34, '0.000,00', ' b:test ')"}
+{"qt3":"numberformat84","value":"123456789.34","picture":"#,###.##","expect":{"string":"123,456,789.34"},"query":"format-number(123456789.34, '#,###.##')"}
+{"qt3":"numberformat87","value":"12.34","picture":"0.000,00","decimal_format_name":"Q{http://a.ns/}test ","decimal_format_undeclared":true,"expect":{"string":"0.012,34"},"query":"format-number(12.34, '0.000,00', 'Q{http://a.ns/}test ')"}
+{"qt3":"numberformat89","value":"12.34","picture":"9,999.99","expect":{"string":"0,012.34"},"query":"format-number(12.34, '9,999.99')"}
+{"qt3":"numberformat90","value":"12.34","picture":"#,##9.99","expect":{"string":"12.34"},"query":"format-number(12.34, '#,##9.99')"}
+{"qt3":"numberformat91","value":"42","picture":"001","expect":{"string":"042"},"query":"format-number(42, '001')"}
+{"qt3":"numberformat92","value":"12345.678","picture":"9.","expect":{"string":"12346"},"query":"fn:format-number(12345.678, '9.')"}
+{"qt3":"numberformat93","value":"12345.000","picture":"99999.","expect":{"string":"12345"},"query":"fn:format-number(12345.000, '99999.')"}
+{"qt3":"numberformat94","value":"12345.678","picture":".9","expect":{"string":"12345.7"},"query":"fn:format-number(12345.678, '.9')"}
+{"qt3":"numberformat95","value":"0.2","picture":".#","expect":{"string":".2"},"query":"fn:format-number(0.2, '.#')"}
+{"qt3":"numberformat101","value":"12345.678","picture":"9.9999e999","expect":{"string":"1.2346e004"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(12345.678, '9.9999e999')"}
+{"qt3":"numberformat102","value":"12345.678","picture":"9.9999E999","expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(12345.678, '9.9999E999')"}
+{"qt3":"numberformat103","value":"12345.678","picture":"9.9999E999","decimal_format":{"exponent-separator":"E"},"expect":{"string":"1.2346E004"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare default decimal-format exponent-separator=\"E\"; let $x := fn:format-number(12345.678, '9.9999E999') return $x"}
+{"qt3":"numberformat104","value":"12345.678","picture":"9.9999e999","decimal_format":{"exponent-separator":"E"},"expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare default decimal-format exponent-separator=\"E\"; let $x := fn:format-number(12345.678, '9.9999e999') return $x"}
+{"qt3":"numberformat105","value":"12345.678","picture":"9.9999E999","decimal_format_name":"exp-E","decimal_format":{"exponent-separator":"E"},"expect":{"string":"1.2346E004"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-E exponent-separator=\"E\"; let $x := fn:format-number(12345.678, '9.9999E999', 'exp-E') return $x"}
+{"qt3":"numberformat106","value":"12345.678","picture":"9.9999E999","decimal_format_name":"exp-e","decimal_format":{"exponent-separator":"e"},"expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-e exponent-separator=\"e\"; let $x := fn:format-number(12345.678, '9.9999E999', 'exp-e') return $x"}
+{"qt3":"numberformat107","value":"12345.678","picture":"9.9999E999","decimal_format_name":"BadFormat","decimal_format_undeclared":true,"expect":{"error":"FODF1280"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(12345.678, '9.9999E999', 'BadFormat') return $x"}
+{"qt3":"numberformat108","value":"12345.678","picture":"9.99e99e99","expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(12345.678, '9.99e99e99') return $x"}
+{"qt3":"numberformat109","value":"12345.678","picture":"9.9999✐999","decimal_format_name":"exp-bizarre","decimal_format":{"exponent-separator":"✐"},"expect":{"string":"1.2346✐004"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-bizarre exponent-separator=\"✐\"; let $x := fn:format-number(12345.678, '9.9999✐999', 'exp-bizarre') return $x"}
+{"qt3":"numberformat110","value":"12345.678","picture":"9.9999e999%","expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(12345.678, '9.9999e999%') return $x"}
+{"qt3":"numberformat111","value":"12345.678","picture":"9.9999%999","decimal_format_name":"exp-p","decimal_format":{"exponent-separator":"%"},"expect":{"error":"XQST0098"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-p exponent-separator=\"%\"; let $x := fn:format-number(12345.678, '9.9999%999', 'exp-p') return $x"}
+{"qt3":"numberformat112","value":"12345.678","picture":"9.9999%999","decimal_format_name":"exp-p","decimal_format":{"percent":"!","exponent-separator":"%"},"expect":{"string":"1.2346%004"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-p percent=\"!\" exponent-separator=\"%\"; let $x := fn:format-number(12345.678, '9.9999%999', 'exp-p') return $x"}
+{"qt3":"numberformat113","value":"12345.678","picture":"9.9999eDog","expect":{"string":"12345.6780eDog"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(12345.678, '9.9999eDog') return $x"}
+{"qt3":"numberformat114","value":"12345.678","picture":"9.9999e,","expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(12345.678, '9.9999e,') return $x"}
+{"qt3":"numberformat115","value":"12345","picture":"9.9999e99","expect":{"string":"1.2345e04"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(12345, '9.9999e99') return $x"}
+{"qt3":"numberformat116","value":"5","picture":"9.9999e99","expect":{"string":"5.0000e00"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(5, '9.9999e99') return $x"}
+{"qt3":"numberformat117","value":".05","picture":"9.9999e99","expect":{"string":"5.0000e-02"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(.05, '9.9999e99') return $x"}
+{"qt3":"numberformat118","value":"123.45E7","picture":"9.9999e99","expect":{"string":"1.2345e09"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"let $x := fn:format-number(123.45E7, '9.9999e99') return $x"}
+{"qt3":"numberformat119","value":"0.900001000020000345","picture":"9.99999999999999999e99","expect":{"string":"9.00001000020000345e-01"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.900001000020000345, '9.99999999999999999e99')"}
+{"qt3":"numberformat120","value":"123456789012345678","picture":"9.99999999999999999e99","expect":{"string":"1.23456789012345678e17"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(123456789012345678, '9.99999999999999999e99')"}
+{"qt3":"numberformat123","value":"1.0","picture":"𐒠.𐒠e𐒠","decimal_format":{"zero-digit":"𐒠"},"expect":{"string":"𐒡.𐒠e𐒠"},"dependency":[{"type":"spec","value":"XQ31+ XP31+"}],"query":"format-number(1.0,'𐒠.𐒠e𐒠')"}
+{"qt3":"numberformat124","value":"12345.678","picture":"9.9999x10^999","decimal_format_name":"exp-E","decimal_format":{"exponent-separator":"x10^"},"expect":{"error":"XQST0097"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-E exponent-separator=\"x10^\"; fn:format-number(12345.678, '9.9999x10^999', 'exp-E')"}
+{"qt3":"numberformat125","value":"12345.678","picture":"9.9999E999","decimal_format_name":"exp-E","decimal_format":{"exponent-separator":"E","__duplicate-property__":true},"expect":{"error":"XQST0114"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-E exponent-separator=\"e\" exponent-separator=\"E\"; fn:format-number(12345.678, '9.9999E999', 'exp-E')"}
+{"qt3":"numberformat126","value":"12345.678","picture":"9.9999#999","decimal_format_name":"exp-E","decimal_format":{"exponent-separator":"#"},"expect":{"error":"XQST0098"},"dependency":[{"type":"spec","value":"XQ31+"}],"query":"declare decimal-format exp-E exponent-separator=\"#\"; fn:format-number(12345.678, '9.9999#999', 'exp-E')"}
+{"qt3":"numberformat127","value":"12345.678","picture":"9.9999E999","decimal_format_name":"exp-E","decimal_format":{"exponent-separator":"E"},"expect":{"error":"XPST0003"},"dependency":[{"type":"spec","value":"XQ30"}],"query":"declare decimal-format exp-E exponent-separator=\"E\"; fn:format-number(12345.678, '9.9999E999', 'exp-E')"}
+{"qt3":"numberformat128","value":"12345.678","picture":"9.9999e999","expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XQ30 XP30"}],"query":"fn:format-number(12345.678, '9.9999e999')"}
+{"qt3":"numberformat129","value":"12345.678","picture":"999.99e99","expect":{"string":"123.46e02"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '999.99e99')"}
+{"qt3":"numberformat130","value":"12345.678","picture":"#99.99e99","expect":{"string":"12.35e03"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '#99.99e99')"}
+{"qt3":"numberformat131","value":"12345.678","picture":"#.99e99","expect":{"string":"0.12e05"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '#.99e99')"}
+{"qt3":"numberformat132","value":"0045.234","picture":"#.#e99","expect":{"string":"0.5e02"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0045.234, '#.#e99')"}
+{"qt3":"numberformat133","value":"0.2","picture":".#e9","expect":{"string":".2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '.#e9')"}
+{"qt3":"numberformat134","value":"0.2","picture":".999e9","expect":{"string":".200e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '.999e9')"}
+{"qt3":"numberformat135","value":"0.2","picture":"#.e9","expect":{"string":"0.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '#.e9')"}
+{"qt3":"numberformat136","value":"0.2","picture":"9e9","expect":{"string":"2e-1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '9e9')"}
+{"qt3":"numberformat137","value":"12345.678","picture":"999.e99","expect":{"string":"123e02"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '999.e99')"}
+{"qt3":"numberformat138","value":"12345.678","picture":"999e9","expect":{"string":"123e2"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '999e9')"}
+{"qt3":"numberformat139","value":"12345.678","picture":".e99","expect":{"error":"FODF1310"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '.e99')"}
+{"qt3":"numberformat140","value":"-12345.678","picture":"999.99e99","expect":{"string":"-123.46e02"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(-12345.678, '999.99e99')"}
+{"qt3":"numberformat141","value":"0.00012345678","picture":"9.99e99","expect":{"string":"1.23e-04"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.00012345678, '9.99e99')"}
+{"qt3":"numberformat142","value":"-0.00012345678","picture":"9.99e99","expect":{"string":"-1.23e-04"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(-0.00012345678, '9.99e99')"}
+{"qt3":"numberformat143","value":"12345.678","picture":"9.9999e99end","expect":{"string":"1.2346e04end"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '9.9999e99end')"}
+{"qt3":"numberformat144","value":"12345.678","picture":"9.9999e99e","expect":{"string":"1.2346e04e"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '9.9999e99e')"}
+{"qt3":"numberformat145","value":"12345.678","picture":"9.9999e99dog","expect":{"string":"1.2346e04dog"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, '9.9999e99dog')"}
+{"qt3":"numberformat146","value":"12345.678","picture":"end9.9999e99end","expect":{"string":"end1.2346e04end"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(12345.678, 'end9.9999e99end')"}
+{"qt3":"numberformat150","value":"12345.678","picture":"#,.##","expect":{"error":"FODF1310"},"query":"fn:format-number(12345.678, '#,.##')"}
+{"qt3":"numberformat151","value":"12345.678","picture":"#.,##","expect":{"error":"FODF1310"},"query":"fn:format-number(12345.678, '#.,##')"}
+{"qt3":"numberformat152","value":"12345.678","picture":"#,","expect":{"error":"FODF1310"},"query":"fn:format-number(12345.678, '#,')"}
+{"qt3":"numberformat153","value":"12345.678","picture":"#,,###","expect":{"error":"FODF1310"},"query":"fn:format-number(12345.678, '#,,###')"}
+{"qt3":"numberformat154","value":"1","picture":"٠","decimal_format":{"zero-digit":"٠"},"expect":{"string":"١"},"dependency":[{"type":"spec","value":"XQ30+"}],"query":"declare default decimal-format zero-digit = \"٠\"; format-number(1, '٠')"}
+{"qt3":"numberformat155","value":"1","picture":"٠","decimal_format":{"zero-digit":"٠"},"expect":{"string":"١"},"dependency":[{"type":"spec","value":"XQ30+"}],"query":"declare default decimal-format zero-digit = \"٠\"; format-number(1, '٠')"}
+{"qt3":"numberformat156","value":"12345.678","picture":"#.#,,#","expect":{"error":"FODF1310"},"query":"fn:format-number(12345.678, '#.#,,#')"}
+{"qt3":"numberformat157","value":"12345.6789012345","picture":"#.#,##,#","expect":{"string":"12345.6,78,9"},"query":"fn:format-number(12345.6789012345, '#.#,##,#')"}
+{"qt3":"numberformat158","value":"12345.6789012345","picture":"#.##,##,##","expect":{"string":"12345.67,89,01"},"query":"fn:format-number(12345.6789012345, '#.##,##,##')"}
+{"qt3":"numberformat201","value":"0.2","picture":"#","expect":{"string":"0"},"query":"fn:format-number(0.2, '#')"}
+{"qt3":"numberformat202","value":"1.2","picture":"#","expect":{"string":"1"},"query":"fn:format-number(1.2, '#')"}
+{"qt3":"numberformat203","value":"0.2","picture":"0","expect":{"string":"0"},"query":"fn:format-number(0.2, '0')"}
+{"qt3":"numberformat204","value":"1.2","picture":"0","expect":{"string":"1"},"query":"fn:format-number(1.2, '0')"}
+{"qt3":"numberformat205","value":"0.2","picture":".#","expect":{"string":".2"},"query":"fn:format-number(0.2, '.#')"}
+{"qt3":"numberformat206","value":"1.2","picture":".#","expect":{"string":"1.2"},"query":"fn:format-number(1.2, '.#')"}
+{"qt3":"numberformat207","value":"0.2","picture":".0","expect":{"string":".2"},"query":"fn:format-number(0.2, '.0')"}
+{"qt3":"numberformat208","value":"1.2","picture":".0","expect":{"string":"1.2"},"query":"fn:format-number(1.2, '.0')"}
+{"qt3":"numberformat209","value":"0.2","picture":"#.#","expect":{"string":".2"},"query":"fn:format-number(0.2, '#.#')"}
+{"qt3":"numberformat210","value":"1.2","picture":"#.#","expect":{"string":"1.2"},"query":"fn:format-number(1.2, '#.#')"}
+{"qt3":"numberformat211","value":"0.2","picture":"0.0","expect":{"string":"0.2"},"query":"fn:format-number(0.2, '0.0')"}
+{"qt3":"numberformat212","value":"1.2","picture":"0.0","expect":{"string":"1.2"},"query":"fn:format-number(1.2, '0.0')"}
+{"qt3":"numberformat213","value":"0.2","picture":"0.#","expect":{"string":"0.2"},"query":"fn:format-number(0.2, '0.#')"}
+{"qt3":"numberformat214","value":"1.2","picture":"0.#","expect":{"string":"1.2"},"query":"fn:format-number(1.2, '0.#')"}
+{"qt3":"numberformat215","value":"0.2","picture":"#.0","expect":{"string":".2"},"query":"fn:format-number(0.2, '#.0')"}
+{"qt3":"numberformat216","value":"1.2","picture":"#.0","expect":{"string":"1.2"},"query":"fn:format-number(1.2, '#.0')"}
+{"qt3":"numberformat217","value":"0.2","picture":"#.","expect":{"string":"0"},"query":"fn:format-number(0.2, '#.')"}
+{"qt3":"numberformat218","value":"1.2","picture":"#.","expect":{"string":"1"},"query":"fn:format-number(1.2, '#.')"}
+{"qt3":"numberformat219","value":"0.2","picture":"0.","expect":{"string":"0"},"query":"fn:format-number(0.2, '0.')"}
+{"qt3":"numberformat220","value":"1.2","picture":"0.","expect":{"string":"1"},"query":"fn:format-number(1.2, '0.')"}
+{"qt3":"numberformat221","value":"0.2","picture":"this.#","expect":{"string":"this.2"},"query":"fn:format-number(0.2, 'this.#')"}
+{"qt3":"numberformat222","value":"1.2","picture":"this.#","expect":{"string":"this1.2"},"query":"fn:format-number(1.2, 'this.#')"}
+{"qt3":"numberformat223","value":"0.2","picture":"this.0","expect":{"string":"this.2"},"query":"fn:format-number(0.2, 'this.0')"}
+{"qt3":"numberformat224","value":"1.2","picture":"this.0","expect":{"string":"this1.2"},"query":"fn:format-number(1.2, 'this.0')"}
+{"qt3":"numberformat225","value":"0.2","picture":"#.suffix","expect":{"string":"0suffix"},"query":"fn:format-number(0.2, '#.suffix')"}
+{"qt3":"numberformat226","value":"1.2","picture":"#.suffix","expect":{"string":"1suffix"},"query":"fn:format-number(1.2, '#.suffix')"}
+{"qt3":"numberformat227","value":"0.2","picture":"000.0","expect":{"string":"000.2"},"query":"fn:format-number(0.2, '000.0')"}
+{"qt3":"numberformat228","value":"0","picture":"#.#","expect":{"string":".0"},"query":"fn:format-number(0, '#.#')"}
+{"qt3":"numberformat229","value":"0","picture":".#","expect":{"string":".0"},"query":"fn:format-number(0, '.#')"}
+{"qt3":"numberformat230","value":"xs:integer(0)","picture":"###.###","expect":{"string":".0"},"query":"fn:format-number(xs:integer(0), '###.###')"}
+{"qt3":"numberformat231","value":"0.2","picture":"#e0","expect":{"string":"0.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '#e0')"}
+{"qt3":"numberformat232","value":"1.2","picture":"#e0","expect":{"string":"0.1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '#e0')"}
+{"qt3":"numberformat233","value":"0.2","picture":"0e0","expect":{"string":"2e-1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '0e0')"}
+{"qt3":"numberformat234","value":"1.2","picture":"0e0","expect":{"string":"1e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '0e0')"}
+{"qt3":"numberformat235","value":"0.2","picture":".#e0","expect":{"string":".2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '.#e0')"}
+{"qt3":"numberformat236","value":"1.2","picture":".#e0","expect":{"string":".1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '.#e0')"}
+{"qt3":"numberformat237","value":"0.2","picture":".0e0","expect":{"string":".2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '.0e0')"}
+{"qt3":"numberformat238","value":"1.2","picture":".0e0","expect":{"string":".1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '.0e0')"}
+{"qt3":"numberformat239","value":"0.2","picture":"#.#e0","expect":{"string":"0.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '#.#e0')"}
+{"qt3":"numberformat240","value":"1.2","picture":"#.#e0","expect":{"string":"0.1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '#.#e0')"}
+{"qt3":"numberformat241","value":"0.2","picture":"0.0e0","expect":{"string":"2.0e-1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '0.0e0')"}
+{"qt3":"numberformat242","value":"1.2","picture":"0.0e0","expect":{"string":"1.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '0.0e0')"}
+{"qt3":"numberformat243","value":"0.2","picture":"0.#e0","expect":{"string":"2e-1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '0.#e0')"}
+{"qt3":"numberformat244","value":"1.2","picture":"0.#e0","expect":{"string":"1.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '0.#e0')"}
+{"qt3":"numberformat245","value":"0.2","picture":"#.0e0","expect":{"string":"0.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '#.0e0')"}
+{"qt3":"numberformat246","value":"1.2","picture":"#.0e0","expect":{"string":"0.1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '#.0e0')"}
+{"qt3":"numberformat247","value":"0.2","picture":"#.e0","expect":{"string":"0.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '#.e0')"}
+{"qt3":"numberformat248","value":"1.2","picture":"#.e0","expect":{"string":"0.1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '#.e0')"}
+{"qt3":"numberformat249","value":"0.2","picture":"0.e0","expect":{"string":"2e-1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '0.e0')"}
+{"qt3":"numberformat250","value":"1.2","picture":"0.e0","expect":{"string":"1e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, '0.e0')"}
+{"qt3":"numberformat251","value":"0.2","picture":"this.#e0","expect":{"string":"this.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, 'this.#e0')"}
+{"qt3":"numberformat252","value":"1.2","picture":"this.#e0","expect":{"string":"this.1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, 'this.#e0')"}
+{"qt3":"numberformat253","value":"0.2","picture":"this.0e0","expect":{"string":"this.2e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, 'this.0e0')"}
+{"qt3":"numberformat254","value":"1.2","picture":"this.0e0","expect":{"string":"this.1e1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(1.2, 'this.0e0')"}
+{"qt3":"numberformat255","value":"0.2","picture":"000.0e0","expect":{"string":"200.0e-3"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.2, '000.0e0')"}
+{"qt3":"numberformat261","value":"0.002","picture":".0e0","expect":{"string":".2e-2"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.002, '.0e0')"}
+{"qt3":"numberformat262","value":"0.002","picture":".000e0","expect":{"string":".200e-2"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.002, '.000e0')"}
+{"qt3":"numberformat263","value":"0.002","picture":"#.###e0","expect":{"string":"0.2e-2"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.002, '#.###e0')"}
+{"qt3":"numberformat301","value":"0.99999999","picture":".#e0","expect":{"string":"1.0e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.99999999, '.#e0')"}
+{"qt3":"numberformat302","value":"0.99999999","picture":".0e0","expect":{"string":"1.0e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.99999999, '.0e0')"}
+{"qt3":"numberformat303","value":"0.99999999","picture":"#.#e0","expect":{"string":"1e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.99999999, '#.#e0')"}
+{"qt3":"numberformat304","value":"0.99999999","picture":"0.0e0","expect":{"string":"10.0e-1"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"fn:format-number(0.99999999, '0.0e0')"}
+{"qt3":"numberformat310","value":"642120","picture":"####,##","expect":{"string":"6421,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '####,##')"}
+{"qt3":"numberformat311","value":"642120","picture":"###,##","expect":{"string":"6421,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '###,##')"}
+{"qt3":"numberformat312","value":"642120","picture":"##,##","expect":{"string":"64,21,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '##,##')"}
+{"qt3":"numberformat313","value":"642120","picture":"#,##","expect":{"string":"64,21,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '#,##')"}
+{"qt3":"numberformat314","value":"642120","picture":"0000,00","expect":{"string":"6421,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '0000,00')"}
+{"qt3":"numberformat315","value":"642120","picture":"000,00","expect":{"string":"6421,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '000,00')"}
+{"qt3":"numberformat316","value":"642120","picture":"00,00","expect":{"string":"64,21,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '00,00')"}
+{"qt3":"numberformat317","value":"642120","picture":"0,00","expect":{"string":"64,21,20"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '0,00')"}
+{"qt3":"numberformat318","value":"642120","picture":"#,#,#","expect":{"string":"6,4,2,1,2,0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '#,#,#')"}
+{"qt3":"numberformat319","value":"642120","picture":"##,#,#","expect":{"string":"6421,2,0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(642120, '##,#,#')"}
+{"qt3":"numberformat321","value":"0.0e0","picture":"0.0e0","expect":{"string":"0.0e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(0.0e0, '0.0e0')"}
+{"qt3":"numberformat322","value":"-0.0e0","picture":"0.0e0","expect":{"string":"-0.0e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(-0.0e0, '0.0e0')"}
+{"qt3":"numberformat323","value":"0.0e0","picture":"0.0e01","expect":{"string":"0.0e00"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(0.0e0, '0.0e01')"}
+{"qt3":"numberformat324","value":"0","picture":"0.0e01","expect":{"string":"0.0e00"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(0, '0.0e01')"}
+{"qt3":"numberformat325","value":"0","picture":"0e01","expect":{"string":"0e00"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(0, '0e01')"}
+{"qt3":"numberformat326","value":"0","picture":"#.#e9","expect":{"string":"0e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(0, '#.#e9')"}
+{"qt3":"numberformat327","value":"0.00000000","picture":"#.0e9","expect":{"string":"0.0e0"},"dependency":[{"type":"spec","value":"XP31+ XQ31+"}],"query":"format-number(0.00000000, '#.0e9')"}
+{"qt3":"numberformat901err","value":"931.4857","picture":"###!###!###","decimal_format":{"decimal-separator":"!","grouping-separator":"!"},"expect":{"error":"XQST0098"},"dependency":[{"type":"spec","value":"XQ30+"}],"query":"declare default decimal-format decimal-separator=\"!\" grouping-separator=\"!\"; format-number(931.4857,'###!###!###')"}
+{"qt3":"numberformat902err","value":"931.4857","picture":"000.##0","expect":{"error":"FODF1310"},"query":"format-number(931.4857,'000.##0')"}
+{"qt3":"numberformat905err","value":"931.4857","picture":"fred.ginger","decimal_format_name":"q","decimal_format":{"decimal-separator":".","grouping-separator":","},"expect":{"error":"FODF1310"},"query":"format-number(931.4857,'fred.ginger', 'q')"}
+{"qt3":"numberformat906InputErr","value":"'abc'","picture":"000.##0","expect":{"error":"XPTY0004"},"query":"format-number('abc','000.##0')"}
+{"qt3":"numberformatFODF1280","value":"931.45","picture":"000.##0","decimal_format_name":"foo:bar","decimal_format_undeclared":true,"expect":{"error":"FODF1280"},"query":"format-number(931.45, '000.##0', 'foo:bar')"}
+{"qt3":"numberformatNaN","value":"number(\"abc\")","picture":"#############","expect":{"string":"NaN"},"query":"format-number(number(\"abc\"),'#############')"}
