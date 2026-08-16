@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7.5, \"0,0\", {\"decimal-separator\": \",\"})",
     "dataset": null,
     "bindings": {},
-    "result": "7,5"
+    "result": "7,5",
+    "unresolved": "The \"decimal-separator\" option is set to \",\", which is also the default grouping-separator. XPath 3.1 F&O 4.7.1: \"For any named or unnamed decimal format, the properties representing characters used in a picture string must have distinct values. These properties are decimal-separator, grouping-separator, exponent-separator, percent, per-mille, digit, and pattern-separator.\" XSLT and XQuery reject the collision statically (XQST0098, as in W3C QT3 numberformat901err); JSONata has no static context to reject it in. Regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9."
 }

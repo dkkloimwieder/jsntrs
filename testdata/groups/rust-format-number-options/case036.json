@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234, \"#,##0\", {\"grouping-separator\": \"'\"})",
     "dataset": null,
     "bindings": {},
-    "code": "D3086"
+    "code": "D3086",
+    "authority": "With the grouping-separator set to \"'\", the \",\" in the picture is an ordinary passive character, and F&O 4.7.3 says \"A sub-picture must not contain a passive character that is preceded by an active character and that is followed by another active character\". F&O raises the single code FODF1310 for every picture-string violation; JSONata splits it into D3080-D3093, one per rule. The JSONata documentation publishes no error-code page, so what this case pins is the classification — which F&O rule the picture breaks — and the code is how jsntrs names it."
 }

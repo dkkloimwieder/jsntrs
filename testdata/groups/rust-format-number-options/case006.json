@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"0ab\", {\"percent\": \"ab\"})",
     "dataset": null,
     "bindings": {},
-    "result": "700ab"
+    "result": "700ab",
+    "authority": "The shape jsonata.org documents: $formatNumber(0.14, \"###pm\", {\"per-mille\": \"pm\"}) => \"140pm\" — a multi-character scaling marker standing as the sub-picture's trailing passive text, the number scaled by the marker's factor, the marker emitted whole. Here 7 x 100 = 700, padded to the one mandatory digit, with \"ab\" as the suffix. (F&O 4.7.1 types \"percent\" as \"A single character\"; the documented example is what puts JSONata outside that type, and this case rests on the example rather than on F&O.)"
 }

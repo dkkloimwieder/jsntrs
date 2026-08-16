@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"0.0e0\", {\"exponent-separator\": \"0\"})",
     "dataset": null,
     "bindings": {},
-    "code": "D3093"
+    "code": "D3093",
+    "unresolved": "The \"exponent-separator\" option is set to \"0\", a member of the decimal digit family. XPath 3.1 F&O 4.7.1: \"none of these properties may be equal to any character in the decimal digit family\". XSLT and XQuery reject such a decimal format before evaluation starts (XQST0098); JSONata has no static context to reject it in and no code for it. Regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9."
 }

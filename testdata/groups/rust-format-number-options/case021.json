@@ -3,5 +3,6 @@
     "dataset": null,
     "bindings": {},
     "result": "8",
-    "divergence": "jsonata-js takes substring(0, length-1) for F&O 4.7.5 bullet 12 and so leaves one character of a multi-character decimal-separator behind (\"8a\"); the spec removes the decimal-separator itself (jsntrs-0kg)"
+    "divergence": "jsonata-js takes substring(0, length-1) for F&O 4.7.5 bullet 12 and so leaves one character of a multi-character decimal-separator behind (\"8a\"); the spec removes the decimal-separator itself (jsntrs-0kg)",
+    "unresolved": "The \"decimal-separator\" option is set to a multi-character string. XPath 3.1 F&O 4.7.1 types it as \"A single character\", so this is not a well-formed decimal format and F&O defines no behaviour for it. jsonata.org does license some values F&O 4.7.1 would reject — its own worked examples are $formatNumber(0.14, \"###pm\", {\"per-mille\": \"pm\"}) => \"140pm\" and $formatNumber(1234.5678, \"①①.①①①e①\", {\"zero-digit\": \"⑟\"}) => \"①②.③④⑦e②\" — but it states no rule, and this case is not either of those shapes. Regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9."
 }

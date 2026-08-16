@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234567, \"#'###\", {\"grouping-separator\": \"'\"})",
     "dataset": null,
     "bindings": {},
-    "result": "1'234'567"
+    "result": "1'234'567",
+    "authority": "A single-character grouping-separator, distinct from every other picture property: a well-formed decimal format under XPath 3.1 F&O 4.7.1, and the same shape as F&O 4.7.2's own example, \"The expression format-number(1234.5678, '#ʹ##0·00', 'ch') returns \\\"1ʹ234·57\\\"\". F&O 4.7.4 then makes the grouping regular at G=3 and extrapolates it to the seven-digit number."
 }

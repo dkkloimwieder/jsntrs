@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5, \"0.0ab\", {\"grouping-separator\": \"ab\"})",
     "dataset": null,
     "bindings": {},
-    "result": "1234.5ab"
+    "result": "1234.5ab",
+    "unresolved": "The \"grouping-separator\" option is set to a multi-character string. XPath 3.1 F&O 4.7.1 types it as \"A single character\", so this is not a well-formed decimal format and F&O defines no behaviour for it. jsonata.org does license some values F&O 4.7.1 would reject — its own worked examples are $formatNumber(0.14, \"###pm\", {\"per-mille\": \"pm\"}) => \"140pm\" and $formatNumber(1234.5678, \"①①.①①①e①\", {\"zero-digit\": \"⑟\"}) => \"①②.③④⑦e②\" — but it states no rule, and this case is not either of those shapes. Regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9."
 }

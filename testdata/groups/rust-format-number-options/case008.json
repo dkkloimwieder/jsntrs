@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"0\", {\"per-mille\": \"\"})",
     "dataset": null,
     "bindings": {},
-    "code": "D3083"
+    "code": "D3083",
+    "unresolved": "The \"per-mille\" option is set to the empty string. XPath 3.1 F&O 4.7.1 types it as \"A single character\", and jsonata.org documents no empty-value behaviour, so nothing fixes this answer. Regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9."
 }

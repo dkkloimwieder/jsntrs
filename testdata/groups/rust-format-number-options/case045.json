@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"#.#\", {\"zero-digit\": \"\"})",
     "dataset": null,
     "bindings": {},
-    "result": ""
+    "result": "",
+    "unresolved": "The \"zero-digit\" option is set to the empty string. XPath 3.1 F&O 4.7.1 types it as \"A single character\", and jsonata.org documents no empty-value behaviour, so nothing fixes this answer. Regression pin over jsntrs' current behaviour, not a derived answer — see README.md and jsntrs-qr9. The answer is the empty string: with no zero-digit there is no decimal digit family, every digit maps to nothing, and a formatting function returns nothing at all for a perfectly ordinary number. Nothing defends that output — it is what falls out of the current reading, and it is the strongest argument for settling this family."
 }

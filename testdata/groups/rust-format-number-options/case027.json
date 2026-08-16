@@ -2,5 +2,6 @@
     "expr": "$formatNumber(1234.5678, \"#,##0.00\", {\"decimal-separator\": \",\", \"grouping-separator\": \".\"})",
     "dataset": null,
     "bindings": {},
-    "code": "D3091"
+    "code": "D3091",
+    "authority": "Both options are single characters, distinct from each other and from every other picture property, so this is a well-formed decimal format under XPath 3.1 F&O 4.7.1 and the picture rules apply unmodified. With \",\" as the decimal-separator the fractional part of the sub-picture is \"##0.00\", and F&O 4.7.3 says \"The fractional part of a sub-picture ... must not contain an instance of the optional digit character that is followed by a member of the decimal digit family\". F&O raises the single code FODF1310 for every picture-string violation; JSONata splits it into D3080-D3093, one per rule. The JSONata documentation publishes no error-code page, so what this case pins is the classification — which F&O rule the picture breaks — and the code is how jsntrs names it."
 }

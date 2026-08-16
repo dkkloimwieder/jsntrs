@@ -2,5 +2,6 @@
     "expr": "$formatNumber(7, \"AA\", {\"zero-digit\": \"A\"})",
     "dataset": null,
     "bindings": {},
-    "result": "AH"
+    "result": "AH",
+    "authority": "XPath 3.1 F&O 4.7.1: \"The decimal digit family of a decimal format is the sequence of ten digits with consecutive Unicode codepoints starting with the character that is the value of the zero-digit property\", so the family here is A-J: 7 is \"H\", and the second mandatory digit pads with the zero digit \"A\". F&O also requires zero-digit to be \"a character in Unicode category Nd with decimal digit value 0 (zero)\", which \"A\" is not — but jsonata.org's own worked example uses U+245F (category Cn), pinned as function-formatNumber/case011, so a non-Nd zero-digit is documented JSONata behaviour and only the family construction is left to derive."
 }
