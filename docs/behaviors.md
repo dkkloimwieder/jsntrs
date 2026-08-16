@@ -209,13 +209,32 @@ Two consequences jsntrs holds to:
 1. jsntrs attaches a token only where it names something that appears in
    the source: an operator (`+`, `<=`, `&`, `..`, `@`), the name a call
    site invokes (`abs`, `map`, `substring`), a variable name (`x`, `B`),
-   or a literal (`1e1000`). All 81 pinned `token` expectations in
-   `testdata/` are of that kind.
+   or a literal (`1e1000`). All 92 pinned `token` expectations in
+   `testdata/` are of that kind — but see the `and`/`or` exception below:
+   *appears in the source* is weaker than *names what went wrong*.
 2. jsntrs does **not** reproduce the reference's AST-label tokens. For
    S0217, jsonata 2.2.2 reports `token: "parent"` for `%`, `token:
    "path"` for `%.a` and `token: "function"` for `$foo(%)` — the parser's
    enclosing *node type*, not a source token. jsntrs leaves the S0217
    token empty. Do not port those.
+
+**Where the tokens come from, and the one place they are wrong.** 55 of the
+92 sit in `rust-error-tokens`; the wave-8 audit (jsntrs-qr9) re-probed every
+one against jsonata 2.2.2 and found all 55 byte-identical to it. That group
+is therefore a compatibility mirror, not a derivation — which is fine for a
+field the suite reports rather than enforces, and is why it may not grow.
+
+The mirror carries one reference defect. `evaluateBinary` wraps the *whole*
+of an `and`/`or` — including the deferred right operand — in a try whose
+catch assigns `err.token = op` unconditionally (jsonata 2.2.2
+`jsonata.js:3917-3924`), so an error raised inside the right operand loses
+its own attribution: `false or $abs('x')` is `T0410` token `"or"`, and
+`true and 1/0` is `D1001` token `"and"`. jsntrs reproduces this in
+`evaluator/binary.rs::with_op_token`. Both tokens do name something in the
+source, so consequence 1 above holds literally, but neither names the
+construct that raised the error. The documentation supplies no rule to
+re-derive them from, so they stay pinned with a note in the case
+(`rust-error-tokens/case024`-`case026`) rather than being guessed at.
 
 ### 2.1 Syntax/Lexer Errors (S0xxx)
 

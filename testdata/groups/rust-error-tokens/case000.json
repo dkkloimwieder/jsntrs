@@ -3,5 +3,6 @@
     "dataset": null,
     "bindings": {},
     "code": "T0410",
-    "token": "abs"
+    "token": "abs",
+    "comment": "PROVENANCE (jsntrs-qr9): this group's 55 `token` values were derived in wave 5 from jsonata 2.2.2 and re-probed here \u2014 all 55 are byte-identical to what that engine attaches. The documentation specifies error CODES and never says an error carries a token at all (docs/behaviors.md 2.0.1), so `tests/conformance.rs` reports a token difference instead of failing on one and no NEW token expectation may be added. The `code` is the enforced part."
 }
