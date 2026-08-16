@@ -2662,9 +2662,9 @@ same except where noted in the row.
 
 > **Go reference implementation only.** Everything in 7.1-7.9 below (COW expression list, `sync.Mutex`, schema-keyed `GroupPlan`/`BoundedCache`, four-method `MetricsHook`, concurrent `EvalMany`) describes the Go engine and was **not** ported.
 >
-> **Rust port (shipped behavior).** The Rust `StreamEvaluator` (`crates/jsntrs/src/stream.rs`) is single-threaded by design: "each JSON stream gets its own evaluator on its own thread. No locking, no atomic operations" (`stream.rs:1-4`). The struct (`stream.rs:38-42`) is just `exprs: Vec<Option<Expression>>`, an optional `metrics` hook and `custom_funcs` -- no COW snapshot pointer, no mutex, no `BoundedCache`, no `GroupPlan`, no schema-keyed caching. `MetricsHook` has a single method, `on_eval` (`stream.rs:15-25`), and `StreamStats` (`stream.rs:27-31`) exposes only an expression-slot count -- no hits/misses/evictions.
+> **Rust port (shipped behavior).** The Rust `StreamEvaluator` (`crates/jsntrs/src/stream.rs`) is single-threaded by design: "each JSON stream gets its own evaluator on its own thread. No locking, no atomic operations" (that module's `//!` header). The struct is just `exprs: Vec<Option<Expression>>`, an optional `metrics` hook and `custom_funcs` -- no COW snapshot pointer, no mutex, no `BoundedCache`, no `GroupPlan`, no schema-keyed caching. `MetricsHook` has a single method, `on_eval`, and `StreamStats` exposes only an expression-slot count -- no hits/misses/evictions, and nothing cache-shaped for them to count.
 >
-> Concurrency is achieved by giving each thread its own evaluator: `Value` is deliberately `!Send` (`crates/jsntrs/src/value.rs:57-63`), so concurrent evaluation inside one evaluator is impossible, while a compiled `Expression` is `Send + Sync` and cheap to clone -- compile once, share the `Expression`, build input `Value`s per thread.
+> Concurrency is achieved by giving each thread its own evaluator: `Value` is deliberately `!Send` (see the `Value` type's own doc comment in `crates/jsntrs/src/value.rs`), so concurrent evaluation inside one evaluator is impossible, while a compiled `Expression` is `Send + Sync` and cheap to clone -- compile once, share the `Expression`, build input `Value`s per thread.
 
 ## 7.1 StreamEvaluator Struct
 
