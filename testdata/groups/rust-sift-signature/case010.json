@@ -19,5 +19,5 @@
             "z": 99
         }
     ],
-    "comment": "Documented (jsntrs-qr9): the other half of \"If object is omitted, the context value applies\" -- `.` evaluates its RHS once per value of the LHS (/path-operators, Map), so each context here is a single object and each call is well-formed. Contrast case005, where the same array is handed to $sift as ONE argument and is not an object."
+    "comment": "Documented (jsntrs-qr9): the other half of \"If `object` is not specified, then the context value is used as the value of `object`\" -- `.` evaluates its RHS once per value of the LHS (/path-operators, Map), so each context here is a single object and each call is well-formed. Contrast case005, where the same array is handed to $sift as ONE argument and is not an object."
 }

@@ -9,7 +9,11 @@ rests on:
 
 * **`authority`** — derived from XPath 3.1 F&O, or lifted from the W3C QT3
   suite (`../../oracles/qt3/format-number.jsonl`, cite the case id). The
-  citation is in the field; check it rather than trusting the answer.
+  citation is in the field; check it rather than trusting the answer. A few
+  cases here (026, 041, 042) cite `numberformat320`, which lives in
+  `../../oracles/qt3/format-number-excluded.jsonl` rather than in the runnable
+  file — the expectation it carries is sound, it is simply not one of the cases
+  the extractor emits.
 * **`divergence`** — jsonata-js answers differently and jsntrs declines to
   follow, with the F&O rule that says why. Wave 6 found these; wave 8 left
   them alone.

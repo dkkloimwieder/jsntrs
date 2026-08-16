@@ -28,9 +28,12 @@ picture put them.
 
 Cases 000–010 cover both branches, five regular and six irregular; each
 `authority` field names the recorded positions and says which branch applies
-and why. Cases 011–015 take their expectations from the W3C QT3 suite
-(`../../oracles/qt3/format-number.jsonl`, `numberformat310/312/318/319/320`),
-which pins both branches independently.
+and why. Cases 011–015 take their expectations from the W3C QT3 suite, which pins both
+branches independently: `numberformat310/312/318/319` are in
+`../../oracles/qt3/format-number.jsonl`, and `numberformat320` is in
+`../../oracles/qt3/format-number-excluded.jsonl` — it is one of the sixteen
+cases the extractor holds back (see that oracle's README for why), so it is
+cited as evidence rather than run.
 
 Audited under `jsntrs-qr9` (wave 8): every case in this group is derivable from
 F&O or QT3, none of them rests on what an implementation happened to print.

@@ -2053,9 +2053,18 @@ mod tests {
             nums[..50].join(","),
             nums[50..].join(",")
         );
-        for expr in [format!("{mixed}^($)"), format!("$sort({mixed})")] {
+        // The code differs by entry point: the `^(…)` stage surfaces the
+        // comparison error as it stands, while single-argument `$sort`
+        // reports every unorderable pair as D3070 — "can only be applied to
+        // an array of strings or an array of numbers", which a mixed array
+        // is not. What this test is about is that *an error* comes back
+        // rather than a total-order-violation panic.
+        for (expr, code) in [
+            (format!("{mixed}^($)"), "T2007"),
+            (format!("$sort({mixed})"), "D3070"),
+        ] {
             let err = eval_expr(&expr, &Value::Undefined).unwrap_err();
-            assert_eq!(err.code, "T2007", "for {expr}");
+            assert_eq!(err.code, code, "for {expr}");
         }
         // The $sort comparator protocol never returns Greater; a
         // degenerate always-true comparator must also stay panic-free

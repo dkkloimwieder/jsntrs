@@ -12,5 +12,5 @@
             "z": 1
         }
     ],
-    "comment": "PROVENANCE (jsntrs-qr9): an ARRAY head is not documented. /other-operators says only \"head - evaluates to the object that is to be copied and transformed\"; arrays are accepted because jsonata 2.2.2 gives the transformer the signature `<(oa):o>` (jsonata.js:4846), which admits object or array and rejects every scalar. jsntrs mirrors that choice. Unresolved -- pinned with this note, not re-derived."
+    "comment": "PROVENANCE (jsntrs-qr9): an ARRAY head is not documented. /other-operators says only \"head - evaluates to the object that is to be copied and transformed\"; arrays are accepted because jsonata 2.2.2 gives the transformer the signature `<(oa):o>` (jsonata.js:4845), which admits object or array and rejects every scalar. jsntrs mirrors that choice. Unresolved -- pinned with this note, not re-derived."
 }

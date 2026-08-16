@@ -101,7 +101,7 @@ type Sequence struct {
 
 ## 1.4 Number Handling: Single f64 Representation
 
-**Rust port (shipped behavior).** Numbers are `Value::Number(f64)` only -- there is no second numeric variant (`crates/jsntrs/src/value.rs:82`). JSON input is converted to f64 at parse time (`Value::from_json`, `value.rs:464-467`, via `n.as_f64()`), so integers beyond 2^53 are **not** preserved verbatim; digits past that limit are lost on ingest. JSON output re-renders through `ryu-js`, exactly, and `&`/`$string` coercion applies the 15-significant-digit cast first and then renders through the same `ryu-js` — scalars via `format_float`, container members via `Value::string_cast` (jsntrs-nyn unified the two; before it, the scalar arm skipped the cast for every `|n| < 0.1`). The Go `json.Number` verbatim-precision path was deliberately not ported, and `FormatNumber` has no Rust counterpart.
+**Rust port (shipped behavior).** Numbers are `Value::Number(f64)` only -- there is no second numeric variant (the `Number` arm of `Value`, `crates/jsntrs/src/value.rs`). JSON input is converted to f64 at parse time (`Value::from_json` in the same file, via `n.as_f64()`), so integers beyond 2^53 are **not** preserved verbatim; digits past that limit are lost on ingest. JSON output re-renders through `ryu-js`, exactly, and `&`/`$string` coercion applies the 15-significant-digit cast first and then renders through the same `ryu-js` — scalars via `format_float`, container members via `Value::string_cast` (jsntrs-nyn unified the two; before it, the scalar arm skipped the cast for every `|n| < 0.1`). The Go `json.Number` verbatim-precision path was deliberately not ported, and `FormatNumber` has no Rust counterpart.
 
 **Rust port: negative zero (jsntrs-p0v.5).** `format_float` prints `-0.0` as
 `"0"`, not Go's `"-0"`. JavaScript agrees at both layers (`String(-0)` and
@@ -1478,6 +1478,17 @@ for a missing argument), and a *second* argument is **T0410** on argument 2 —
 the arity half, which jsntrs missed until jsntrs-rxo: `($t := |$|{"z":1}|;
 $t({"a":1}, 5))` transformed and answered `{"a":1,"z":1}`. The type check
 runs first, so `$t(5, 5)` still reports argument 1.
+
+**How far the quote actually carries.** It settles that the transform *takes*
+one argument. It does not by itself settle that a second one is an *error*:
+this language does not generally reject surplus arguments, and
+`($f := function($x){$x}; $f(1,2))` answers `1` in jsntrs and in jsonata 2.2.2
+alike. The rejection here follows from the transformer being modelled as a
+**signed** builtin — signed builtins check their signature, unsigned lambdas
+do not — and that modelling is inherited from jsonata-js via jsntrs-2bc
+rather than stated anywhere in the documentation. So the honest claim is the
+narrow one: after jsntrs-rxo the transform behaves like every other signed
+builtin in the engine, which it previously did not.
 
 Two consequences worth knowing:
 

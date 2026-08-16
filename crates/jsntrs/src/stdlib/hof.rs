@@ -484,11 +484,24 @@ pub fn fn_sort(
             })
         }
         None => {
-            // Default: compare by value; remap T2008 to D3070 for the
-            // $sort function context.
+            // Default: compare by value, and report every unorderable pair
+            // as D3070 — the code whose own text is "The single argument
+            // form of the sort function can only be applied to an array of
+            // strings or an array of numbers. Use the second argument to
+            // specify a comparison function."
+            //
+            // `compare_order` raises T2008 for a value it cannot order at
+            // all and T2007 for a string/number mix. Remapping only T2008
+            // (which is what this arm did until now) let the T2007 escape,
+            // so `$sort([1,null])` answered D3070 while `$sort([1,"x"])`
+            // answered T2007 — two codes for the one condition D3070
+            // describes, and neither array is "an array of strings or an
+            // array of numbers".
             match a.compare_order(b) {
                 Ok(n) => Ok(n.cmp(&0)),
-                Err(e) if e.code == "T2008" => Err(JsonataError::new("D3070", e.message.clone())),
+                Err(e) if e.code == "T2008" || e.code == "T2007" => {
+                    Err(JsonataError::new("D3070", e.message.clone()))
+                }
                 Err(e) => Err(e),
             }
         }

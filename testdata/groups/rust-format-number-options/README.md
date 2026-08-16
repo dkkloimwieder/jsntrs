@@ -1,7 +1,7 @@
 # rust-format-number-options
 
 `$formatNumber`'s third argument: the options object that overrides the decimal
-format. Fifty of these fifty-eight cases turn on one unsettled question, and it
+format. Fifty of these fifty-nine cases turn on one unsettled question, and it
 is worth stating once here rather than fifty times in the cases.
 
 ## The question
@@ -47,7 +47,7 @@ collides with the grouping-separator is genuinely unspecified.
 
 ## What the cases therefore say
 
-* **`authority`** (cases 006, 027, 035, 036, 046, 055–057) — derivable. Either
+* **`authority`** (cases 006, 027, 035, 036, 046, 055–058) — derivable. Either
   the decimal format is well formed under §4.7.1 and ordinary F&O rules decide
   it, or it is the exact shape jsonata.org documents. The field carries the
   citation.

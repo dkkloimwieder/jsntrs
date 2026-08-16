@@ -3,5 +3,5 @@
     "dataset": null,
     "bindings": {},
     "result": "[123456789012345680000]",
-    "authority": "Integers are exempt from the cast — jsonata-js's replacer is guarded by !Number.isInteger(val) and jsntrs' string_cast_number by n.fract() != 0.0 — so this value takes the exact JSON path and the answer is ECMAScript ToString of the double, unrounded. The case exists to pin the boundary of the cast described in docs/spec.md 4.2.6."
+    "inherited": "Integers are exempt from the cast — jsonata-js's replacer is guarded by !Number.isInteger(val) and jsntrs' string_cast_number by n.fract() != 0.0 — so this value takes the exact JSON path and the answer is ECMAScript ToString of the double, unrounded. The case exists to pin the boundary of the cast described in docs/spec.md 4.2.6."
 }

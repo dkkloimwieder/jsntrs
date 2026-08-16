@@ -48,13 +48,24 @@ has no row at all. jsntrs answers neither: `$boolean(0/0)` is **`false`** and
 `$boolean(1/0)` **raises D1001**. It reaches that by the reference's route —
 `isNumeric()` is a *type test* that returns false for NaN (so NaN misses the
 numeric branch entirely and falls through to the `false` default) and throws
-D1001 for Infinity (jsonata 2.2.2 `jsonata.js:9770-9780`). The same test is why
+D1001 for Infinity (jsonata 2.2.2 `jsonata.js:7491-7504`). The same test is why
 `[1,2,3][1/0]` is fatal while `1/0 > 5` is `true`: only the first type-tests the
-value. None of this is derivable from the documentation, whose whole statement
-about `/` is that it "divides the RHS into the LHS to produce the numerical
-quotient. It is an error if either operand is not a number" (/numeric-operators)
-— nothing about a result that is not finite. The shape is pinned, with that
-provenance in each case, in `testdata/groups/rust-subscript-numeric-index/`.
+value.
+
+**The documentation is not silent about the Infinity half, and jsntrs
+contradicts it** (**jsntrs-vmr**). /boolean-functions publishes the `$boolean`
+cast table, and its two number rows are "number: 0 → `false`" and "number:
+non-zero → `true`". Infinity is a non-zero number, so the table entails
+`$boolean(1/0)` = `true`, where jsntrs raises D1001 — and so does jsonata
+2.2.2, which means both engines diverge from the documented table rather than
+one copying the other. The table does **not** address `NaN`, so
+`$boolean(0/0)` = `false` remains genuinely unsettled.
+
+What is undocumented is the *route*: /numeric-operators says only that `/`
+"divides the RHS into the LHS to produce the numerical quotient. It is an
+error if either operand is not a number" — nothing about a result that is not
+finite. The shape is pinned, with that provenance in each case, in
+`testdata/groups/rust-subscript-numeric-index/`.
 
 ### 1.2 Number Coercion (`$number` function)
 
@@ -646,7 +657,13 @@ at all, so `[null,1]^($)` is a T2008.
 
 The codes differ by entry point: the `^(…)` stage raises T2007/T2008 as above,
 while `$sort` without a comparator raises **D3070** for any pair it cannot
-order (`$sort([1,null])`, `$sort([true,false])`, `$sort([{"a":2},{"a":1}])`).
+order — `$sort([1,null])`, `$sort([true,false])`, `$sort([{"a":2},{"a":1}])`
+and `$sort([1,"x"])` alike. That last one is the case the remap used to miss:
+until jsntrs-bez's correction the arm remapped only T2008, so a string/number
+mix leaked T2007 and the one condition D3070 names had two codes. D3070's own
+text is the rule — "The single argument form of the sort function can only be
+applied to an array of strings or an array of numbers. Use the second argument
+to specify a comparison function" — and a mixed array is neither.
 
 ### 8.2 Sort Stability
 

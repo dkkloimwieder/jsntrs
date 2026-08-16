@@ -8,5 +8,5 @@
             2
         ]
     },
-    "divergence": "The same decline-to-port as case029 with the non-object reached through a named location rather than `$`: jsonata 2.2.2 raises the raw JS TypeError \"Cannot create property 'z' on number '1'\". jsntrs leaves the matched non-objects alone. Unresolved in the documentation -- pinned with this note."
+    "divergence": "The same decline-to-port as case029 with the non-object reached through a named location rather than `$`: jsonata 2.2.2 raises the raw JS TypeError \"Cannot create property 'z' on number '1'\". jsntrs leaves the matched non-objects alone. /other-operators states \"The result of evaluating `location` must be an object or array of objects.\", which this input violates; what the documentation does not settle is the CONSEQUENCE of violating it. Pinned with this note as unresolved on that narrower point."
 }

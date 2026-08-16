@@ -30,10 +30,22 @@ from a recorded one without redoing the derivation:
                   quoted F&O or jsonata.org rule, or a W3C QT3 case id (see
                   testdata/oracles/qt3/). Check the citation, not the answer.
 
+    "inherited":  the answer is jsonata-js's, adopted deliberately where the
+                  ranked sources do not reach — a signature the reference
+                  chose, a JSON.stringify argument it passes, a guard in its
+                  replacer. The note names the mechanism. This is NOT the same
+                  as "authority": nothing above jsonata-js was consulted, so
+                  the case is evidence of parity, never of correctness.
+
     "unresolved": no authority fixes this answer. The case is a regression pin
                   over jsntrs' current behavior and must never be cited as
                   evidence that the behavior is correct. Changing it needs a
                   decision, not a bug report.
+
+The distinction between the first two matters and was got wrong once already:
+the wave-8 audit labelled three families `authority` while their notes plainly
+said the provenance was the reference's implementation. The free text was
+honest; the field name was not, and the field name is what a reader filters on.
 
 A `rust-*` group whose cases carry `unresolved` notes also carries a README.md
 stating the open question once, so the per-case notes can stay short.
