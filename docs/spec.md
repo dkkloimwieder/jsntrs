@@ -1061,6 +1061,26 @@ ancestor slot is simply never bound and the lookup returns undefined. The
 documentation says such a `%` is a static error, so jsntrs raises S0217 —
 statically where the position is unambiguous, at evaluation time otherwise.
 
+**The chain operator is the widest case of that (jsntrs-d4a).** `case '~>'`
+in jsonata-js's `processAST` is the *only* binary arm that omits
+`pushAncestry` for both operands, so **every** `%` written anywhere under a
+`~>` is invisible to its top-level ancestry check and is never bound either:
+`a.b ~> $string(%)` answers `"{\"c\":1}"` there — not because the `%`
+resolved, but because it evaluated to undefined and `$string`'s second
+parameter is optional. `a.b.(% ~> $string())` answers nothing at all in
+jsonata-js for the same reason, where jsntrs answers the parent. jsntrs
+treats `~>` as the documentation defines it — "The value on the LHS is
+evaluated, then passed into the function on the RHS as its first argument.
+If the function has any other arguments, then these are passed to the
+function in parenthesis as usual"
+(<https://docs.jsonata.org/other-operators>, "`~>` (Chain)") — so its
+operands are ordinary argument positions that inherit the context the chain
+itself was given, and `a.b ~> $string(%)` is S0217 at compile time. A
+614-row sweep of `%` shapes confirms the rule refuses nothing jsntrs would
+otherwise evaluate: every expression it turns away already raised the same
+S0217 from the evaluator, and a `~>` inside a navigating context still
+compiles and still resolves.
+
 #### Deviation: a predicate on a parent step filters by position (jsntrs-vjs)
 
 `%[…]` coerced its predicate straight to a boolean, so the index base was

@@ -897,9 +897,32 @@ fn check_placeholder_position(arena: &AstArena, root: NodeId) -> Result<(), Json
 /// any position whose status is unclear is treated as navigating: an
 /// under-refusal only leaves today's evaluation-time S0217 in place, while an
 /// over-refusal would reject an expression that evaluates perfectly well.
-/// Two positions are treated as navigating for exactly that reason — the
-/// callee slot of a function application, where the evaluator already reports
-/// the more specific T1006 for `%()`, and the operands of a transform.
+/// One position is treated as navigating for exactly that reason: the callee
+/// slot of a function application, where the evaluator already reports the
+/// more specific T1006 for `%()`.
+///
+/// The chain operator `~>` is *not* one of those unclear positions, and its
+/// operands inherit rather than being forced (jsntrs-d4a). The documentation
+/// (<https://docs.jsonata.org/other-operators>, "`~>` (Chain)") defines it as
+/// argument passing, not navigation:
+///
+/// > The value on the LHS is evaluated, then passed into the function on the
+/// > RHS as its first argument. If the function has any other arguments, then
+/// > these are passed to the function in parenthesis as usual.
+///
+/// so the `%` in `a.b ~> $string(%)` is the *second argument* of `$string`,
+/// evaluated against the context the whole chain sits in — the document root
+/// here, which has no parent. jsonata-js accepts that expression, but only
+/// because `case '~>'` in its `processAST` is the one binary arm that omits
+/// `pushAncestry` for both operands: the `%` never reaches its top-level
+/// ancestry check and is never resolved either, so it silently evaluates to
+/// undefined where this page prescribes a static error. Reproducing that is
+/// not conformance. Measured over a 614-row `%` grid (454 general + 160 `~>`
+/// specific), treating the operands as inheriting rejects nothing jsntrs
+/// would otherwise evaluate: every expression this pass turns away already
+/// raised the same S0217 from the evaluator, and every `~>` written inside a
+/// navigating context (`a.b.(% ~> $string())`, `a.b.(1 ~> $string(%))`)
+/// still compiles and still resolves.
 ///
 /// What this pass deliberately does *not* decide is whether a particular
 /// preceding step can supply a parent (`$v.%`, `x.(…).%`, `{'a':1}.%`); the
@@ -981,6 +1004,10 @@ fn push_parent_context_children(expr: &Expr, navigating: bool, stack: &mut Vec<(
             stack.push((*rhs, true));
             push_group_pair_children(group.as_ref(), stack);
         }
+        // Every other binary operator — `~>` included — evaluates both
+        // operands against the context it was itself given, so both inherit.
+        // See the `~>` paragraph on [`check_parent_context`] for why the chain
+        // operator is not an exception (jsntrs-d4a).
         Expr::Binary {
             lhs, rhs, group, ..
         } => {
@@ -1053,8 +1080,10 @@ fn push_parent_context_children(expr: &Expr, navigating: bool, stack: &mut Vec<(
         // A lambda body closes over the environment of its definition, so it
         // navigates exactly as much as the position the lambda was written in.
         Expr::Lambda { body, .. } => stack.push((*body, navigating)),
-        // Whether a transform's update/delete expressions count as navigating
-        // is not something the documentation settles; leave them alone.
+        // A transform's operands *are* navigating, and the documentation says
+        // so (<https://docs.jsonata.org/other-operators>, "Transform"): "The
+        // location expression is evaluated relative to the result of head",
+        // and "update is evaluated relative to the result of location".
         Expr::Transform {
             pattern,
             update,
@@ -1147,6 +1176,51 @@ mod tests {
             "a.($f := function(){ % }; $f())",
             "%()",
             "a.b.%.%.%",
+        ] {
+            let (mut arena, root) = Parser::parse(src).expect("parse failed");
+            process_ast(&mut arena, root).unwrap_or_else(|e| panic!("{src:?}: {}", e.code));
+        }
+    }
+
+    /// `~>` passes arguments; it does not navigate. Its operands therefore
+    /// inherit the enclosing flag, which means a `%` written in a chain at the
+    /// document root is rejected and the same `%` written in a chain inside a
+    /// path step is not (jsntrs-d4a).
+    ///
+    /// jsonata-js accepts both, because `case '~>'` in its `processAST` is the
+    /// one binary arm that omits `pushAncestry`, so the `%` is neither checked
+    /// nor resolved and silently evaluates to undefined. The documentation
+    /// calls the error static; a silent undefined is not it.
+    #[test]
+    fn parent_under_the_chain_operator_inherits_its_context() {
+        for src in [
+            "a.b ~> $string(%)",
+            "a.b ~> $string(%.c)",
+            "a.b.c ~> $string(%)",
+            "a.b[0] ~> $string(%)",
+            "(a.b) ~> $string(%)",
+            "$string(a.b) ~> $string(%)",
+            "1 ~> $string(%)",
+            "a ~> $append([%])",
+            "a.b ~> function($v) { % }",
+            "a ~> $string() ~> $string(%)",
+        ] {
+            let (mut arena, root) = Parser::parse(src).expect("parse failed");
+            let err = process_ast(&mut arena, root)
+                .expect_err(&format!("{src:?} should not compile"))
+                .code;
+            assert_eq!(err, "S0217", "{src:?}");
+        }
+        for src in [
+            "a.b.(% ~> $string())",
+            "a.b.(1 ~> $string(%))",
+            "a.b.($string(%) ~> $trim())",
+            "a.b.(% ~> function($v) { $v })",
+            "a.b[$exists(% ~> $string())]",
+            "a.b^($string(% ~> $string()))",
+            "a.b{'r': % ~> $string()}",
+            "a.b.($v := % ~> $string(); $v)",
+            "a ~> |b|{'k': %.c}|",
         ] {
             let (mut arena, root) = Parser::parse(src).expect("parse failed");
             process_ast(&mut arena, root).unwrap_or_else(|e| panic!("{src:?}: {}", e.code));
