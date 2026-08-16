@@ -2,5 +2,6 @@
     "expr": "\"abc\"[1/0]",
     "data": null,
     "bindings": {},
-    "code": "D1001"
+    "code": "D1001",
+    "comment": "PROVENANCE (jsntrs-qr9): the documentation's entire statement about `/` is \"The division operator divides the RHS into the LHS to produce the numerical quotient. It is an error if either operand is not a number.\" (/numeric-operators). It says nothing about a result that is not finite, so neither the D1001 raised here nor its absence in `1/0 > 5` follows from it -- and docs/sequence-and-keep-array.md Q4 already records that the code an unrepresentable number raises is internal consistency, not conformance. The shape pinned in this group is jsonata 2.2.2's: `isNumeric()` (jsonata.js:9770-9780) is a TYPE TEST that throws D1001 for Infinity and returns false for NaN, so Infinity is fatal wherever a value is type-tested (a filter predicate, `$boolean`) and an ordinary number where it is not. jsntrs mirrors it. UNRESOLVED -- pinned with this note rather than re-derived or guessed at. Here: Infinity reaches the filter's type test, so the division becomes fatal."
 }

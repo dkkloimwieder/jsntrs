@@ -42,6 +42,20 @@ Source: `internal/evaluator/value.go:146-177`
 | `[0, 1]` | []any | `true` | |
 | `*Sequence` | Sequence | recurse | CollapseSequence then ToBoolean |
 
+**The non-finite rows above describe gnata, not jsntrs** (jsntrs-qr9, wave 8).
+`NaN` is listed as `true` on the reasoning "NaN != 0, so truthy", and `Infinity`
+has no row at all. jsntrs answers neither: `$boolean(0/0)` is **`false`** and
+`$boolean(1/0)` **raises D1001**. It reaches that by the reference's route —
+`isNumeric()` is a *type test* that returns false for NaN (so NaN misses the
+numeric branch entirely and falls through to the `false` default) and throws
+D1001 for Infinity (jsonata 2.2.2 `jsonata.js:9770-9780`). The same test is why
+`[1,2,3][1/0]` is fatal while `1/0 > 5` is `true`: only the first type-tests the
+value. None of this is derivable from the documentation, whose whole statement
+about `/` is that it "divides the RHS into the LHS to produce the numerical
+quotient. It is an error if either operand is not a number" (/numeric-operators)
+— nothing about a result that is not finite. The shape is pinned, with that
+provenance in each case, in `testdata/groups/rust-subscript-numeric-index/`.
+
 ### 1.2 Number Coercion (`$number` function)
 
 Source: `functions/numeric_funcs.go`
