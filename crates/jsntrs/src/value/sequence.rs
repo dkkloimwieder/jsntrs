@@ -1,3 +1,6 @@
+//! [`Sequence`]: the internal-only multi-value carrier and its keep-singleton
+//! flag. Collapsed at the API boundary — it must never reach a caller.
+
 use std::rc::Rc;
 
 use super::Value;

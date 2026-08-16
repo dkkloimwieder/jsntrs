@@ -12,10 +12,15 @@ semantics guarantees.
 ## Quick start
 
 ```rust
-use jsntrs::Expression;
+use jsntrs::{Expression, JsonataError};
 
-let expr = Expression::compile("$sum(Order.Product.(Price * Quantity))")?;
-let result = expr.evaluate(r#"{"Order": [{"Product": [{"Price": 34.5, "Quantity": 2}]}]}"#)?;
+fn main() -> Result<(), JsonataError> {
+    let expr = Expression::compile("$sum(Order.Product.(Price * Quantity))")?;
+    let data = r#"{"Order": [{"Product": [{"Price": 34.5, "Quantity": 2}]}]}"#;
+    let result = expr.evaluate(data)?;
+    println!("{}", result.stringify(false)?); // 69
+    Ok(())
+}
 ```
 
 ## Repository layout

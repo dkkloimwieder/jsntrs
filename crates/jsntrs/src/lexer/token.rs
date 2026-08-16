@@ -1,3 +1,5 @@
+//! [`TokenType`] and [`Token`]: the lexer's output alphabet.
+
 // Reachable only through the `internals`-gated #[doc(hidden)] re-exports
 // for in-repo tooling; not part of the documented public API. missing_docs
 // only applies when the items are publicly reachable, hence the cfg_attr.
@@ -5,7 +7,8 @@
 
 /// Token type identifying the category of a lexed token.
 ///
-/// Binding power comments indicate Pratt parser precedence (used in Phase 3).
+/// The `bp=` comments record the Pratt binding power `parser::binding_power`
+/// assigns each token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenType {
     // Terminal tokens
@@ -17,7 +20,10 @@ pub enum TokenType {
     Value,    // true | false | null
     Regex,    // /pattern/flags
 
-    // Single-character operators
+    // Single-character operators. The `bp=` notes mirror
+    // `parser::binding_power`, which is the authority — eight of them had
+    // drifted away from it (jsntrs-7mc.4). A token the table does not name
+    // falls through to bp=0, which is what stops `expression()` consuming it.
     Dot,       // .  bp=75
     LBracket,  // [  bp=80
     RBracket,  // ]  bp=0
@@ -26,10 +32,10 @@ pub enum TokenType {
     LParen,    // (  bp=80
     RParen,    // )  bp=0
     Comma,     // ,  bp=0
-    At,        // @  bp=80
-    Hash,      // #  bp=80
-    Semicolon, // ;  bp=80
-    Colon,     // :  bp=80
+    At,        // @  bp=75
+    Hash,      // #  bp=75
+    Semicolon, // ;  bp=0
+    Colon,     // :  bp=0
     Question,  // ?  bp=20
     Plus,      // +  bp=50
     Minus,     // -  bp=50
@@ -47,14 +53,14 @@ pub enum TokenType {
 
     // Multi-character operators
     StarStar, // **  bp=60
-    DotDot,   // ..  bp=20
+    DotDot,   // ..  bp=0
     Assign,   // :=  bp=10
     NE,       // !=  bp=40
     LE,       // <=  bp=40
     GE,       // >=  bp=40
-    Chain,    // ~>  bp=40
-    Elvis,    // ?:  bp=40
-    Coalesce, // ??  bp=40
+    Chain,    // ~>  bp=45
+    Elvis,    // ?:  bp=20
+    Coalesce, // ??  bp=20
 
     // Keywords
     And, // and  bp=30

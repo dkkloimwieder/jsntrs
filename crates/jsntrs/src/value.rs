@@ -1,3 +1,10 @@
+//! [`Value`]: the runtime JSON value, held to 32 bytes.
+//!
+//! Submodules cover the two things that are not the enum itself: `format`
+//! (ECMAScript number rendering) and `sequence` (the internal-only
+//! [`Sequence`] carrier). JSON ingest, JSON emission, equality, ordering and
+//! type coercion are all here.
+
 mod format;
 mod sequence;
 

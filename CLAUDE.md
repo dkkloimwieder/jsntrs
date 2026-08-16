@@ -162,6 +162,17 @@ wrong entry (jsntrs-7mc.3). IDs are stable; inserting a rule cannot break them.
 
 - Lint suppressions use `#[expect(...)]`, with a `reason` when non-obvious;
   tests may unwrap/panic (see `clippy.toml`). Keep `cargo fmt --check` clean.
+- **Builtin doc comments**: a `stdlib::*::fn_*` entry point does *not* need a
+  `///` restating what the builtin does. That contract is `docs/spec.md` §5,
+  keyed by builtin name, and a per-function paraphrase is a second source of
+  truth that drifts — this file's own history is the evidence. Comment the
+  *non-obvious choice* instead (why this code, why this reading of the
+  picture rules, which issue settled it), and cite the section or issue that
+  settled it. `stdlib/regex.rs` and `stdlib/datetime.rs` are the pattern.
+- **Cite code by symbol, not by line number.** `stdlib::array::fn_append`
+  survives a refactor; `array.rs:24-46` silently starts pointing at something
+  else. Line ranges in `docs/` were the single largest source of doc drift
+  found in the 2026-08-14 audit.
 - Gate performance changes with a same-session A/B (saved criterion baselines
   drift); gate correctness changes on the conformance suite.
 

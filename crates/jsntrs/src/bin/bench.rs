@@ -1,6 +1,10 @@
-// Benchmark CLI for Rust JSONata.
-// Usage: jsntrs-bench -expr 'Account.Name' -data '{"Account":{"Name":"Firefly"}}' [-n 1000]
-//        jsntrs-bench -stream -datafile data.json -n 1000   (evaluates 4 expressions per iter)
+//! Benchmark CLI for jsntrs — the repo's own timing harness, behind the
+//! `bench-bin` feature. Not part of the library.
+//!
+//! ```text
+//! jsntrs-bench -expr 'Account.Name' -data '{"Account":{"Name":"Firefly"}}' [-n 1000]
+//! jsntrs-bench -stream -datafile data.json -n 1000   (evaluates 4 expressions per iter)
+//! ```
 
 #[cfg(all(feature = "mimalloc-alloc", not(target_arch = "wasm32")))]
 #[global_allocator]

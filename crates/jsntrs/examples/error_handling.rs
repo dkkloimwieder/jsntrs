@@ -79,7 +79,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cancel_clone.store(true, Ordering::Relaxed);
     });
 
-    // This expression would run forever without cancellation
+    // Long-running, not endless: uncancelled this exponential recursion stops
+    // with U1001 once the lambda call depth passes DEFAULT_MAX_CALL_DEPTH
+    // (100). Cancellation is what makes it stop *early*.
     let expr = Expression::compile(
         r#"( $f := function($n){$n > 0 ? $f($n - 1) + $f($n - 2) : 1}; $f(100) )"#,
     )?;

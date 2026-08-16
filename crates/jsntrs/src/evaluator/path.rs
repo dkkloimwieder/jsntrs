@@ -899,8 +899,13 @@ pub(super) fn get_step_bindings(
     }
 }
 
-/// Shallow equality check for Values (used for join flag parent comparison).
-/// This approximates Go's pointer equality by checking structural equality.
+/// Identity check for Values (used for join-flag parent comparison).
+///
+/// Containers compare by `Rc::ptr_eq` — the same allocation, not merely an
+/// equal one — which is what Go's pointer comparison meant. Scalars have no
+/// identity to compare, so they fall back to value equality. (The doc this
+/// replaces said the opposite: "approximates ... by checking structural
+/// equality".)
 pub(super) fn value_ptr_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),

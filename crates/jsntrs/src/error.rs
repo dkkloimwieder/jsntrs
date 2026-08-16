@@ -1,3 +1,6 @@
+//! `JsonataError`: the crate's single error type, its spec code, and the
+//! `Display` rendering used everywhere a message is shown to a caller.
+
 use std::fmt;
 
 /// Structured error type matching JSONata spec error codes.
@@ -7,10 +10,17 @@ use std::fmt;
 /// - T0xxx: Type errors (function arguments)
 /// - T1xxx: Type errors (function-specific)
 /// - T2xxx: Type errors (operators)
+/// - D0000: not a JSONata error — malformed JSON *input*, and internal
+///   invariant violations that should be unreachable. Never produced by
+///   evaluating a well-formed input (`docs/behaviors.md` §2.4).
 /// - D1xxx: Domain errors (numeric)
 /// - D2xxx: Domain errors (general)
 /// - D3xxx: Domain errors (function-specific)
 /// - U1001: Stack overflow
+///
+/// The language documentation publishes no error-code page, so which of
+/// these are *specified* and which are inherited from an implementation is
+/// itself a question — `docs/behaviors.md` §2.0 answers it code by code.
 #[derive(Debug, Clone)]
 pub struct JsonataError {
     /// JSONata spec error code, e.g. `"S0201"` or `"T2010"`.

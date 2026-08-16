@@ -1,3 +1,9 @@
+//! Hand-written Pratt parser: `Token` stream to an [`AstArena`].
+//!
+//! `Parser::parse` produces the raw tree; [`process_ast`] then rewrites it
+//! (flattening `.` chains into paths, marking tail calls). `binding_power`
+//! at the foot of this file is the precedence table both phases assume.
+
 pub mod ast;
 pub mod process;
 

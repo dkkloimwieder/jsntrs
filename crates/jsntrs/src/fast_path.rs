@@ -449,12 +449,13 @@ pub fn eval_fast_with_bindings(fast_path: &FastPath, input: &Value) -> Option<Va
     eval_fast(fast_path, input)
 }
 
-/// Traverse a pure dotted path on a Value.
 /// Walk a pre-parsed Value through pure path segments with array auto-mapping.
 ///
 /// Simplified version of `evaluator::eval_name` — handles only the pure-path
-/// case (no Sequence, no field_found tracking, no Undefined→Null substitution).
-/// If path semantics change in `eval_name`, update this function to match.
+/// case: no `Sequence` and no Undefined→Null substitution. The `field_found`
+/// distinction it once skipped now lives in [`path_step`], which this calls
+/// per segment, so an empty-array field collapses to `[]` here too. If path
+/// semantics change in `eval_name`, update both functions to match.
 fn eval_pure_path(segments: &[String], input: &Value) -> Value {
     let mut current = input.clone();
     for segment in segments {

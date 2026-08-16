@@ -1,3 +1,8 @@
+//! Hand-written lexer: source text to a `Token` stream, one token at a time.
+//!
+//! The parser pulls tokens on demand, so there is no token vector; string,
+//! number, regex and backtick-name scanning all live here.
+
 mod token;
 
 pub use token::{Token, TokenType};

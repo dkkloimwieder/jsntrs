@@ -7,6 +7,14 @@ use crate::evaluator::Environment;
 use crate::parser::{AstArena, Parser, process_ast};
 use crate::value::Value;
 
+/// How deep `$eval` may nest inside `$eval` before **D3121**.
+///
+/// Separate from the lambda call depth (`DEFAULT_MAX_CALL_DEPTH`, 100) and
+/// far smaller, because each level here parses a fresh expression from a
+/// string at run time: the guard is against a self-feeding `$eval`, not
+/// against ordinary recursion. `Environment::incr_eval_depth` counts on the
+/// same shared call-counter struct the parent evaluation uses
+/// (INV-EVAL-COUNTER), so the depth is per evaluation, not per `$eval`.
 const MAX_EVAL_DEPTH: u32 = 5;
 
 pub fn fn_eval(

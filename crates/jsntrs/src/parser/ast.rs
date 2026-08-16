@@ -1,3 +1,9 @@
+//! AST node types and the index-based [`AstArena`] that owns them.
+//!
+//! Nodes are addressed by [`NodeId`] rather than by pointer, so the tree is
+//! one `Vec` and an `Expression` can be cloned cheaply and shared across
+//! threads.
+
 // Reachable only through #[doc(hidden)] re-exports for in-repo tooling;
 // not part of the documented public API.
 #![expect(missing_docs)]

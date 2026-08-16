@@ -23,7 +23,11 @@ pub trait MetricsHook {
     );
 }
 
-/// Cache statistics returned by [`StreamEvaluator::stats`].
+/// Slot counts returned by [`StreamEvaluator::stats`].
+///
+/// Not cache statistics: the port has no cache to report on. The Go
+/// `StreamEvaluator` carried one; this one holds compiled expressions in a
+/// slot vector and `expressions` is that vector's length.
 #[derive(Debug, Clone, Default)]
 pub struct StreamStats {
     /// Number of expression slots (including removed).

@@ -7,8 +7,18 @@ use crate::error::JsonataError;
 use crate::parser::ast::{AstArena, BinaryOp, Expr, GroupExpr, NodeId, Signature, UnaryOp};
 use crate::parser::{Parser, process_ast};
 
+/// One level of indentation in the multi-line layout.
 const INDENT: &str = "  ";
+
+/// Item count above which a path, an argument list or an array constructor
+/// breaks onto one line per item (`> BREAK_THRESHOLD`, so four or more).
 const BREAK_THRESHOLD: usize = 3;
+
+/// Inline-layout budget, in **bytes** — the measurements compare
+/// `String::len()`, not a character or column count. A construct built from
+/// multi-byte identifiers therefore breaks earlier than one of the same
+/// visible width in ASCII. This is a layout heuristic, not a contract: the
+/// output is re-parseable either way.
 const LINE_WIDTH: usize = 60;
 
 /// The characters the JSONata lexer skips between tokens — and the only ones

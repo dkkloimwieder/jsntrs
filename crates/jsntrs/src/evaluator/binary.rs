@@ -16,7 +16,7 @@ use super::{
     eval_with_stack_check,
 };
 
-// ── Binary operators (stub for Phase 5, full impl in Phase 7) ───────
+// ── Binary operators ────────────────────────────────────────────────
 
 // Large dispatch function for all binary operator types.
 // Flattens left-associative chains iteratively to avoid deep recursion.
@@ -145,7 +145,11 @@ fn eval_boolean_op(
 }
 
 /// Apply a single binary operator given a pre-evaluated left value and an unevaluated rhs node.
-/// `lhs_node` is the original LHS NodeId (used only for subscript `[` AST inspection).
+///
+/// `_lhs_node` is the original LHS `NodeId`, and is unread. The doc it
+/// replaces said it was "used only for subscript `[` AST inspection", but
+/// `eval_binary` returns to `eval_subscript_binary` before reaching here, so
+/// no subscript ever arrives (jsntrs-7mc.4). One call site; removable.
 fn apply_binary_op(
     arena: &AstArena,
     op: BinaryOp,

@@ -77,7 +77,8 @@ default = ["mimalloc-alloc", "regex"]
 regex = ["dep:regex"]
 # Lighter regex backend for smaller WASM builds.
 regex-lite = ["dep:regex-lite"]
-# mimalloc as the global allocator on native targets.
+# Links mimalloc. It is installed as the global allocator only in the bundled
+# jsntrs-bench binary — a library must not pick its consumer's allocator.
 mimalloc-alloc = ["mimalloc"]
 # Heap profiling instrumentation for the jsntrs-dhat bin (needs `internals`
 # for `register_all`).
