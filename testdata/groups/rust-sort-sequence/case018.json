@@ -4,6 +4,6 @@
         "a": []
     },
     "bindings": {},
-    "result": [],
-    "divergence": "UNRESOLVED, and deliberately different from jsonata-js, which answers undefined here. The operand is an EMPTY MATCHED ARRAY from the input, and the two documented rules point opposite ways: under processing.md's sequence rule 1 an empty sequence is 'nothing' and 'won't appear in the output of any expression' (undefined), while under the matched-array rule the operand is the VALUE [] and a sort 'sorts (re-orders) the input sequence' without changing membership (so []). jsntrs answers []. Pinned to catch an accidental change, NOT as a settled reading \u2014 see jsntrs-jys."
+    "undefinedResult": true,
+    "divergence": "Settled by jsntrs-jys, same derivation as case017. The trailing [] does not change it: [] suppresses the singleton unwrap and has nothing to unwrap over an empty sequence, and rule 1's 'It won't appear in the output of any expression' (/processing) admits no exception for a flagged sequence. Contrast case020, where a[] on this document is [] because no subsequent expression took the matched array as its context."
 }

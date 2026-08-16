@@ -1012,11 +1012,6 @@ fn eval_sort(
 /// enclosing path — something to flag, so `a^(b)` on `{"a": [{"b": 1}]}` is
 /// `{"b": 1}` while `a[]^(b)` is still `[{"b": 1}]` (jsntrs-by0).
 ///
-/// An operand that matched an *empty array* from the input is deliberately
-/// left alone: whether that is a one-value sequence holding `[]` or an empty
-/// sequence is the open question in docs/sequence-and-keep-array.md § Q2, so
-/// `a^($)` on `{"a": []}` keeps answering `[]`.
-///
 /// The values to order are the members of the operand's sequence, or — when
 /// the operand handed back a matched array instead — that array's elements,
 /// which is rule 3's "if this array becomes the context of a subsequent
@@ -1025,6 +1020,29 @@ fn eval_sort(
 /// there the sequence's own membership wins: collapsing first and re-reading
 /// the collapsed array as the item list would let a `[]` change how many
 /// values the *next* stage sorts.
+///
+/// An operand that matched an *empty array* therefore contributes **no**
+/// values, and a sort stage over no values is an empty sequence:
+///
+/// > An **empty sequence** is a sequence with no values and is considered to
+/// > be 'nothing' or 'no match'. It won't appear in the output of any
+/// > expression.
+/// >
+/// > — <https://docs.jsonata.org/processing> § Sequences, rule 1
+///
+/// so `a^($)` on `{"a": []}` is nothing, not `[]` (jsntrs-jys). This used to
+/// be exempted as docs/sequence-and-keep-array.md § Q2, on the reading that
+/// the operand is the *value* `[]` and a re-ordering leaves a value alone.
+/// Two things settle it against that reading: rule 3's exemption for a
+/// matched array is explicitly lifted the moment the array "becomes the
+/// context of a subsequent expression", which the Sort stage is; and the
+/// exemption was never applied consistently here anyway — a non-empty
+/// matched array already had its *elements* taken as the items to order, and
+/// an empty one is the same rule with zero elements.
+///
+/// Plain `a` on `{"a": []}` is a different expression and still answers `[]`:
+/// no subsequent expression takes the matched array as its context, so rule
+/// 3's exemption stands and the array is the step's own value.
 fn sort_evaluated_items(
     arena: &AstArena,
     items: Value,
@@ -1032,13 +1050,14 @@ fn sort_evaluated_items(
     env: &Rc<Environment>,
 ) -> JsonataResult {
     let mut arr = match items {
-        // Q2: an empty matched array is left exactly as it was found.
-        Value::Array(a) if a.is_empty() => return Ok(Value::Array(a)),
         Value::Array(a) => a.to_vec(),
-        Value::Sequence(seq) if seq.values.is_empty() => return Ok(Value::Undefined),
         Value::Sequence(seq) => seq.values,
         other => vec![other],
     };
+
+    if arr.is_empty() {
+        return Ok(Value::Undefined);
+    }
 
     if terms.is_empty() {
         return Ok(sorted_sequence(arr));

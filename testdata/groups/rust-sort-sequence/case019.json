@@ -1,0 +1,9 @@
+{
+    "expr": "a",
+    "data": {
+        "a": []
+    },
+    "bindings": {},
+    "result": [],
+    "divergence": "Guard for jsntrs-jys: the sort fix must not touch a bare matched empty array. /processing sequence flattening rule 3 exempts a matched array from the flattening rules until 'this array becomes the context of a subsequent expression'; with no sort stage nothing does, so the step's value is the array itself. Both engines answer []. Contrast case017."
+}

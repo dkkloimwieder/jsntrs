@@ -1,0 +1,9 @@
+{
+    "expr": "a[]",
+    "data": {
+        "a": []
+    },
+    "bindings": {},
+    "result": [],
+    "divergence": "Guard for jsntrs-jys: keep-array over a matched empty array still answers []. Same rule-3 exemption as case019 - nothing takes the array as context - and [] leaves the value it has. Both engines agree. Contrast case018, where the sort stage has already turned it into an empty sequence."
+}
