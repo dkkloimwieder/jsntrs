@@ -1,0 +1,7 @@
+{
+    "expr": "{\"a\":1} ~> |$|5|",
+    "data": {},
+    "bindings": {},
+    "code": "T2011",
+    "comment": "The update clause the group never exercised (jsntrs-qr9). /other-operators: \"update - evaluates to an object that is merged into the object matched by each location\", so a non-object update is ill-formed. The code T2011 is inherited vocabulary, not documented (docs/behaviors.md 2.0); the condition is. case014 cannot reach this check because its head fails the transformer signature first."
+}

@@ -1,0 +1,7 @@
+{
+    "expr": "{\"a\":1} ~> |$|{\"z\":1},5|",
+    "data": {},
+    "bindings": {},
+    "code": "T2012",
+    "comment": "The delete clause the group never exercised (jsntrs-qr9). /other-operators: \"delete - (optional) evaluates to a string or an array of strings\" naming the properties to remove, so `5` is ill-formed. T2012 is inherited vocabulary, not documented (docs/behaviors.md 2.0); the condition is."
+}

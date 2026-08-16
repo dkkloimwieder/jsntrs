@@ -2,5 +2,6 @@
     "expr": "true ~> |$|{\"z\":1}|",
     "data": {},
     "bindings": {},
-    "code": "T0410"
+    "code": "T0410",
+    "comment": "Documented (jsntrs-qr9): /other-operators defines the transform operator's first part as \"head - evaluates to the object that is to be copied and transformed\", so a head that is not an object is an error. WHICH error is not documented -- there is no error-code page (docs/behaviors.md 2.0) -- and T0410 here is the inherited signature-mismatch code, raised by the transformer's own signature before any part of the pattern or update runs."
 }

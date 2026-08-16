@@ -1,0 +1,10 @@
+{
+    "expr": "[1,2] ~> |$|{\"z\":1}|",
+    "data": {},
+    "bindings": {},
+    "result": [
+        1,
+        2
+    ],
+    "divergence": "jsonata 2.2.2 raises a raw JS TypeError here -- \"Cannot create property 'z' on number '1'\", no JSONata code, no `code` field -- because its transformer merges the update into whatever the location matched and the matches are the numbers 1 and 2. CLAUDE.md names a raw JS TypeError as the category to decline to port. /other-operators defines update only as \"an object that is merged into the object matched by each location\" and says nothing about a location that matched a non-object, so jsntrs takes the operator's other documented half -- a copy of the head \"with targeted modifications applied while preserving unchanged portions\" -- and leaves the non-object alone. Pinned WITH this note because the documentation does not settle it; case020 is the shape where the reference's version happens to print the same answer (a named property on a JS Array is dropped by serialisation)."
+}

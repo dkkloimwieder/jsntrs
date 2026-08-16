@@ -1,0 +1,12 @@
+{
+    "expr": "{\"a\":[1,2]} ~> |a|{\"z\":1}|",
+    "data": {},
+    "bindings": {},
+    "result": {
+        "a": [
+            1,
+            2
+        ]
+    },
+    "divergence": "The same decline-to-port as case029 with the non-object reached through a named location rather than `$`: jsonata 2.2.2 raises the raw JS TypeError \"Cannot create property 'z' on number '1'\". jsntrs leaves the matched non-objects alone. Unresolved in the documentation -- pinned with this note."
+}

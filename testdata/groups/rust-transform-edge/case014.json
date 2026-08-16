@@ -2,5 +2,6 @@
     "expr": "5 ~> |$|5|",
     "data": {},
     "bindings": {},
-    "code": "T0410"
+    "code": "T0410",
+    "comment": "Documented condition, but reached by the head check (jsntrs-qr9): /other-operators says \"update - evaluates to an object that is merged into the object matched by each location\", so `|$|5|` is ill-formed. This case never gets that far -- the head `5` fails the transformer's signature first, which is why the code is T0410 and not the T2011 the update clause raises. case027 covers the update clause itself."
 }
