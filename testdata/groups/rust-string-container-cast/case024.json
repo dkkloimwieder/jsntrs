@@ -11,5 +11,6 @@
         ]
     },
     "bindings": {},
-    "result": "[1234567890123460,0.430801391601563]"
+    "result": "[1234567890123460,0.430801391601563]",
+    "authority": "$string rounds before it serializes. jsonata.org says only that a value is \"converted to a JSON string using the JSON.stringify function\", but that sentence names the three-parameter form whose replacer runs before ECMAScript's exact-number step — two of the same list's four casting bullets (functions to \"\", infinity/NaN throwing) are unreachable without a replacer — and jsonata.org's own published outputs are rounded ($sqrt(2) documented as 1.414213562373, byte-exact toPrecision(13), against an exact 1.4142135623730951). The digit COUNT is not documented and 15 is a recorded deviation: docs/spec.md 4.2.6 and jsntrs-jnv, decided 2026-08-15. The cast is a value transform applied through the whole tree before the JSON writer runs, which is what JSON.stringify(arg, replacer, space) does."
 }

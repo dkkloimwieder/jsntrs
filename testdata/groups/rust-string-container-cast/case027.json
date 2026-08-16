@@ -4,5 +4,6 @@
     "bindings": {},
     "result": {
         "a": 1234567890123456.8
-    }
+    },
+    "authority": "No $string here: the 15-significant-digit cast lives in $string/& and nowhere else, so the value itself keeps every bit the double holds and write_json emits exact round-tripping digits (CLAUDE.md invariant 5, docs/spec.md 4.2.6). This case is the other half of the boundary — remove the cast from the wrong layer and it breaks."
 }

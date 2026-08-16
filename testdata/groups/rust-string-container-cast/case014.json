@@ -2,5 +2,6 @@
     "expr": "$string([$string])",
     "dataset": null,
     "bindings": {},
-    "result": "[\"\"]"
+    "result": "[\"\"]",
+    "authority": "jsonata.org, $string: \"Functions are converted to an empty string\". The case is here to show the rule survives one level of nesting — jsonata-js applies it in the replacer, so a function member becomes \"\" rather than JSON.stringify's own null."
 }

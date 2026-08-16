@@ -2,5 +2,6 @@
     "expr": "$string([true, false, null, \"a\\\"b\"])",
     "dataset": null,
     "bindings": {},
-    "result": "[true,false,null,\"a\\\"b\"]"
+    "result": "[true,false,null,\"a\\\"b\"]",
+    "authority": "jsonata.org, $string: \"All other values are converted to a JSON string using the JSON.stringify function\". Booleans, null and string escaping are exactly the part of that sentence no replacer touches."
 }

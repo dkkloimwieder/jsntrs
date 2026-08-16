@@ -2,5 +2,6 @@
     "expr": "$string([[]])",
     "dataset": null,
     "bindings": {},
-    "result": "[[]]"
+    "result": "[[]]",
+    "authority": "jsonata.org, $string: \"All other values are converted to a JSON string using the JSON.stringify function\" — an empty array has no members for any replacer to rewrite."
 }

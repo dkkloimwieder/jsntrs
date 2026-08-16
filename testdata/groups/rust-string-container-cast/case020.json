@@ -2,5 +2,6 @@
     "expr": "$string([{}], true)",
     "dataset": null,
     "bindings": {},
-    "result": "[\n  {}\n]"
+    "result": "[\n  {}\n]",
+    "authority": "jsonata.org, $string: \"If prettify is true, then \\\"prettified\\\" JSON is produced. i.e One line per field and lines will be indented based on the field depth.\" No value here is affected by the number cast, so this case pins the layout alone. The indent WIDTH is not documented; two spaces is JSON.stringify's space argument as jsonata-js passes it."
 }

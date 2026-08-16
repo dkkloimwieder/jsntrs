@@ -3,5 +3,6 @@
     "dataset": null,
     "bindings": {},
     "code": "D3001",
-    "token": "string"
+    "token": "string",
+    "authority": "jsonata.org, $string: \"Numeric infinity and NaN throw an error because they cannot be represented as a JSON number\" — one of the four documented casting rules, and one of the few places the documentation makes a builtin throw on a value rather than a type. The documentation names no code — it publishes no error-code page at all (docs/behaviors.md 2.0) — so the code spelling is jsntrs' own: D3001 for a bare non-finite number, D1001 for a composite that contains one. That split is inherited vocabulary recorded in docs/behaviors.md 1.3, not a documented rule; the throw is what this case pins."
 }
