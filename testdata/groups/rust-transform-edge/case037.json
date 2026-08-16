@@ -1,0 +1,7 @@
+{
+    "expr": "$reduce([{\"a\":1},{\"b\":2}], |$|{\"z\":1}|)",
+    "data": {},
+    "bindings": {},
+    "code": "T0410",
+    "comment": "docs.jsonata.org/higher-order-functions, '$reduce()': 'The function must accept at least two arguments, and behaves like an infix operator between each value within the array.' A transform takes one, so this is an error - but WHICH error is unresolved and this case pins jsntrs's current answer, not a settled rule. jsonata 2.2.2 rejects it up front with D3050 ('The second argument of reduce function must be a function with at least two arguments') because getFunctionArity knows a signed builtin's arity; jsntrs's up-front check only reads a lambda's parameter list, so the transform reaches the call and reports T0410 on the accumulator/value pair it was handed. Before jsntrs-rxo jsntrs answered {\"a\":1,\"z\":1} and raised nothing at all. The documentation names neither code (see docs/behaviors.md 2.0)."
+}

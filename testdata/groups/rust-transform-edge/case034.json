@@ -1,0 +1,7 @@
+{
+    "expr": "($t := |$|{\"z\":1}|; $t({\"a\":1}, nope))",
+    "data": {},
+    "bindings": {},
+    "code": "T0410",
+    "comment": "An extra argument that evaluates to undefined is still an extra argument."
+}

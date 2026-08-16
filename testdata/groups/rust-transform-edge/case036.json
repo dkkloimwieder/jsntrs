@@ -1,0 +1,10 @@
+{
+    "expr": "$each({\"a\":{\"b\":1}}, |$|{\"z\":1}|)",
+    "data": {},
+    "bindings": {},
+    "result": {
+        "b": 1,
+        "z": 1
+    },
+    "comment": "The same control for the object HOFs, which would otherwise pass (value, key, object)."
+}

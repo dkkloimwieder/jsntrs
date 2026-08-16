@@ -1375,24 +1375,53 @@ fn eval_transform(arena: &AstArena, node: NodeId, _input: &Value, env: &Rc<Envir
 /// returned a non-object unchanged, and to substitute the context node when
 /// the call supplied no argument at all — a Go-reference habit the JS
 /// signature has no room for (jsntrs-2bc).
+///
+/// A signature is also an *arity*, and the transform's is one:
+///
+/// > The `~>` operator is the operator for function chaining and passes the
+/// > value on the left hand side to the function on the right hand side as
+/// > its first argument. … hence the `|...|...|` syntax generates a function
+/// > with one argument.
+/// > — <https://docs.jsonata.org/other-operators> § `... ~> | ... | ... |`
+/// >   (Transform)
+///
+/// so a second argument is as much a signature failure as a document of the
+/// wrong type, and every other one-argument function in the engine already
+/// says so (`$uppercase("a","b")`, `function($x)<o:o>{…}` called with two —
+/// both `T0410`). jsntrs accepted the extra arguments and transformed
+/// anyway (jsntrs-rxo). The type check runs first, so `$t(5, 5)` still
+/// reports argument 1 and only a document that passes gets as far as the
+/// count — the order jsonata-js's `throwValidationError` produces by
+/// re-matching the signature prefix by prefix.
 fn transform_document(args: &[Value]) -> JsonataResult {
     let Some(arg) = args.first() else {
-        return Err(transform_signature_error());
+        return Err(transform_signature_error(1));
     };
     let doc = collapse_sequence(arg.clone());
     match doc {
-        Value::Undefined | Value::Object(_) | Value::Array(_) => Ok(doc),
-        _ => Err(transform_signature_error()),
+        Value::Undefined | Value::Object(_) | Value::Array(_) => {}
+        _ => return Err(transform_signature_error(1)),
     }
+    if args.len() > 1 {
+        return Err(transform_signature_error(2));
+    }
+    Ok(doc)
 }
 
-/// The `T0410` a transform raises for a document that is not an object or an
-/// array — jsonata-js's `throwValidationError` reports the first argument.
-fn transform_signature_error() -> JsonataError {
+/// The `T0410` a transform raises for an argument its `<(oa):o>` signature
+/// rejects: argument 1 for a document that is not an object or an array,
+/// argument 2 for the first argument past the only one it declares (the
+/// index jsonata-js's `throwValidationError` reports for extraneous
+/// arguments, `goodTo + 1`).
+fn transform_signature_error(position: usize) -> JsonataError {
+    let detail = if position == 1 {
+        "the transform operator needs an object or an array"
+    } else {
+        "too many arguments"
+    };
     JsonataError::new(
         "T0410",
-        "argument 1 does not match function signature: the transform operator \
-         needs an object or an array",
+        format!("argument {position} does not match function signature: {detail}"),
     )
 }
 

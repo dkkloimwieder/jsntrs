@@ -1374,6 +1374,42 @@ Merges multiple environments for a group:
 
 Returns a `BuiltinFunction` closure. When called, applies the transform to the first argument (or focus).
 
+**Rust port deviation (jsntrs-2bc, jsntrs-rxo).** The Go closure takes what
+it is given; jsntrs's `transform_document` (`evaluator/mod.rs`) validates the
+call against the `<(oa):o>` signature jsonata-js gives the transformer,
+because the documentation describes the same shape:
+
+> The `~>` operator is the operator for function chaining and passes the
+> value on the left hand side to the function on the right hand side as its
+> first argument. … hence the `|...|...|` syntax generates a function with
+> one argument.
+>
+> — <https://docs.jsonata.org/other-operators> § `... ~> | ... | ... |`
+> (Transform)
+
+A document that is not an object or an array is **T0410** on argument 1
+(`undefined` passes and answers `undefined`; the focus is never substituted
+for a missing argument), and a *second* argument is **T0410** on argument 2 —
+the arity half, which jsntrs missed until jsntrs-rxo: `($t := |$|{"z":1}|;
+$t({"a":1}, 5))` transformed and answered `{"a":1,"z":1}`. The type check
+runs first, so `$t(5, 5)` still reports argument 1.
+
+Two consequences worth knowing:
+
+- HOF callbacks are unaffected. `hof_args` (`stdlib/hof.rs`) trims a
+  non-lambda callback's arguments to one, so `$map(arr, |$|{…}|)` and
+  `$each(obj, |$|{…}|)` still call the transform with the value alone.
+- `$reduce(arr, |$|{…}|)` now errors where it used to answer. `$reduce`
+  passes `(accumulator, value)`, which is one argument too many. The
+  documentation makes it an error — *"The function must accept at least two
+  arguments"* (<https://docs.jsonata.org/higher-order-functions> §
+  `$reduce()`) — but not which one: jsonata-js rejects it up front with
+  **D3050** because `getFunctionArity` can read a signed builtin's arity,
+  while jsntrs's up-front check reads only a lambda's parameter list, so the
+  call itself reports **T0410**. Neither code is in the documentation
+  (docs/behaviors.md §2.0); `rust-transform-edge/case033` pins jsntrs's
+  answer with that caveat written into the case.
+
 ### 4.13.2 `applyTransform` (line 54)
 
 1. **Nil input** (line 56): Returns `(nil, nil)`.

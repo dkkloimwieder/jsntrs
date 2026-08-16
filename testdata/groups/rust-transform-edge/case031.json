@@ -1,0 +1,7 @@
+{
+    "expr": "($t := |$|{\"z\":1}|; $t({\"a\":1}, 5))",
+    "data": {},
+    "bindings": {},
+    "code": "T0410",
+    "comment": "jsntrs-rxo. A signature is an arity too: docs.jsonata.org/other-operators, '... ~> | ... | ... | (Transform)': 'The expression on the right hand side must evaluate to a function, hence the |...|...| syntax generates a function with one argument.' jsntrs checked the document's type and ignored the count, so this transformed and answered {\"a\":1,\"z\":1}."
+}

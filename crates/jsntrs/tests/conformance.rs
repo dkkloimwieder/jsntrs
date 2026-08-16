@@ -581,7 +581,11 @@ const TOKEN_FIELD_NOTE: &str = "not enforced: the documentation specifies error 
 /// total, so a third of a group could vanish unnoticed). Pin the count
 /// instead. This is the single constant to bump when cases are added or
 /// removed — the diff then always says how many, in one line.
-const EXPECTED_CASE_TOTAL: usize = 3109;
+<<<<<<< HEAD
+const EXPECTED_CASE_TOTAL: usize = 3116;
+=======
+const EXPECTED_CASE_TOTAL: usize = 3116;
+>>>>>>> 33b4526 (jsntrs-rxo: a transform is a one-argument function, so reject a second one)
 
 #[test]
 fn conformance_suite() {

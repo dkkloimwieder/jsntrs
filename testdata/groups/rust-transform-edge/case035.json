@@ -1,0 +1,16 @@
+{
+    "expr": "$map([{\"a\":1},{\"a\":2}], |$|{\"z\":1}|)",
+    "data": {},
+    "bindings": {},
+    "result": [
+        {
+            "a": 1,
+            "z": 1
+        },
+        {
+            "a": 2,
+            "z": 1
+        }
+    ],
+    "comment": "Control for jsntrs-rxo: a HOF trims its callback arguments to the callee's declared arity, so a transform used as a $map callback is still called with one argument and the new count check cannot fire."
+}

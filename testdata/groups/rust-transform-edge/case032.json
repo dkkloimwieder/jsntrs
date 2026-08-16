@@ -1,0 +1,7 @@
+{
+    "expr": "($t := |$|{\"z\":1}|; $t({\"a\":1}, 5, 6))",
+    "data": {},
+    "bindings": {},
+    "code": "T0410",
+    "comment": "Two extra arguments fail the same way as one."
+}
