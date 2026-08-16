@@ -1272,9 +1272,16 @@ Parses raw regex string `"pattern/flags"`:
 When `~>` has a regex on the right:
 - Input must be string (non-string returns nil).
 - Compiles and finds first match.
-- Returns match object: `{"match": text, "start": runeIdx, "end": runeIdx, "groups": [...]}`
+- Returns the **matcher-protocol** object: `{"match": text, "start": runeIdx, "end": runeIdx, "groups": [...]}`
 - Start/end are **rune-based** (Unicode code point positions), not byte positions.
 - Uncaptured groups produce `""`.
+- This is deliberately *not* the `{match, index, groups}` element `$match`
+  publishes (§5.2.12, jsntrs-eet). It is the shape a custom matcher function
+  has to return for `$match` to iterate — `matchers/case000` pins that
+  contract — minus the `next` continuation jsntrs does not build here. The
+  documentation specifies fields for the `$match` result and says nothing
+  about `~>` applied to a regex; jsonata 2.2.2 yields `{match, start, end,
+  groups, next}` in this position too.
 
 ---
 
@@ -1643,10 +1650,48 @@ jsntrs-p0v.18 for the audit.
 - **Non-string first arg**: **T0410**.
 - **Pattern**: regex map or function (custom matcher).
 - **limit**: numeric, limits result count.
-- **Match object**: `{"match": text, "start": runeIndex, "end": runeIndex, "groups": [strings]}`.
-- **Custom matcher**: Called with `(string, 0)`. Returns map with `match`, `start`, `groups`, `next` (function). Iterates by calling `next` until nil.
+- **Match object**: `{"match": text, "index": charIndex, "groups": [strings]}`.
+- **Custom matcher**: Called with `(string, 0)`. Returns map with `match`, `start`, `groups`, `next` (function). Iterates by calling `next` until nil; the matcher's `start` is republished as the result element's `index`.
 - **Returns**: `*Sequence` of match objects, or nil.
 - **Error codes**: T0410, D3137.
+
+#### Deviation from the Go reference: the match object is `{match, index, groups}` (jsntrs-eet)
+
+The Go reference published `{"match", "start", "end", "groups"}`, and the
+inherited fixtures (`function-match/case000`–`case002`) pinned it. The
+documentation specifies the shape verbatim, and it is not that one.
+docs.jsonata.org String Functions, `$match`: "The object contains the
+following fields:" — "**`match`** - the substring that was matched by the
+regex.", "**`index`** - the offset (starting at zero) within `str` of this
+match.", "**`groups`** - if the regex contains capturing groups
+(parentheses), this contains an array of strings representing each captured
+group." The same page prints the worked example
+`$match("ababbabbcc",/a(b+)/)` with `"index": 0`, `2`, `5`. Three fields, no
+more: `start` is the documented field under a different name and `end` has
+no documentary basis at all — it is `index + $length(match)`. jsntrs now
+answers the documented shape, and the three fixtures were migrated with
+divergence notes. jsonata 2.2.2 agrees here.
+
+**`index` is a character (Unicode code point) offset.** The documentation
+does not name a unit for "the offset ... within `str`", but it counts every
+other string position in characters: `$length` "returns the number of
+characters in the string `str`" and `$substring` returns "the characters in
+the first parameter `str` starting at position `start` (zero-offset)".
+jsntrs counts all three in code points, so `$match(s, re).index` indexes the
+same string `$substring` does. **Deviation from jsonata-js**, which returns
+the raw JS `RegExp` index — a UTF-16 code-unit offset — while implementing
+`$length`/`$substring` over code points: on `"a😀b😀c"` the reference reports
+`index` 3 but `$substring("a😀b😀c", 3, 1)` is `"😀"`, so its own index does
+not address its own substring. jsntrs reports 2 and the round trip holds.
+Pinned by `rust-match-object-shape`.
+
+**`end` survives on the matcher-protocol object only.** That structure — what
+a user's matcher function must return, and what `~> /regex/` yields (§4.10.7)
+— is `{match, start, end, groups, next}` and is a different thing: `$match`
+consumes it and republishes `start` as `index`. The documentation specifies
+fields for the `$match` *result* and says nothing about either, and jsonata
+2.2.2 draws the same line (`"hello" ~> /^h/` → `{match, start, end, groups,
+next}` there too). `matchers/case000` pins the custom-matcher half.
 
 ### 5.2.13 `$replace` (`string_match_replace.go:131`) -- EnvAwareBuiltin
 
@@ -1655,7 +1700,7 @@ jsntrs-p0v.18 for the audit.
 - **pattern**: string or regex map. Empty string pattern: **D3010**.
 - **replacement**: string (with `$N` back-references) or function.
   - Back-references: `$0` = full match, `$1`-`$N` = groups. `$$` = literal `$`. Invalid group numbers use greedy-left prefix matching.
-  - Function replacement: Called with match object, must return string (**D3012** if not).
+  - Function replacement: Called with the §5.2.12 match object `{match, index, groups}`, must return string (**D3012** if not). **Deviation from jsonata-js (jsntrs-eet).** docs.jsonata.org String Functions, `$replace`: "If the `replacement` parameter is a function, then it is invoked for each match occurrence of the `pattern` regex. The replacement function must take a single parameter which will be **the object structure of a regex match as described in the `$match` function**; and must return a string." jsonata 2.2.2 does not honour that: it passes its internal matcher object `{match, start, end, groups, next}` straight through, so `$m.index` is undefined inside a reference callback and `$replace("héllo", /l/, function($m){ $string($m.index) })` fails **D3012** there. jsntrs passes the documented object; both `$match` and this callback are built by one function so they cannot drift apart. Pinned by `rust-match-object-shape`.
 - **limit**: non-negative number, `undefined`, or absent. Negative: **D3011**. Any other type (null, string, boolean, array, object, function): **T0410**, ahead of the D3011 range check — the reference signature is `<s-(sf)(sf)n?:s>`, so this is signature validation (jsntrs-p0v.4).
 - **Zero-length regex match**: **D1004**.
 - **Error codes**: T0410, D3010, D3011, D3012, D1004, D3137.

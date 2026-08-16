@@ -3,7 +3,8 @@
     "data": {},
     "bindings": {},
     "result": [
-        {"match": "l", "start": 2, "end": 3, "groups": []},
-        {"match": "l", "start": 3, "end": 4, "groups": []}
-    ]
+        {"match": "l", "index": 2, "groups": []},
+        {"match": "l", "index": 3, "groups": []}
+    ],
+    "divergence": "Inherited case pinned the Go-era shape {match, start, end, groups}; migrated to the documented {match, index, groups}. docs.jsonata.org String Functions, $match: 'index - the offset (starting at zero) within str of this match' (jsntrs-eet, decided 2026-08-15)."
 }

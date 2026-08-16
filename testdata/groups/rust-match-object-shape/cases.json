@@ -1,0 +1,79 @@
+[
+    {
+        "expr": "$match('ababbabbcc', /a(b+)/)",
+        "data": null,
+        "bindings": {},
+        "result": [
+            {"match": "ab", "index": 0, "groups": ["b"]},
+            {"match": "abb", "index": 2, "groups": ["bb"]},
+            {"match": "abb", "index": 5, "groups": ["bb"]}
+        ],
+        "note": "The worked example printed verbatim by docs.jsonata.org String Functions under $match, including the field names and the index values 0/2/5."
+    },
+    {
+        "expr": "$match('hello', /^h/).end",
+        "data": null,
+        "bindings": {},
+        "undefinedResult": true,
+        "note": "The documentation lists three fields for the $match object and no more; 'end' was a Go-era addition, derivable as index + $length(match), and is gone (jsntrs-eet)."
+    },
+    {
+        "expr": "$match('hello', /^h/).start",
+        "data": null,
+        "bindings": {},
+        "undefinedResult": true,
+        "note": "'start' belongs to the matcher protocol, not to the published $match object. jsonata 2.2.2 also answers undefined here."
+    },
+    {
+        "expr": "$match('日本語です', /語/)",
+        "data": null,
+        "bindings": {},
+        "result": {"match": "語", "index": 2, "groups": []},
+        "note": "Non-ASCII BMP subject: index counts characters, not the UTF-8 bytes (which would be 6)."
+    },
+    {
+        "expr": "$match('a😀b😀c', /b/)",
+        "data": null,
+        "bindings": {},
+        "result": {"match": "b", "index": 2, "groups": []},
+        "note": "Offset UNITS pinned on an astral subject. docs.jsonata.org String Functions calls index 'the offset (starting at zero) within str of this match' without naming a unit, but the same page counts every other string position in characters -- $length 'returns the number of characters in the string str', $substring returns 'the characters in ... str starting at position start (zero-offset)'. jsntrs counts all three in Unicode code points, so index is 2 here. jsonata 2.2.2 answers 3 because it hands back the raw JS RegExp index, a UTF-16 code-unit offset -- yet its own $length('a😀b') is 3 and $substring('a😀b', 2) is 'b', so the reference is internally inconsistent and its index cannot be fed to its own $substring."
+    },
+    {
+        "expr": "$substring('a😀b😀c', $match('a😀b😀c', /b/).index, 1)",
+        "data": null,
+        "bindings": {},
+        "result": "b",
+        "note": "The round trip the code-point choice buys: $match's index indexes the same string $substring does."
+    },
+    {
+        "expr": "$replace('héllo', /l/, function($m) { $string($m.index) })",
+        "data": null,
+        "bindings": {},
+        "result": "hé23o",
+        "note": "docs.jsonata.org String Functions, $replace: 'The replacement function must take a single parameter which will be the object structure of a regex match as described in the $match function; and must return a string.' So the callback sees index. jsonata 2.2.2 passes its raw matcher object instead ({match, start, end, groups, next}), where $m.index is undefined and this expression fails D3012 -- a reference deviation from its own documented contract (jsntrs-eet)."
+    },
+    {
+        "expr": "$replace('abc', /b/, function($m) { $string($m) })",
+        "data": null,
+        "bindings": {},
+        "result": "a{\"match\":\"b\",\"index\":1,\"groups\":[]}c",
+        "note": "The whole callback argument, field order included."
+    },
+    {
+        "expr": "'hello' ~> /^h/",
+        "data": null,
+        "bindings": {},
+        "result": {"match": "h", "start": 0, "end": 1, "groups": []},
+        "note": "The matcher-protocol object, NOT the $match element: 'start'/'end' stay here. The documentation specifies fields for the $match result and says nothing about ~> applied to a regex; a custom matcher function must return start/end/next for $match to iterate (testdata/groups/matchers/case000), and jsonata 2.2.2 yields {match, start, end, groups, next} in this position too."
+    },
+    {
+        "expr": "(  $gen := function($ch) { function($str, $offset) {(  $before := $substringBefore($str, $ch);  $start := $length($before) + ($exists($offset) ? $offset : 0);  $end := $start + $length($ch);  $before != $str ? {'match': $ch, 'start': $start, 'end': $end, 'groups': [], 'next': function() { $gen($ch)($substringAfter($str, $ch), $end) }}  )} };  $match('a😀ba😀b', $gen('b'))  )",
+        "data": null,
+        "bindings": {},
+        "result": [
+            {"match": "b", "index": 2, "groups": []},
+            {"match": "b", "index": 5, "groups": []}
+        ],
+        "note": "A user matcher reports 'start'; $match republishes it as 'index'. The subject is astral so the translation is visibly character-based on both sides ($length inside the matcher and index out of it agree)."
+    }
+]

@@ -582,10 +582,10 @@ const TOKEN_FIELD_NOTE: &str = "not enforced: the documentation specifies error 
 /// instead. This is the single constant to bump when cases are added or
 /// removed — the diff then always says how many, in one line.
 <<<<<<< HEAD
-const EXPECTED_CASE_TOTAL: usize = 3116;
+const EXPECTED_CASE_TOTAL: usize = 3126;
 =======
-const EXPECTED_CASE_TOTAL: usize = 3116;
->>>>>>> 33b4526 (jsntrs-rxo: a transform is a one-argument function, so reject a second one)
+const EXPECTED_CASE_TOTAL: usize = 3102;
+>>>>>>> 3382eee (jsntrs-eet: publish the documented $match object {match, index, groups})
 
 #[test]
 fn conformance_suite() {

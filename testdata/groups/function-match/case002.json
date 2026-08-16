@@ -2,5 +2,6 @@
     "expr": "$match('hello', /^h/)[]",
     "data": {},
     "bindings": {},
-    "result": [{"match": "h", "start": 0, "end": 1, "groups": []}]
+    "result": [{"match": "h", "index": 0, "groups": []}],
+    "divergence": "Inherited case pinned the Go-era shape {match, start, end, groups}; migrated to the documented {match, index, groups}. docs.jsonata.org String Functions, $match: 'index - the offset (starting at zero) within str of this match'. The [] keep-singleton behaviour under test is unchanged (jsntrs-eet, decided 2026-08-15)."
 }

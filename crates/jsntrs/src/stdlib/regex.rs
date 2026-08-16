@@ -150,11 +150,36 @@ impl CharCursor {
     }
 }
 
-/// Build a match result object from a regex match.
+/// Build the documented regex-match object: `{match, index, groups}`.
+///
+/// The shape is specified verbatim by docs.jsonata.org String Functions,
+/// `$match`: "The object contains the following fields: `match` - the
+/// substring that was matched by the regex. `index` - the offset (starting
+/// at zero) within `str` of this match. `groups` - if the regex contains
+/// capturing groups (parentheses), this contains an array of strings
+/// representing each captured group." The same page's `$replace` entry binds
+/// the replacement callback to that same shape: "The replacement function
+/// must take a single parameter which will be the object structure of a
+/// regex match as described in the `$match` function". So both callers here
+/// build the identical object (jsntrs-eet).
+///
+/// `index` is a **character (Unicode code point) offset**, not a byte or a
+/// UTF-16 code-unit offset. The documentation calls it "the offset ...
+/// within `str`", and every other position in the language is counted in
+/// characters: `$length` "returns the number of characters in the string
+/// `str`" and `$substring` returns "the characters in ... `str` starting at
+/// position `start` (zero-offset)". jsntrs counts all three in code points,
+/// so `$substring(s, $match(s, re).index)` starts exactly at the match.
+///
+/// There is no `end` field: the documentation lists three fields and no
+/// more, and `end` is derivable as `index + $length(match)`. `end` survives
+/// only on the *matcher-protocol* object — the one `~> /regex/` yields and
+/// the one a custom matcher function must return — which is a different
+/// structure (it also carries `next`) and is consumed, not published, by
+/// `$match`.
 fn build_match_object(s: &str, caps: &Captures, m: &Match, cursor: &mut CharCursor) -> Value {
     let match_str: compact_str::CompactString = m.as_str().into();
-    let start = cursor.char_index(s, m.start()) as f64;
-    let end = cursor.char_index(s, m.end()) as f64;
+    let index = cursor.char_index(s, m.start()) as f64;
 
     let mut groups = Vec::new();
     for i in 1..caps.len() {
@@ -166,8 +191,7 @@ fn build_match_object(s: &str, caps: &Captures, m: &Match, cursor: &mut CharCurs
 
     let mut obj = crate::value::ObjectMap::default();
     obj.insert("match".into(), Value::String(match_str));
-    obj.insert("start".into(), Value::Number(start));
-    obj.insert("end".into(), Value::Number(end));
+    obj.insert("index".into(), Value::Number(index));
     obj.insert("groups".into(), Value::Array(Rc::from(groups)));
     Value::Object(Rc::new(obj))
 }
@@ -251,7 +275,15 @@ fn match_sequence(matches: Vec<Value>) -> Value {
     Value::Sequence(Box::new(crate::value::Sequence::with_items(matches)))
 }
 
-/// Custom matcher: call a function that returns {match, start, groups, next} objects.
+/// Custom matcher: call a function that returns `{match, start, end, groups,
+/// next}` objects.
+///
+/// Note the two distinct structures. The *matcher protocol* — what a user
+/// matcher function returns, and what `~> /regex/` yields — uses `start`
+/// (plus `end` and `next`); the *published* `$match` element is
+/// `{match, index, groups}`. `$match` therefore translates: the matcher's
+/// `start` becomes the result's `index`, and `end`/`next` are consumed
+/// here rather than published (jsntrs-eet).
 fn match_with_custom_matcher(
     s: &str,
     matcher_fn: &FunctionValue,
@@ -589,12 +621,41 @@ mod tests {
     /// agree with a from-scratch count even over multibyte chars.
     #[test]
     fn match_positions_stay_correct_across_many_matches() {
-        let m = eval_expr(r#"$match("aéxaéxaéx", /x/).start"#);
+        let m = eval_expr(r#"$match("aéxaéxaéx", /x/).index"#);
         let expected = eval_expr("[2, 5, 8]");
         assert!(m.deep_equal(&expected), "got {m:?}");
-        let m = eval_expr(r#"$match("aéxaéxaéx", /x/).end"#);
-        let expected = eval_expr("[3, 6, 9]");
-        assert!(m.deep_equal(&expected), "got {m:?}");
+    }
+
+    /// `index` is a code-point offset, so it feeds straight back into
+    /// `$substring`, which is code-point-based too. A UTF-16 code-unit
+    /// offset (what jsonata 2.2.2 reports, since it hands back the raw
+    /// JS `RegExp` index) would say 3 here and break that round trip.
+    #[test]
+    fn match_index_is_a_code_point_offset() {
+        let m = eval_expr(r#"$match("a😀b😀c", /b/).index"#);
+        assert!(m.deep_equal(&Value::Number(2.0)), "got {m:?}");
+        let round_trip = eval_expr(r#"$substring("a😀b😀c", $match("a😀b😀c", /b/).index, 1)"#);
+        assert!(
+            round_trip.deep_equal(&Value::String("b".into())),
+            "got {round_trip:?}"
+        );
+    }
+
+    /// `$replace`'s function replacement is handed "the object structure of
+    /// a regex match as described in the `$match` function"
+    /// (docs.jsonata.org String Functions, `$replace`) — so `index`, not the
+    /// matcher protocol's `start`/`end`/`next`.
+    #[test]
+    fn replace_callback_receives_the_documented_match_object() {
+        let r = eval_expr(r#"$replace("héllo", /l/, function($m) { $string($m.index) })"#);
+        assert!(r.deep_equal(&Value::String("hé23o".into())), "got {r:?}");
+        let r = eval_expr(r#"$replace("abc", /b/, function($m) { $string($m) })"#);
+        assert!(
+            r.deep_equal(&Value::String(
+                r#"a{"match":"b","index":1,"groups":[]}c"#.into()
+            )),
+            "got {r:?}"
+        );
     }
 
     #[test]
@@ -631,7 +692,7 @@ mod tests {
     #[test]
     fn match_reports_char_indices_and_groups() {
         let m = eval_expr(r#"$match("héllo world", /(l+)o/)"#);
-        let expected = eval_expr(r#"{"match": "llo", "start": 2, "end": 5, "groups": ["ll"]}"#);
+        let expected = eval_expr(r#"{"match": "llo", "index": 2, "groups": ["ll"]}"#);
         assert!(m.deep_equal(&expected), "got {m:?}");
     }
 
