@@ -567,11 +567,22 @@ pub fn eval_binary_simple(lhs: &Value, op: BinaryOp, rhs: &Value) -> JsonataResu
 /// [`eval_binary_simple`] for a comparison the analyzer *mirrored*.
 ///
 /// `10 < $v.qty` is lifted as `qty > 10` so the field always sits on the
-/// left, but `evaluateBinary` names the operator the source wrote, not the
-/// one that ran. Passing the written operator keeps the token identical to
-/// the general path's — otherwise `$filter(x, function($v){2 > $v.n})` on a
-/// string `n` would report `T2009` with token `"<"` when lifted and `">"`
-/// when not (jsntrs-hyj).
+/// left, but the error the general path would have raised belongs to the
+/// comparison the source wrote. `written` is that operator, and a mirrored
+/// clause is evaluated back in the source's own orientation so that both
+/// halves of the error agree with the general path: the token (jsntrs-hyj)
+/// *and* the message, which [`Value::compare`] builds from the operator it
+/// is handed. Evaluating the flipped form instead made
+/// `$filter(x, function($v){2 > $v.n})` on a string `n` report `the operands
+/// of the "<" operator` where the same comparison outside a lifted lambda
+/// (`x[2 > n]`, or the same body under `$map`) reports `">"` — a fast path
+/// diverging from the path it stands in for (jsntrs-qr9).
+///
+/// Un-mirroring is exact rather than a second implementation of the
+/// comparison: the analyzer only mirrors number and string literals
+/// (`is_mirrorable_literal`), which are precisely the values that pass
+/// `Value::compare`'s left-operand type check from either side, so the
+/// swapped call reproduces the general path's call argument for argument.
 #[inline]
 pub fn eval_binary_simple_as(
     lhs: &Value,
@@ -579,7 +590,12 @@ pub fn eval_binary_simple_as(
     rhs: &Value,
     written: BinaryOp,
 ) -> JsonataResult {
-    eval_binary_simple_inner(lhs, op, rhs).map_err(|e| e.with_token(written.as_str()))
+    let evaluated = if written == op {
+        eval_binary_simple_inner(lhs, op, rhs)
+    } else {
+        eval_binary_simple_inner(rhs, written, lhs)
+    };
+    evaluated.map_err(|e| e.with_token(written.as_str()))
 }
 
 /// Evaluate a lifted `and`/`or` chain of clauses against one item,
@@ -1170,7 +1186,7 @@ mod tests {
     use crate::evaluator::{Environment, eval};
     use crate::parser::ast::BinaryOp;
     use crate::parser::{Parser, process_ast};
-    use crate::value::Value;
+    use crate::value::{CompareOp, Value};
     use std::rc::Rc;
 
     /// Helper: parse a lambda literal and run the fast-path analyzer on it.
@@ -1358,6 +1374,41 @@ mod tests {
             PredicateClause { field, op: BinaryOp::Lt, written: BinaryOp::Gt, .. }
                 if field == "b"
         ));
+    }
+
+    /// A mirrored clause must report the comparison the *source* wrote in
+    /// both halves of the error, not the flipped one it ran (jsntrs-qr9).
+    ///
+    /// The token was already the written operator (jsntrs-hyj); the message
+    /// was not, so `$filter(x, function($v){2 > $v.n})` accused `"<"` while
+    /// the same comparison on the general path (`x[2 > n]`, or the same
+    /// body under `$map`) accused `">"`.
+    #[test]
+    fn mirrored_clause_names_the_written_operator() {
+        let field = Value::String("z".into());
+        let literal = Value::Number(2.0);
+        for (written, flipped, cmp) in [
+            (BinaryOp::Gt, BinaryOp::Lt, CompareOp::Gt),
+            (BinaryOp::Lt, BinaryOp::Gt, CompareOp::Lt),
+            (BinaryOp::Ge, BinaryOp::Le, CompareOp::Ge),
+            (BinaryOp::Le, BinaryOp::Ge, CompareOp::Le),
+        ] {
+            // `2 <written> $v.z`, lifted as `z <flipped> 2`.
+            let err = super::eval_binary_simple_as(&field, flipped, &literal, written)
+                .expect_err("string vs number is T2009");
+            assert_eq!(err.code, "T2009");
+            assert_eq!(err.token, written.as_str());
+            // Identical to what the general path raises for `2 <written> z`.
+            let general = literal
+                .compare(&field, cmp)
+                .expect_err("string vs number is T2009");
+            assert_eq!(err.message, general.message);
+            assert!(
+                err.message.contains(&format!("\"{}\"", written.as_str())),
+                "message must name the written operator, got {}",
+                err.message
+            );
+        }
     }
 
     #[test]
