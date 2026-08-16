@@ -638,6 +638,16 @@ Source: `internal/evaluator/eval_sort.go`, `eval_helpers.go:158-192`
 | number | string | Error T2007 |
 | other | other | Error T2008 |
 
+`nil` here is an **undefined sort key** — the term produced nothing for that
+item — not the JSON value `null`. That is what CLAUDE.md's INV-SORT-STABLE
+means by "nils sort after non-nils": `[{"b":2},{"c":9},{"b":1}]^(b)` is
+`[{"b":1},{"b":2},{"c":9}]`, key-less last. A `null` *value* is not orderable
+at all, so `[null,1]^($)` is a T2008.
+
+The codes differ by entry point: the `^(…)` stage raises T2007/T2008 as above,
+while `$sort` without a comparator raises **D3070** for any pair it cannot
+order (`$sort([1,null])`, `$sort([true,false])`, `$sort([{"a":2},{"a":1}])`).
+
 ### 8.2 Sort Stability
 
 Go's `slices.SortStableFunc` is used -> stable sort. Equal elements preserve original order.
@@ -645,6 +655,100 @@ Go's `slices.SortStableFunc` is used -> stable sort. Equal elements preserve ori
 ### 8.3 Multi-Key Sort
 
 Sort terms are evaluated left to right. First non-zero comparison wins. Descending terms negate the comparison result.
+
+### 8.4 What a sort step contributes to the enclosing sequence
+
+Waves 5-7 pinned these; they were never written down, and the next reader
+should not have to re-derive them from the reference (jsntrs-bez). The rule
+they all follow is **R8** of `docs/sequence-and-keep-array.md`, which outranks
+`docs/spec.md`:
+
+> **Sort** | seq`^(`expr`)` | Sorts (re-orders) the input sequence according
+> to the criteria in parentheses.
+> — <https://docs.jsonata.org/processing> § JSONata path processing
+
+A re-ordering is a *permutation*. It changes neither the membership of the
+sequence, nor how many values it holds, nor any flag on it. Everything below
+is that one sentence applied.
+
+**1. The output collapses exactly as the input would have.** A sort stage is a
+sub-expression, and § Sequences rule 2 gives a sub-expression's single value
+back "without any surrounding structure". So a one-member operand yields that
+member, uncollapsed sequences are never handed on, and a following `[]` still
+has something to flag:
+
+| expression | document | result |
+|---|---|---|
+| `a^(b)` | `{"a":[{"b":1}]}` | `{"b":1}` |
+| `a^(b)` | `{"a":{"b":1}}` | `{"b":1}` |
+| `x.a^(b)` | `{"x":{"a":[{"b":1}]}}` | `{"b":1}` |
+| `$count(a^($))` | `{"a":[[3,1,2]]}` | `3` — one member, itself a 3-element array |
+| `a.b^($).$sum($)` | `{"a":{"b":[[7,8]]}}` | `[7,8]` — the map stage after it sees one value |
+
+Returning a wrapped one-item sequence instead was jsntrs-by0; `sort_evaluated_items`
+in `evaluator/mod.rs` carries the derivation.
+
+**2. Empty operands.** An operand that selected *nothing* gives undefined —
+there is no sequence to permute (`x^(y)` where `x` is missing). An operand
+that selected one value which *happens to be an empty array* is the different
+case § Q2 of `docs/sequence-and-keep-array.md` describes; **jsntrs-jys settles
+it as undefined** (`a^($)` on `{"a":[]}`). Do not re-derive Q2 from the two
+engines: they disagree, and the documentation uses both vocabularies without
+ranking them. (This entry records the settled answer, which lands with
+jsntrs-jys; before it, the stage passed an empty matched array through
+unchanged and answered `[]`. If a `^` over an empty matched array still
+answers `[]`, jsntrs-jys has not landed — the sort rules above are unaffected
+either way, since the stage only ever permutes what its operand hands it.)
+
+**3. The keep-array marker rides across the sort unchanged**, and it does not
+matter which side of the `^(…)` it was written on — S10 puts `[]` "on any step
+in the path expression", so `X[]^(k)` and `X^(k)[]` are the same expression as
+far as the flag is concerned. Both keep the wrap:
+
+| expression | document | result |
+|---|---|---|
+| `a[]^(b)` | `{"a":{"b":1}}` | `[{"b":1}]` |
+| `a^(b)[]` | `{"a":{"b":1}}` | `[{"b":1}]` |
+| `a[]^(b)[0]` | `{"a":[{"b":1},{"b":2}]}` | `[{"b":1}]` |
+| `a[]^(b).b` | `{"a":[{"b":1}]}` | `[1]` |
+
+Three places make that work, and all three are load-bearing:
+
+- **Parse (`parser/process::wrap_decorated_step`, jsntrs-p0v.20).** A `Sort`
+  carrying `keep_array` is wrapped in a single-step `Path` holding
+  `keep_singleton_array`, because the sort evaluator cannot mark a singleton
+  on its own. `Wildcard` gets the same treatment; `Descendant` deliberately
+  does not.
+- **Read the operand's flag from two places (`eval_sort`, jsntrs-by0).** For
+  `a[]^(b)` the flag arrives either as `keep_singleton` on the evaluated
+  `Sequence`, or — when the step matched an array straight out of the input —
+  only on the operand's `Path` node, because marking a matched array is not
+  allowed. Reading just one of the two loses the flag for one of the shapes.
+- **Re-apply it to the sorted result.** The permutation does not consume the
+  flag, so `eval_sort` marks the output again.
+
+**4. The parent-tracking branch behaves identically.** A sort whose terms
+mention `%` runs through `eval_sort_with_parent_tracking` instead, and takes
+the same keep-singleton argument, so `a[]^(%.k)` on `{"a":{"b":1},"k":2}` is
+`[{"b":1}]` (jsntrs-09h). R8's third bullet is why: there is one Sort stage in
+§ path processing, not two, so the rule cannot depend on whether the key
+mentions `%`. One asymmetry survives and is recorded as open in
+`docs/sequence-and-keep-array.md` §4.1 — over an operand that matched an empty
+array the two branches still answer differently.
+
+**5. Inside a tuple path, a sort step may empty the context set.** The path
+loop's "no contexts left → undefined" early return is skipped for a sort step
+(`evaluator/path.rs`): a sort applies to all tuple contexts at once rather than
+per context, so it is evaluated by `eval_tuple_sort_step` and the loop
+continues.
+
+**6. `$sort` the function is not a sort stage.** It returns its input
+unchanged whenever that holds fewer than two elements — before any comparator
+runs — so `$sort([{"a":1}])` is `[{"a":1}]` while `$sort([{"a":2},{"a":1}])`
+is a D3070, and a broken comparator is never noticed on a one-element input.
+It also always answers an *array*: `$sort([5])` is `[5]` where the stage
+`[5]^($)` is `5`, because a function's return value is not a path stage's
+sequence.
 
 ---
 
