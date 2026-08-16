@@ -898,6 +898,42 @@ Steps are evaluated left-to-right, threading each step's result into the next:
    (`x.($f := function($v){$v}; $f(a[]))` → `1`). jsntrs collapses at those
    boundaries (jsntrs-p0v.6) and still answers `[1]` there.
 
+#### Deviation, deliberate: sequence-ness does not survive a call boundary (jsntrs-p0v.17, WON'T-FIX)
+
+jsntrs collapses a `Value::Sequence` wherever it is consumed — an operand, a
+call argument, a lambda's argument and return, the `eval()` boundary — so
+sequence-ness is a *transport* property of path evaluation, never a property
+of a value a user or a builtin can observe. jsonata-js instead keeps
+sequence-ness as a `sequence` flag stamped on the JavaScript array object
+itself, so it rides through calls. Two consequences, one root cause, both
+decided 2026-08-15 as **won't-fix**: matching the reference would require
+sequences to survive into builtin arguments and out of lambdas, which is the
+boundary-collapse model itself, and the answers jsntrs gives are the
+documented ones.
+
+1. **`$distinct` of a path result.** `$distinct` is the *only* function in
+   jsonata-js's library module that reads the flag —
+   `var results = isSequence(arr) ? this.createSequence() : [];` — and a
+   sequence of length 1 collapses on the way out. So
+   `$distinct(a.b)` on `{"a": [{"b": 1}, {"b": 1}]}` answers `1` in jsonata
+   2.2.2 and `[1]` here; `$distinct($map([1,1], function($v){$v}))` likewise.
+   `$distinct([1,1])` is `[1]` in both, because a literal array carries no
+   flag. The documentation (docs.jsonata.org Array Functions, `$distinct`)
+   says: "Returns an array containing all the values from the `array`
+   parameter, but with any duplicates removed." An array is what jsntrs
+   returns. The reference's scalar is its sequence representation leaking
+   out through a builtin, not a documented result — declined to port.
+
+2. **The lambda-boundary half**, the *Known remaining gap* above:
+   `x.($f := function($v){$v}; $f(a[]))` on `{"x": {"a": 1}}` is `1` in the
+   reference and `[1]` here. Note that `x.(a[])` — the same `[]` without the
+   round trip through a lambda — is `1` in jsntrs too, so this is precisely
+   the call boundary, not the keep-singleton rule.
+
+Both are pinned by nothing: no conformance case fixes either answer, so the
+question stays open for a future design pass rather than frozen into the
+strict gate.
+
 ### 4.7.4 Tuple Path Mode: `evalPathTuple` (line 198)
 
 Maintains a list of `pathCtx` (value + env) contexts so position variables bound at one step remain accessible in subsequent steps.
