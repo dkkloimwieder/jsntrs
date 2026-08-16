@@ -12,8 +12,9 @@ use serde_json::Number;
 use crate::error::{JsonataError, JsonataResult};
 
 /// Object map used in Value::Object. Uses IndexMap to preserve insertion
-/// order (JSONata behavioral invariant #8). CompactString keys inline ≤24
-/// bytes — covers all common JSON field names with zero heap allocation.
+/// order (JSONata behavioral invariant INV-KEY-ORDER). CompactString keys
+/// inline ≤24 bytes — covers all common JSON field names with zero heap
+/// allocation.
 /// foldhash instead of SipHash: key lookup dominates path evaluation on
 /// long field names (~16ns → ~11ns per get), and insertion order — the
 /// only order JSONata semantics depend on — is hasher-independent.
@@ -1570,7 +1571,7 @@ mod tests {
             obj.stringify(false).unwrap(),
             "{\"b\":0.430801391601563,\"c\":5890840712243076}"
         );
-        // Key order survives the rebuild (invariant #4).
+        // Key order survives the rebuild (INV-KEY-ORDER).
         let mut outer = ObjectMap::default();
         outer.insert("z".into(), Value::Number(22.0 / 7.0));
         outer.insert("a".into(), obj.clone());

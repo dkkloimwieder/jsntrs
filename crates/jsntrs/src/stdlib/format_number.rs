@@ -1176,7 +1176,7 @@ pub(crate) fn prepare_sub_pictures(
 /// by concatenating the minus-sign character and the prefix for the positive
 /// sub-picture"), never a stray sign inside the digit string. And this is not
 /// the number-output layer: `$string(-0)` and JSON both still print "0"
-/// (invariant 5, jsntrs-p0v.5).
+/// (INV-NUM-TOSTRING, jsntrs-p0v.5).
 pub(crate) fn format_number_value(
     n: f64,
     pos_pic: &SubPicture,
@@ -1292,8 +1292,8 @@ mod tests {
 
     /// The number-output layer is a different thing from which sub-picture
     /// `$formatNumber` selects: `$string(-0)` and the JSON writer still print
-    /// "0" (invariant 5, jsntrs-p0v.5), and `$formatNumber` reads the sign bit
-    /// only to choose between the two sub-pictures.
+    /// "0" (INV-NUM-TOSTRING, jsntrs-p0v.5), and `$formatNumber` reads the
+    /// sign bit only to choose between the two sub-pictures.
     #[test]
     fn negative_zero_still_stringifies_as_zero() {
         assert_eq!(Value::Number(-0.0).stringify(false).unwrap(), "0");

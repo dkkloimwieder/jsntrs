@@ -50,8 +50,8 @@ mod tests {
         }
     }
 
-    /// JSONata boolean coercion truth table (behavioral invariant #10:
-    /// "0" is truthy, "" is falsy, "false" is truthy).
+    /// JSONata boolean coercion truth table (behavioral invariant
+    /// INV-BOOL-COERCE: "0" is truthy, "" is falsy, "false" is truthy).
     #[test]
     fn boolean_coercion_truth_table() {
         assert!(b(fn_boolean(&[Value::String("0".into())], U)));

@@ -390,7 +390,7 @@ fn eval_subscript_single(
 ///
 /// Returning a bare `Value::Array` here skipped the singleton rule, so
 /// `[1,2,3][[0]]` answered `[1]` where the sequence rule (and CLAUDE.md
-/// invariant 2) says `1` — visible through equality, since `[1,2,3][[0]] = 1`
+/// INV-SEQ-COLLAPSE) says `1` — visible through equality, since `[1,2,3][[0]] = 1`
 /// was false (jsntrs-bmw).
 ///
 /// `keep_array` is the `[]` flag already computed by the caller. It is

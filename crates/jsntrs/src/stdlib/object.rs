@@ -273,7 +273,7 @@ mod tests {
         }
     }
 
-    /// $keys preserves insertion order (behavioral invariant #8) and
+    /// $keys preserves insertion order (behavioral invariant INV-KEY-ORDER) and
     /// unions keys across an array of objects.
     #[test]
     fn keys_preserve_insertion_order_and_union_arrays() {

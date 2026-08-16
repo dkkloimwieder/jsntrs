@@ -810,7 +810,8 @@ mod tests {
         assert_eq!(text(fn_decode_url_component(&[s("a%20b%26c")], U)), "a b&c");
     }
 
-    /// $string uses ECMAScript Number.toString() (behavioral invariant #9).
+    /// $string uses ECMAScript Number.toString() (behavioral invariant
+    /// INV-NUM-TOSTRING).
     #[test]
     fn string_formats_numbers_like_ecmascript() {
         assert_eq!(text(fn_string(&[n(100.0)], U)), "100");

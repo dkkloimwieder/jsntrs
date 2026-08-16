@@ -62,7 +62,7 @@ cd crates/jsntrs && cargo fuzz build               # nightly; fuzz/ is its own w
 - **`Environment`**: `Rc` parent chain with `RefCell` bindings and a small
   cache for non-local lookups; carries the shared call counter and an
   `Arc<AtomicBool>` cancellation flag.
-- **Errors**: hand-rolled `JsonataError { code, token, value, message }` with
+- **Errors**: hand-rolled `JsonataError { code, token, value, message, position }` with
   JSONata spec codes; `Result` everywhere. Panics only for documented caller
   bugs (e.g. foreign `NodeId` in `AstArena::get`).
 - **Recursion**: tail calls run through a trampoline over a `TailCall` value
@@ -140,15 +140,23 @@ written here and were never upstream.
 
 ## Behavioral invariants (DO NOT VIOLATE)
 
-1. `undefined = undefined` → `false`; `null = null` → `true`
-2. Sequence collapse: 0 items → undefined, 1 → unwrapped (unless
-   keep-singleton), >1 → array
-3. Field access on arrays auto-maps and flattens
-4. Object key insertion order is preserved through all operations
-5. Number output matches JS `Number.toString()`; `$round` is half-to-even
-6. Boolean coercion: `"0"` truthy, `""` falsy, `"false"` truthy
-7. Sort is stable; nils sort after non-nils
-8. `$eval()` shares the call counter with its parent evaluation
+Cite these by **ID**, never by position. The list has been renumbered before,
+and every citation written as "invariant #N" silently came to point at the
+wrong entry (jsntrs-7mc.3). IDs are stable; inserting a rule cannot break them.
+
+1. **INV-EQ-UNDEF** — `undefined = undefined` → `false`; `null = null` → `true`
+2. **INV-SEQ-COLLAPSE** — Sequence collapse: 0 items → undefined, 1 →
+   unwrapped (unless keep-singleton), >1 → array
+3. **INV-PATH-AUTOMAP** — Field access on arrays auto-maps and flattens
+4. **INV-KEY-ORDER** — Object key insertion order is preserved through all
+   operations
+5. **INV-NUM-TOSTRING** — Number output matches JS `Number.toString()`;
+   `$round` is half-to-even
+6. **INV-BOOL-COERCE** — Boolean coercion: `"0"` truthy, `""` falsy,
+   `"false"` truthy
+7. **INV-SORT-STABLE** — Sort is stable; nils sort after non-nils
+8. **INV-EVAL-COUNTER** — `$eval()` shares the call counter with its parent
+   evaluation
 
 ## Conventions
 

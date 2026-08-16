@@ -600,7 +600,7 @@ the live consensus count. **This is a deliberate, undocumented-behavior
 deviation, and it means `$string` is not round-trip lossless**:
 `$number($string(0.4308013916015625))` does not recover its argument. The
 JSON layer is unaffected — `write_json` stays exact, which is what CLAUDE.md
-invariant 5 is about.
+INV-NUM-TOSTRING is about.
 
 ### 4.2.7 `compareValues` -- Relational Operators (line 104)
 
@@ -1841,7 +1841,7 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
   jsonata-js branches on `value >= 0` and gives negative zero the positive
   sub-picture; jsntrs followed it until this change. **This is not the
   number-output layer**: `$string(-0)` and the JSON writer still print `"0"`
-  (§ 1.4, invariant 5), the digits still come from the magnitude, and every
+  (§ 1.4, INV-NUM-TOSTRING), the digits still come from the magnitude, and every
   minus in the output above is the negative sub-picture's prefix (4.7.4, "the
   prefix for the negative sub-picture is set by concatenating the minus-sign
   character and the prefix for the positive sub-picture (if any), in that

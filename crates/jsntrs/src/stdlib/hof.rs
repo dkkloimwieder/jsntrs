@@ -747,8 +747,8 @@ mod tests {
         assert_evals_to(r#"$each({"a":1, "b":2}, function(){"z"})"#, r#"["z", "z"]"#);
     }
 
-    /// Sort is stable for equal keys (behavioral invariant #7) — on both
-    /// the lifted fast path and the general comparator path.
+    /// Sort is stable for equal keys (behavioral invariant INV-SORT-STABLE)
+    /// — on both the lifted fast path and the general comparator path.
     #[test]
     fn sort_is_stable_for_equal_keys() {
         // Same-field comparator → fast path.
