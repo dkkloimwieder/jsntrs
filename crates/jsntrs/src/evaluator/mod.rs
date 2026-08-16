@@ -714,14 +714,24 @@ fn eval_chain_step(
 /// Apply a regex test to a piped value in chain context (~> /regex/).
 /// Returns the first match object if the regex matches, or Undefined if not.
 ///
-/// This is the *matcher-protocol* object — `{match, start, end, groups}`,
-/// the structure a custom matcher function has to hand back for `$match`
-/// to iterate (see `stdlib::regex::match_with_custom_matcher`, and
-/// `testdata/groups/matchers/case000`). It deliberately keeps `start`/`end`
-/// and is **not** the `{match, index, groups}` element `$match` publishes
-/// (jsntrs-eet): the documentation specifies fields for the `$match` result,
-/// says nothing about `~> /regex/`, and jsonata 2.2.2 likewise yields
-/// `{match, start, end, groups, next}` here.
+/// This is the *matcher-protocol* object, the structure a custom matcher
+/// function has to hand back for `$match` to iterate (see
+/// `stdlib::regex::match_with_custom_matcher`, and
+/// `testdata/groups/matchers/case000`). It keeps `start`/`end` and is
+/// **not** the `{match, index, groups}` element `$match` publishes
+/// (jsntrs-eet).
+///
+/// Both shapes are documented, and they genuinely differ. `$match`'s
+/// element is specified on docs.jsonata.org/string-functions ("index - the
+/// offset (starting at zero) within `str` of this match"); this object is
+/// specified on docs.jsonata.org/regex, which names five fields —
+/// "start - the starting position (zero offset) of the matching substring
+/// within the original string", "end - the endinging position …" [sic],
+/// plus `match`, `groups` and "next - when invoked, will return details of
+/// the second occurrence of any matching substring (and so on)".
+///
+/// jsntrs builds four of those five: `next` is missing, which is a real
+/// gap against that page rather than a choice — see jsntrs-h77.
 fn apply_regex_chain(piped: &Value, regex_obj: &crate::value::ObjectMap) -> JsonataResult {
     let s = match piped {
         Value::String(s) => &**s,

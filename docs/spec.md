@@ -1347,13 +1347,19 @@ When `~>` has a regex on the right:
 - Returns the **matcher-protocol** object: `{"match": text, "start": runeIdx, "end": runeIdx, "groups": [...]}`
 - Start/end are **rune-based** (Unicode code point positions), not byte positions.
 - Uncaptured groups produce `""`.
-- This is deliberately *not* the `{match, index, groups}` element `$match`
-  publishes (§5.2.12, jsntrs-eet). It is the shape a custom matcher function
-  has to return for `$match` to iterate — `matchers/case000` pins that
-  contract — minus the `next` continuation jsntrs does not build here. The
-  documentation specifies fields for the `$match` result and says nothing
-  about `~>` applied to a regex; jsonata 2.2.2 yields `{match, start, end,
-  groups, next}` in this position too.
+- This is *not* the `{match, index, groups}` element `$match` publishes
+  (§5.2.12, jsntrs-eet). It is the shape a custom matcher function has to
+  return for `$match` to iterate — `matchers/case000` pins that contract.
+- **Both shapes are documented and they differ.** docs.jsonata.org/regex
+  specifies this one field by field: `match`, `groups`, "start - the starting
+  position (zero offset) of the matching substring within the original
+  string", "end - the endinging position of the matching substring within the
+  original string" [sic], and "next - when invoked, will return details of the
+  second occurrence of any matching substring (and so on)".
+  `start`/`end` therefore rest on that page, not on inheritance from Go.
+- **`next` is missing** — jsntrs builds four of the five documented fields.
+  That is a gap against the documentation, not a deviation anyone chose:
+  **jsntrs-h77**. jsonata 2.2.2 does build it.
 
 ---
 
@@ -1760,10 +1766,17 @@ Pinned by `rust-match-object-shape`.
 **`end` survives on the matcher-protocol object only.** That structure — what
 a user's matcher function must return, and what `~> /regex/` yields (§4.10.7)
 — is `{match, start, end, groups, next}` and is a different thing: `$match`
-consumes it and republishes `start` as `index`. The documentation specifies
-fields for the `$match` *result* and says nothing about either, and jsonata
-2.2.2 draws the same line (`"hello" ~> /^h/` → `{match, start, end, groups,
-next}` there too). `matchers/case000` pins the custom-matcher half.
+consumes it and republishes `start` as `index`.
+
+The two shapes are specified on two different pages, and the split is the
+documentation's, not ours: docs.jsonata.org/string-functions gives the
+`$match` element ("index - the offset (starting at zero) within `str` of this
+match"), while docs.jsonata.org/regex gives the matcher object ("start - the
+starting position (zero offset) of the matching substring within the original
+string", "end - the endinging position …" [sic], "next - when invoked, will
+return details of the second occurrence of any matching substring (and so
+on)"). jsonata 2.2.2 draws the same line. jsntrs does **not** build `next`
+(**jsntrs-h77**). `matchers/case000` pins the custom-matcher half.
 
 ### 5.2.13 `$replace` (`string_match_replace.go:131`) -- EnvAwareBuiltin
 
