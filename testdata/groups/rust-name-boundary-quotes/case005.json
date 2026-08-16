@@ -6,5 +6,5 @@
     },
     "bindings": {},
     "result": 0,
-    "comment": "The whole boundary rule in one expression: `$'` is the focus variable, `a'` is a field name that also carries a quote, and `/**/` between them is a comment. jsonata 2.2.2 evaluates this to 0 (jsntrs-5xh)."
+    "comment": "The whole boundary rule in one expression: `$'` is the focus variable, `a'` is a field name that also carries a quote, and `/**/` between them is a comment. jsonata 2.2.2 evaluates this to 0 (jsntrs-5xh). AUTHORITY (jsntrs-qr9): the documentation defines no lexical grammar for names. All it says of a variable is \"Any name that starts with a dollar '$' is a variable\" (/programming), and of a field reference that ones \"containing whitespace or reserved tokens can be enclosed in backticks\" (/simple) -- \"can be\", and no list of reserved tokens. Nothing states where an unquoted name ENDS, which is the only question this group asks. The rule pinned here is therefore jsonata 2.2.2's tokenizer and nothing else: a deliberate compatibility choice, not a derivation. Unresolved -- pinned with this note."
 }

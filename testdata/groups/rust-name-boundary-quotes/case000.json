@@ -3,5 +3,5 @@
     "dataset": null,
     "bindings": {},
     "result": 5,
-    "comment": "A quote is not a name boundary: the lexer runs an identifier to the next stop character, so `$'` is a variable literally named `'`. jsonata 2.2.2 tokenizer: the name scan stops only on `' \\t\\n\\r\\v'` or a single-character key of `operators`, and its ast() for `$'` is {value: \"'\", type: \"variable\"} (jsntrs-5xh)."
+    "comment": "A quote is not a name boundary: the lexer runs an identifier to the next stop character, so `$'` is a variable literally named `'`. jsonata 2.2.2 tokenizer: the name scan stops only on `' \\t\\n\\r\\v'` or a single-character key of `operators`, and its ast() for `$'` is {value: \"'\", type: \"variable\"} (jsntrs-5xh). AUTHORITY (jsntrs-qr9): the documentation defines no lexical grammar for names. All it says of a variable is \"Any name that starts with a dollar '$' is a variable\" (/programming), and of a field reference that ones \"containing whitespace or reserved tokens can be enclosed in backticks\" (/simple) -- \"can be\", and no list of reserved tokens. Nothing states where an unquoted name ENDS, which is the only question this group asks. The rule pinned here is therefore jsonata 2.2.2's tokenizer and nothing else: a deliberate compatibility choice, not a derivation. Unresolved -- pinned with this note."
 }

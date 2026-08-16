@@ -3,5 +3,5 @@
     "dataset": null,
     "bindings": {},
     "code": "S0101",
-    "comment": "The other side of the same rule: `$'` is the variable, `/**/` is a closed comment, and the trailing quote then opens a string literal that never ends. jsonata 2.2.2 rejects this text with S0101 (jsntrs-5xh)."
+    "comment": "The other side of the same rule: `$'` is the variable, `/**/` is a closed comment, and the trailing quote then opens a string literal that never ends. jsonata 2.2.2 rejects this text with S0101 (jsntrs-5xh). AUTHORITY (jsntrs-qr9): the documentation defines no lexical grammar for names. All it says of a variable is \"Any name that starts with a dollar '$' is a variable\" (/programming), and of a field reference that ones \"containing whitespace or reserved tokens can be enclosed in backticks\" (/simple) -- \"can be\", and no list of reserved tokens. Nothing states where an unquoted name ENDS, which is the only question this group asks. The rule pinned here is therefore jsonata 2.2.2's tokenizer and nothing else: a deliberate compatibility choice, not a derivation. Unresolved -- pinned with this note."
 }

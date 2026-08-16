@@ -6,5 +6,5 @@
     },
     "bindings": {},
     "result": 0,
-    "comment": "The canonical spelling format() produces for case005, pinned in the same place: the relocated comment and the backtick-quoted a' must still mean what the source meant. jsonata 2.2.2 gives both texts the same ast() and evaluates both to 0 (jsntrs-5xh)."
+    "comment": "The canonical spelling format() produces for case005, pinned in the same place: the relocated comment and the backtick-quoted a' must still mean what the source meant. jsonata 2.2.2 gives both texts the same ast() and evaluates both to 0 (jsntrs-5xh). AUTHORITY (jsntrs-qr9): the documentation defines no lexical grammar for names. All it says of a variable is \"Any name that starts with a dollar '$' is a variable\" (/programming), and of a field reference that ones \"containing whitespace or reserved tokens can be enclosed in backticks\" (/simple) -- \"can be\", and no list of reserved tokens. Nothing states where an unquoted name ENDS, which is the only question this group asks. The rule pinned here is therefore jsonata 2.2.2's tokenizer and nothing else: a deliberate compatibility choice, not a derivation. Unresolved -- pinned with this note."
 }
