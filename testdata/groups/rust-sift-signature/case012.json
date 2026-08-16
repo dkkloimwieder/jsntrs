@@ -3,5 +3,6 @@
     "data": {},
     "result": {
         "b": 10
-    }
+    },
+    "comment": "Documented (jsntrs-qr9): the happy path of \"Returns an object that contains only the key/value pairs from the `object` parameter that satisfy the predicate `function` passed in as the second parameter\" (/higher-order-functions)."
 }

@@ -9,5 +9,6 @@
             "z": 99
         }
     ],
-    "code": "T0411"
+    "code": "T0411",
+    "comment": "Documented (jsntrs-qr9): /higher-order-functions, $sift arguments -- \"If object is omitted, the context value applies. An error occurs if the value isn't an object.\" Here the object is omitted and the context is an array, so the sentence applies directly. T0411 rather than T0410 because the failing value arrived by context substitution, which is an inherited distinction (docs/behaviors.md 2.2), not a documented one."
 }

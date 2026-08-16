@@ -1,5 +1,6 @@
 {
     "expr": "$sift([{\"a\": 1}, {\"b\": 10}], function($v) { $v > 5 })",
     "data": {},
-    "code": "T0410"
+    "code": "T0410",
+    "comment": "Documented (jsntrs-qr9): /higher-order-functions gives $sift the signature \"$sift(object, function)\" and says it \"Returns an object that contains only the key/value pairs from the `object` parameter that satisfy the predicate `function`\". An array is not an object, so this is an error by the documented argument type. WHICH code is not documented (there is no error-code page, docs/behaviors.md 2.0); T0410 is the inherited signature-mismatch code. The shape of this group was settled by a user decision in wave 5, aligned to the <o-f?:o> signature -- the audit confirms that decision agrees with the documented one."
 }

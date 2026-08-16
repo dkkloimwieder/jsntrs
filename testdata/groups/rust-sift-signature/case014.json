@@ -1,5 +1,6 @@
 {
     "expr": "$sift(nope, function($v) { true })",
     "data": {},
-    "undefinedResult": true
+    "undefinedResult": true,
+    "comment": "PROVENANCE (jsntrs-qr9): an argument that selected nothing. The documentation does not say what a builtin does with an undefined argument; this follows jsntrs's general signature propagation (undefined in, undefined out), which is also jsonata 2.2.2's. Unresolved in the documentation -- pinned with this note."
 }
