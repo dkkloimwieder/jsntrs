@@ -1,0 +1,13 @@
+{
+    "expr": "$[]^(<$)[-1]",
+    "data": [
+        5,
+        1,
+        4
+    ],
+    "bindings": {},
+    "result": [
+        5
+    ],
+    "divergence": "jsntrs-w2e. /predicate, Singleton array and value equivalence: 'This is done by adding empty square brackets [] to a step within the location path' and 'the [] can be placed either side of the predicates and on any step in the path expression'. The flag belongs to the PATH, not to the step that wrote it, and a Sort stage 'sorts (re-orders) the input sequence' (/processing) without touching it. jsonata-js answers 5 here and [5] for the same shape written a[]^(<$)[-1] (case022): its processAST lifts a step's keepArray onto the path only in the '.' and bare-'name' branches, while case '^' rebuilds a non-path operand as {type:'path', steps:[operand]} and never lifts it, so the flag on a $ / literal / bracketed operand is silently dropped. It is self-inconsistent: the same $[] keeps its flag with no sort after it (case024). Reproducing that would be reproducing a bug."
+}

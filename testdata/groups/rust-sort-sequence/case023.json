@@ -1,0 +1,13 @@
+{
+    "expr": "$[]^(<$)[0]",
+    "data": [
+        5,
+        1,
+        4
+    ],
+    "bindings": {},
+    "result": [
+        1
+    ],
+    "divergence": "jsntrs-w2e. /predicate, Singleton array and value equivalence: 'This is done by adding empty square brackets [] to a step within the location path' and 'the [] can be placed either side of the predicates and on any step in the path expression'. The flag belongs to the PATH, not to the step that wrote it, and a Sort stage 'sorts (re-orders) the input sequence' (/processing) without touching it. Same reference defect as case021, at the other end of the sort: jsonata-js answers 1."
+}

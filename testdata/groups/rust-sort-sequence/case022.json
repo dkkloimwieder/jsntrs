@@ -1,0 +1,15 @@
+{
+    "expr": "a[]^(<$)[-1]",
+    "data": {
+        "a": [
+            5,
+            1,
+            4
+        ]
+    },
+    "bindings": {},
+    "result": [
+        5
+    ],
+    "divergence": "jsntrs-w2e. /predicate, Singleton array and value equivalence: 'This is done by adding empty square brackets [] to a step within the location path' and 'the [] can be placed either side of the predicates and on any step in the path expression'. The flag belongs to the PATH, not to the step that wrote it, and a Sort stage 'sorts (re-orders) the input sequence' (/processing) without touching it. Both engines answer [5]; this is the half of jsntrs-w2e that the wave-7 jsntrs-by0 and jsntrs-09h fixes already brought into line, kept as the companion of case021."
+}
