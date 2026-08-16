@@ -1127,13 +1127,16 @@ fragment of an argument (`$f(1 + ?)`) is not one either. The code is S0211,
 which is what jsntrs already gives every other token that cannot open an
 expression, and what the reference gives here.
 
-One carrier is missed, and the pass is not yet the exhaustive check this
-paragraph would otherwise claim: the `Function`/`Partial` arm walks the
-node's `procedure` and `arguments` but not its group-by pairs, so
-`$string(1){'k': ?}` still answers `{}` where the reference raises S0211.
-Every other group-by carrier is caught — `a{'k': ?}`, `[1]{'k': ?}`,
-`(1){'k': ?}`, `$x{'k': ?}`, `a#$i{'g': ?}`, `a@$e{'g': ?}` and
-`n^($){'g': ?}` all report S0211 (jsntrs-ck4).
+A group-by written on an invocation is covered too (jsntrs-ck4). Its pairs
+reduce the *result* of the call, so they are ordinary expressions and a `?`
+in one replaces nothing: `$string(1){'k': ?}` and `$sum(n){'g': ?}` are
+S0211, as they are in the reference. The `Function` arm used to walk only
+`procedure` and `arguments`, so those two answered `{}` while every other
+carrier of a group-by — `a{'k': ?}`, `[1]{'k': ?}`, `(1){'k': ?}`,
+`$x{'k': ?}`, `a#$i{'g': ?}`, `a@$e{'g': ?}`, `n^($){'g': ?}` — was already
+caught by its arm routing the pairs through `push_children`. A legal `?`
+inside such a pair is untouched: `$string(1){'g': $substring(?, 1)}` is
+still a partial application.
 
 It runs *before* the parent check, so `(%).?` — invalid twice over — reports
 the `?`, matching the reference. `1.?` likewise reports S0211 rather than the

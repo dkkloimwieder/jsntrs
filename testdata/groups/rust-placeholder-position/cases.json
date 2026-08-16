@@ -118,5 +118,61 @@
         },
         "bindings": {},
         "result": "Hello"
+    },
+    {
+        "expr": "$string(1){'k': ?}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "jsntrs answered {} before jsntrs-ck4: check_placeholder_position walked an invocation's procedure and arguments but not the group-by hung off it. A group-by reduces the *result* of the call — 'The reduce operator can be used as the last step in a path expression to group and aggregate its input sequence into a single object' (docs.jsonata.org/path-operators) — so its pairs are ordinary expressions, not argument slots, and a ? in one replaces nothing."
+    },
+    {
+        "expr": "$sum(n){'g': ?}",
+        "data": {
+            "n": [
+                1,
+                2
+            ]
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "$string(1){'k': 1 + ?}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "$string(1){'k': function(){ ? }}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211"
+    },
+    {
+        "expr": "$substring(?, 0, 1){'k': ?}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "code": "S0211",
+        "divergence": "A partial application carries no group slot of its own, so the group-by lands on a wrapper node; this case pins that the wrapper is walked too."
+    },
+    {
+        "expr": "$string(1){'g': ($f := $substring(?, 0, 1); $f('Hi'))}",
+        "data": {
+            "a": 1
+        },
+        "bindings": {},
+        "result": {
+            "g": "H"
+        },
+        "divergence": "Control: a *legal* ? inside a group-by pair on an invocation is still a partial application."
     }
 ]

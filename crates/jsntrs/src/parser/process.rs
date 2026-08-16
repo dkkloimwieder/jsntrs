@@ -843,12 +843,30 @@ fn check_placeholder_position(arena: &AstArena, root: NodeId) -> Result<(), Json
             }
             // Only a whole argument may be left out; the callee cannot be,
             // and neither can a fragment of an argument (`$f(1 + ?)`).
+            //
+            // A group-by written on the invocation is not an argument slot
+            // either. `$string(1){'k': ?}` reduces the *result* of the call,
+            // so its pairs are ordinary expressions and a `?` in one replaces
+            // nothing; every other carrier of a group-by (`a{'k': ?}`,
+            // `[1]{'k': ?}`, `(1){'k': ?}`, `a@$e{'g': ?}`) was already
+            // rejected because its arm routes the pairs through
+            // `push_children`. Omitting them here left `$string(1){'k': ?}`
+            // answering `{}` (jsntrs-ck4).
             Expr::Function {
                 procedure,
                 arguments,
+                group,
                 ..
+            } => {
+                stack.push((*procedure, false));
+                stack.extend(arguments.iter().map(|&a| (a, true)));
+                if let Some(g) = group {
+                    stack.extend(g.pairs.iter().flatten().map(|&p| (p, false)));
+                }
             }
-            | Expr::Partial {
+            // `Partial` carries no group slot: a `{…}` after one lands on an
+            // `Expr::Grouped` wrapper, which the catch-all arm below walks.
+            Expr::Partial {
                 procedure,
                 arguments,
                 ..
@@ -1122,6 +1140,45 @@ mod tests {
         let (mut arena, root) = Parser::parse(src).expect("parse failed");
         let root = process_node(&mut arena, root).expect("process failed");
         (arena, root)
+    }
+
+    /// A group-by attached to an invocation reduces the *result* of the call,
+    /// so its pairs are ordinary expressions and a `?` in one replaces
+    /// nothing. The `Function` arm used to walk `procedure` and `arguments`
+    /// only, so these were the one carrier the pass never visited
+    /// (jsntrs-ck4); a legal `?` in such a pair must still compile.
+    #[test]
+    fn a_placeholder_in_a_group_by_on_an_invocation_is_rejected() {
+        for src in [
+            "$string(1){'k': ?}",
+            "$sum(n){'g': ?}",
+            "$string(1){'k': 1 + ?}",
+            "$string(1){'k': [?]}",
+            "$string(1){'k': ?, 'j': 1}",
+            "$string(1){'k': (?)}",
+            "$string(1){'k': -?}",
+            "$string(1){'k': ?.a}",
+            "$string(1){'k': ?[0]}",
+            "$string(1){'k': function(){ ? }}",
+            "$string(1){'k': $string(1){'j': ?}}",
+            "$substring(?, 0, 1){'k': ?}",
+        ] {
+            let (mut arena, root) = Parser::parse(src).expect("parse failed");
+            let err = process_ast(&mut arena, root)
+                .expect_err(&format!("{src:?} should not compile"))
+                .code;
+            assert_eq!(err, "S0211", "{src:?}");
+        }
+        for src in [
+            "$string(1){'g': $substring(?, 0, 1)}",
+            "$string(1){$string(?): 1}",
+            "$string(1){'g': $map(n, $string(?))}",
+            "$string(1){'g': ($f := $substring(?, 0, 1); $f('Hi'))}",
+            "$string(1){'g': 1}",
+        ] {
+            let (mut arena, root) = Parser::parse(src).expect("parse failed");
+            process_ast(&mut arena, root).unwrap_or_else(|e| panic!("{src:?}: {}", e.code));
+        }
     }
 
     /// `process_ast` — the whole of compilation after the parse — must reject
