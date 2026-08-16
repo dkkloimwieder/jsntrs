@@ -1,6 +1,9 @@
 {
     "expr": "[a[0][]]",
-    "data": {"b": 1},
+    "data": {
+        "b": 1
+    },
     "bindings": {},
-    "result": []
+    "result": [],
+    "comment": "Documented (jsntrs-qr9): R13 -- `[]` (keep-array) and `[expr]` (the array constructor, S11) are different operators. `a[0][]` selects nothing (R11), and the constructor still \"contain[s] the results of the expression within those brackets within a new array\", which here has no members. An implementation that routes one through the other gets exactly one of the two right."
 }

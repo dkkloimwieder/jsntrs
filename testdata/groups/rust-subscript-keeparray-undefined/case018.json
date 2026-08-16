@@ -1,6 +1,15 @@
 {
     "expr": "a[0][]",
-    "data": {"a": [1, 2, 3]},
+    "data": {
+        "a": [
+            1,
+            2,
+            3
+        ]
+    },
     "bindings": {},
-    "result": [1]
+    "result": [
+        1
+    ],
+    "comment": "Documented (jsntrs-qr9): R10 -- `[]` suppresses the singleton unwrap of S3 and does nothing else -- and S10's stated purpose, \"to have the results in a consistent format regardless of how many values were matched\" (/predicate). One value was selected, so it is shown as an array of one, exactly like the documented `Phone[0][].number` example."
 }

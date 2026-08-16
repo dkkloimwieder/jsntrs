@@ -1,6 +1,9 @@
 {
     "expr": "a[0][]",
-    "data": {"a": []},
+    "data": {
+        "a": []
+    },
     "bindings": {},
-    "undefinedResult": true
+    "undefinedResult": true,
+    "comment": "Documented (jsntrs-qr9): this is R11's third bullet verbatim -- \"an out-of-range index (`a[0][]` on {\\\"a\\\":[]}) is nothing\" -- and the case that separates R11 from R12. `a` matched the empty array, so `a[]` alone is `[]` (R12, a value was selected); the `[0]` then selects nothing, and S2 makes that nothing regardless of the flag."
 }

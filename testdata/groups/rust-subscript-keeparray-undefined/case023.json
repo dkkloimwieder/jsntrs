@@ -1,6 +1,13 @@
 {
     "expr": "x.(a[0][])",
-    "data": {"x": {"a": [7]}},
+    "data": {
+        "x": {
+            "a": [
+                7
+            ]
+        }
+    },
     "bindings": {},
-    "result": 7
+    "result": 7,
+    "comment": "Documented (jsntrs-qr9), and the case that shows why S5 and S6 are separate rules. Inside the block, `a[0][]` is the kept SEQUENCE `[7]`; the enclosing path step then hits S6, \"If a sequence contains one or more (sub-)sequences, then the values from the sub-sequence are pulled up to the level of the outer sequence\" (/processing, Sequences), so the outer sequence holds the one value 7 and S3 unwraps it. Contrast the three shapes that keep their array on the same document {\\\"x\\\":{\\\"a\\\":[7]}}: `x.(a)` and `x.(a[])` are [7] because `a` matched an ARRAY, and `x.([a[0]])` is [7] because the array constructor built one -- both exempted by S5 from the flattening rules, which a kept sequence is not. The residual tension is with R10's \"that is all it does\": the flag is honoured at the inner path's collapse and then has no effect on the outer one. S6 is the sentence with explicit text behind it, so it wins here."
 }

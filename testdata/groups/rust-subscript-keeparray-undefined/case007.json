@@ -1,6 +1,13 @@
 {
     "expr": "a[][$>5]",
-    "data": {"a": [1, 2, 3]},
+    "data": {
+        "a": [
+            1,
+            2,
+            3
+        ]
+    },
     "bindings": {},
-    "undefinedResult": true
+    "undefinedResult": true,
+    "comment": "Documented (jsntrs-qr9): docs/sequence-and-keep-array.md R11 second bullet, \"a filter that rejects everything (`a[$>5][]` on {\\\"a\\\":[1,2]}) is nothing\", derived from S2, \"An empty sequence ... won't appear in the output of any expression\" (/processing, Sequences). `[]` suppresses an unwrap; with zero values selected there is nothing to unwrap."
 }
