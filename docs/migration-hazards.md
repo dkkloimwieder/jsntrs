@@ -151,7 +151,7 @@ for _, expr := range node.Expressions {
 ```
 
 ### Rust Approach
-`Value::Sequence(Box<Sequence>)` as a dedicated variant. As built the struct carries **one** flag (`keep_singleton`); `ConsArray` was never set even in Go, and Go's `OuterWrapper`/`TupleStream` are not flags in Rust -- tuple mode is selected from AST shape by `path_has_tuple_step` (`src/evaluator/mod.rs`). Array constructor evaluation must check the AST node type (via `NodeId` lookup in arena) to decide flatten vs nest.
+`Value::Sequence(Box<Sequence>)` as a dedicated variant. As built the struct carries **one** flag (`keep_singleton`); `ConsArray` was never set even in Go, and Go's `OuterWrapper`/`TupleStream` are not flags in Rust -- tuple mode is selected from AST shape by `path_has_tuple_step` (`src/evaluator/path.rs`). Array constructor evaluation must check the AST node type (via `NodeId` lookup in arena) to decide flatten vs nest.
 
 ### Test: `[[1,2], [3,4]]` must produce `[[1,2],[3,4]]` (nested), but path expressions returning arrays must flatten.
 

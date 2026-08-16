@@ -1689,7 +1689,7 @@ jsntrs-p0v.18 for the audit.
 
 - **Parameters**: `(string, pattern)` -- 2 args. Can use focus prepend (1 arg + focus).
 - **nil first arg**: undefined propagation.
-- **Array auto-mapping**: If first arg is array, maps `$contains` over string elements; returns true if any match.
+- **Array auto-mapping**: Go maps `$contains` over the elements of an array first argument and returns true if any match. **Not ported**: `stdlib::string_funcs::fn_contains` requires a string and raises **T0410** for an array (**T0411** when the array came from the focus). The documentation's `$contains` entry describes only `str`/`pattern` and says nothing about arrays, and jsonata 2.2.2's `<s-(sf):b>` signature rejects one the same way (`$contains(["ab","cd"], "a")` → T0410, verified 2026-08-15) — so the Go mapping is an implementation extension, not a language rule. The fast path agrees: `FuncFastKind::Contains` handles `Value::String` and falls through to the general path for everything else.
 - **String pattern**: `strings.Contains`.
 - **Regex pattern** (map with `pattern` key): Compiles regex, tests via `MatchString`.
 - **Error codes**: T0410 (bad arity/types), **T0411** when a non-string *focus* stands in for the first argument (5.1.4), D3010 (invalid regex argument).
@@ -1870,11 +1870,23 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
   `$formatNumber(7, "0.0", {"decimal-separator": "ab"})` is a **D3086**, not
   "7.0". The same value is then searched for, split on, and *emitted* whole,
   which is why `$formatNumber(7, "00", {"decimal-separator": "ab"})` is "07a"
-  (bullet 7 appends "ab" and bullet 12 takes one character back) and
+  there (bullet 7 appends "ab" and bullet 12 takes one character back) and
   `$formatNumber(1234, "0000ab", {"grouping-separator": "ab"})` is
-  "1234.aab". jsntrs follows both readings for `decimal-separator`,
-  `grouping-separator`, `zero-digit`, `percent`, `per-mille` and
-  `pattern-separator`. `zero-digit` gives the digit family its base with
+  "1234.aab" there. jsntrs follows the **matching** reading for
+  `decimal-separator`, `grouping-separator`, `zero-digit`, `percent`,
+  `per-mille` and `pattern-separator` — an empty or multi-character value
+  makes the picture character passive, so the two D3086s and the D3088 of
+  `{"grouping-separator": "b"}` on `"0000ab"` agree with the reference. It
+  does **not** follow the emission reading for the two separators above,
+  because two divergences recorded below reach first (both verified against
+  jsonata 2.2.2 on 2026-08-15): `$formatNumber(7, "00", {"decimal-separator":
+  "ab"})` is **"07"** here, since bullet 12 removes the *separator* rather
+  than one character, and `$formatNumber(1234, "0000ab",
+  {"grouping-separator": "ab"})` is **"1234ab"** here, the passive `a` and `b`
+  being ordinary suffix text with no grouping position to place. Where the
+  value is emitted without passing through those rules jsntrs does emit it
+  whole: `$formatNumber(50, "0pc", {"percent": "pc"})` is "5000pc" in both.
+  `zero-digit` gives the digit family its base with
   `charCodeAt(0)` but pads and strips as a whole string, so
   `{"zero-digit": "ab"}` formats 7 through `"aaa"` as "ababh"; an empty value
   leaves the family empty and the digits map to nothing
@@ -1949,8 +1961,11 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
     neither: its `toFixed` switches to exponential notation at 1e21, so the
     first of those is `"1e+21"`-shaped text inside the formatted number, and
     the last is the exact expansion "0.10000000000000000555".
-  - **Dropped: the GCD test for regular grouping** (found in the same audit;
-    needs its own issue). 4.7.4 calls the grouping regular when "There is a
+  - **Dropped: the GCD test for regular grouping.** Shipped, not outstanding:
+    `regular_grouping` in `stdlib/format_number.rs` takes the gcd as the only
+    candidate for G and then checks that every position it implies is occupied.
+    (The examples in this bullet were re-run against the built engine on
+    2026-08-15.) 4.7.4 calls the grouping regular when "There is a
     positive integer G (the grouping size) such that the position of every
     grouping-separator … is a positive integer multiple of G" *and* "Every
     position in the integer part of the sub-picture that is a positive integer
@@ -2174,7 +2189,7 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
 - **Parameters**: `(array1, array2)`.
 - **<2 args**: **T0410** (Go reference: D3006).
 - **nil arg**: Returns the other arg unchanged.
-- **Max result size**: no cap in the Rust port (`crates/jsntrs/src/stdlib/array.rs:24-46`). Go reference: results over 10,000,000 elements raise **D3010**.
+- **Max result size**: results over 10,000,000 elements raise **D3010**, in both engines. `stdlib::array::fn_append` compares `len(array1) + len(array2)` against `MAX_APPEND_SIZE` *before* allocating, so the cap is a guard against runaway growth in a loop, not a post-hoc check. (An earlier revision of this file claimed the Rust port had no cap while citing the lines that implement it.)
 - **Returns**: Concatenation of both arrays (wrapped via `wrapArray`).
 
 ### 5.4.3 `$sort` (`array_funcs.go:83`) -- EnvAwareBuiltin
@@ -2223,8 +2238,8 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
 ### 5.4.8 `$zip` (`array_funcs.go:308`)
 
 - **Parameters**: `(array1 [, array2, ...])` -- variadic.
-- **0 args**: `[]any{}`.
-- **nil args**: Treated as empty arrays.
+- **0 args**: **T0410** in the Rust port (`stdlib::array::fn_zip` requires at least one argument). Go reference: `[]any{}`. jsonata 2.2.2's signature is `<a+>`, so `$zip()` is a T0410 there too (verified 2026-08-15); the documentation describes `$zip` only for one or more arrays.
+- **nil args**: Go treats them as empty arrays, which makes the shortest input empty. The Rust port short-circuits: if *any* argument is undefined the result is `[]`. Same answer either way — jsonata 2.2.2 `$zip([1,2], undefined)` is `[]` (verified 2026-08-15).
 - **Returns**: Array of tuples, length = shortest input array. Each tuple contains corresponding elements from each input array.
 
 ---
@@ -2364,7 +2379,7 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
 ### 5.7.1 `$boolean` (`boolean_funcs.go:7`)
 
 - **Parameters**: `(value)` -- nominally 1 arg.
-- **0 args**: no error -- uses the focus (`crates/jsntrs/src/stdlib/boolean.rs:10-17`). Go reference: **D3006**.
+- **0 args**: no error -- uses the focus (`stdlib::boolean::fn_boolean`). Go reference: **D3006**.
 - **>1 args**: no error -- extra arguments are ignored. Arity is deliberately unenforced so HOF callbacks such as `$filter($boolean)`, which pass `(value, index, array)`, keep working. Go reference: **T0410**.
 - **nil**: undefined propagation.
 - **Returns**: `ToBoolean(args[0])` -- see Section 4.2.10 for coercion rules.
@@ -2541,9 +2556,11 @@ next}` there too). `matchers/case000` pins the custom-matcher half.
 
 > **Go reference implementation.** The struct layouts, the GJSON tiering in 6.3-6.4 and the API table in 6.6 describe the Go engine. The Rust port keeps the same three-way classification (pure path / comparison / function, `fast_path::analyze`) but not the machinery below.
 >
-> **Rust port (shipped behavior).** There is no GJSON tier -- the crate has no GJSON-equivalent dependency. Fast paths run either over a raw JSON byte tape (`fast_path::eval_tape_path`, `crates/jsntrs/src/fast_path.rs:843`) or over an already-built `Value` (`fast_path::eval_fast`, `fast_path.rs:322`); both are dispatched from `crates/jsntrs/src/expression.rs:108,127,145,173` and fall back to full evaluation when they return `None`.
+> **Rust port (shipped behavior).** There is no GJSON tier -- the crate has no GJSON-equivalent dependency. Fast paths run either over a raw JSON byte tape (`fast_path::eval_tape_path`) or over an already-built `Value` (`fast_path::eval_fast`, and `fast_path::eval_fast_with_bindings` for the entry points that accept bindings); every `Expression::evaluate*` method dispatches one of the three first and falls back to full evaluation when it returns `None`.
 >
-> Public API (`crates/jsntrs/src/expression.rs:78-258`): `Expression::compile`, `evaluate`, `evaluate_value`, `evaluate_bytes`, `evaluate_with_vars`, `evaluate_with_custom_funcs`, `evaluate_with_cancel`, `is_fast_path`, `fast_path_info`. Helpers live on `Value` (`from_json_str`, `is_null`, `deep_equal`). The Go names `EvalBytes`, `NormalizeValue`, `DecodeJSON`, `IsNull`, `DeepEqual`, `IsFuncFastPath` and `IsComparisonFastPath` have no Rust counterpart.
+> Public API, all on `Expression` (`crates/jsntrs/src/expression.rs`): `compile`, `evaluate`, `evaluate_value`, `evaluate_bytes`, `evaluate_with_vars`, `evaluate_with_custom_funcs`, `evaluate_with_cancel`, `evaluate_with_env`, `is_fast_path`, `fast_path_info`, `source`. `arena` and `root` also exist but are `#[doc(hidden)]` and carry no stability guarantee. `new_custom_env` is a free function in the same module. Helpers live on `Value` (`from_json_str`, `is_null`, `deep_equal`, `stringify`).
+>
+> Go names and their Rust counterparts: `EvalBytes` → `Expression::evaluate_bytes`, `IsNull` → `Value::is_null`, `DeepEqual` → `Value::deep_equal` (plus the free `jsntrs::deep_equal`), `IsFuncFastPath`/`IsComparisonFastPath` → `Expression::fast_path_info` returning a `FastPath` variant. `NormalizeValue` and `DecodeJSON` have no counterpart: JSON decoding is `Value::from_json_str`/`from_json_bytes`, and there is no separate normalization step.
 
 ## 6.1 Expression Struct
 
@@ -2597,12 +2614,15 @@ Cascade of three fast-path tiers with fallback:
 
 **File:** `func_fast.go`
 
-23 handlers in Go's `funcFastHandlers` map (`func_fast.go:49-73`); the Rust port covers 26 kinds (`FuncFastKind`, `crates/jsntrs/src/fast_path.rs:94-121`), adding `$values`, `$shuffle` and `$flatten` to the Go set. `$round` is excluded in both.
+23 handlers in Go's `funcFastHandlers` map (`func_fast.go:49-73`); the Rust port covers 26 kinds (the `FuncFastKind` enum in `crates/jsntrs/src/fast_path.rs`), adding `$values`, `$shuffle` and `$flatten` to the Go set. `$round` is excluded in both.
+
+The **Behavior** column describes the Go handlers. The Rust arms behave the
+same except where noted in the row.
 
 | Kind | Handler | Behavior |
 |---|---|---|
 | `$exists` | `evalFuncExists` | Always `(true, true, nil)` if path resolved |
-| `$contains` | `evalFuncContains` | Substring check on strings; element check on arrays |
+| `$contains` | `evalFuncContains` | Substring check on strings; element check on arrays. **Rust:** strings only — every other value falls through to the general path, which raises T0410 (see 5.2.9) |
 | `$string` | `evalFuncString` | Type conversion; falls through for objects/arrays |
 | `$boolean` | `evalFuncBoolean` | Truthiness; falls through for compounds |
 | `$number` | `evalFuncNumber` | Parse/convert; falls through on failure |

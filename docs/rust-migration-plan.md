@@ -229,7 +229,7 @@ Rust's `regex` crate uses finite automata (like RE2), guaranteeing linear-time m
 
 The regex compilation cache (`sync.Map` in Go) becomes `DashMap<String, Arc<Regex>>`. Must clone the `Arc` before execution to drop the shard lock.
 
-**As built:** there is no regex cache -- `stdlib::regex::compile_regex` compiles a fresh `Regex` on every call, and `dashmap` is not a dependency. Caching remains an open optimization.
+**As built:** there *is* a regex cache, but not a `DashMap` one (jsntrs-a46.3). `Value` is `!Send`, so `stdlib::regex` keeps a **thread-local** `HashMap` keyed by `"<flags>\0<pattern>"`, bounded at `REGEX_CACHE_CAP` (256) entries and cleared wholesale when full. `compile_regex` is a lookup with compile-on-miss; `dashmap` is not a dependency and no lock is taken.
 
 **As built:** two interchangeable backends sit behind Cargo features -- `regex` (default, full Unicode) and `regex-lite` (~700 KB smaller WASM: 1.3 MB → 579 KB). At least one must be enabled; if both are, `regex` wins. `scripts/build-wasm.sh` selects `regex-lite` for the shipped WASM build.
 
@@ -471,6 +471,6 @@ go test -race -count=1 ./...
 | Document | Purpose |
 |---|---|
 | `CLAUDE.md` | Project guide for Claude Code sessions |
-| `docs/spec.md` | Complete behavioral specification (1,966 lines) |
+| `docs/spec.md` | Complete behavioral specification |
 | `docs/migration-hazards.md` | 11 ranked migration hazards with Go/Rust code examples |
 | `docs/behaviors.md` | Type coercion truth tables, error code catalog, equality semantics |

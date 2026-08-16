@@ -151,7 +151,7 @@ Must match JavaScript's `Number.toString()` exactly. Rules:
 | `abs(n) >= 1e21` | scientific | `1e21` -> `"1e+21"` |
 | scientific exponent | cleaned | `"1e+21"` (no leading zeros in exponent) |
 
-Numbers have a **single** representation, `Value::Number(f64)` (`crates/jsntrs/src/value.rs:82`). JSON input is converted to f64 at parse time (`Value::from_json`, `value.rs:464-467`), so integers beyond 2^53 are not preserved verbatim -- extra digits are lost on ingest. Output goes through `ryu-js` (`value.rs:521-528`) and `&`/`$string` coercion through `format_float` (`value.rs:399-401`).
+Numbers have a **single** representation, the `Value::Number(f64)` variant in `crates/jsntrs/src/value.rs`. JSON input is converted to f64 at parse time (`Value::from_json`, via `n.as_f64()`), so integers beyond 2^53 are not preserved verbatim -- extra digits are lost on ingest. JSON output goes through `ryu-js` (`Value::write_json`), and `&`/`$string` coercion through `format_float` (`value::format`, re-exported from `value.rs`), which applies the 15-significant-digit cast first.
 
 *Go reference:* the Go engine kept a second numeric type, `json.Number`, whose `FormatNumber` returned plain integers and decimals **verbatim** (converting to float64 only when the raw string contained `e` or `E`) to preserve precision beyond 2^53. That path was deliberately not ported.
 
