@@ -8,5 +8,6 @@
         }
     },
     "bindings": {},
-    "result": "{\"k\":7}"
+    "result": "{\"k\":7}",
+    "divergence": "DIVERGENCE (jsntrs-qr9): this pins jsonata 2.2.2's parser hoist -- `processAST` attaches a group to the WHOLE path, so `a.b{...}.c` is evaluated as `a.b.c{...}` -- and the documentation says the opposite twice. /processing, Path processing stages, Reduce: \"Can only appear as the final stage in a path expression.\" and \"Although a Map operator can immediately follow this, it will be interpreted as the start of a new path expression, meaning that any previously bound context or index variables will be out of scope.\" Read that way this expression is `(<everything up to the group>) . <the following steps>`, which answers differently. jsntrs hoists for a path of two or more steps but NOT for a one-step path: `a{\"c\": $}.c` on {\"a\":{\"x\":1}} is {\"x\":1} here (the documented reading) and {} in the reference, while `$.a{\"c\": $}.c` on the same document is {} in both -- so jsntrs is inconsistent with itself as well as with the sentences above. Left pinned rather than re-derived because the fix is a parser + path-evaluation change; recorded in docs/sequence-and-keep-array.md 4.1."
 }

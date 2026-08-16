@@ -10,5 +10,6 @@
     "bindings": {},
     "result": {
         "k": 7
-    }
+    },
+    "comment": "Control for the hoist cases (jsntrs-qr9): the group here is already on the final step, which is the only placement /processing sanctions -- Reduce \"Can only appear as the final stage in a path expression.\" case000 is the same document and the same answer written with the group on an earlier step, which is what makes the hoist visible."
 }

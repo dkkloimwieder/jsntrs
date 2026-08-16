@@ -391,6 +391,24 @@ name, and the wave-7 fix quotes it:
   can immediately follow this, it will be interpreted as the start of a new
   path expression", which reads as jsntrs's answer, but the shape was not
   investigated in wave 7.
+- **The group hoist — the same shape with more than one step, where jsntrs
+  answers the *other* way.** Wave 8 (jsntrs-qr9) investigated it. The
+  reference's `processAST` attaches a group expression to the whole path
+  rather than to the step it was written on, so `a.b{'k': $}.c` is evaluated
+  as `a.b.c{'k': $}`. That contradicts S8-Reduce twice over — "Can only
+  appear as the final stage in a path expression", and the sentence quoted
+  in the bullet above, which makes the following `.c` a *new* path
+  expression applied to the group object. On `{"a":{"b":{"c":7}}}` the
+  documented reading gives nothing and the hoist gives `{"k": 7}`.
+
+  jsntrs hoists too, but only for a path of two or more steps. On
+  `{"a":{"x":1}}`, `a{'c': $}.c` is `{"x":1}` here (the documented reading:
+  group, then a new path selecting `c` from `{"c": {"x":1}}`) and `{}` in the
+  reference; add one step and `$.a{'c': $}.c` is `{}` in both. So the
+  one-step form is right and the many-step form is not, from the same engine
+  on the same navigation. Fixing it is a parser + path-evaluation change, so
+  wave 8 left the behaviour alone and annotated the ten cases in
+  `rust-path-group-hoist` that pin the hoist.
 - **`%` in a sort term over a non-navigating operand.** `$map(…)^(%.k)`,
   `[1,2]^(%.k)` and `(…; $v)^(%.k)` raise S0217 in the reference. jsntrs
   raises it for the last two and answers a value for the first. The `%`
