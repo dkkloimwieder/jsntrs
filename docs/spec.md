@@ -1258,6 +1258,42 @@ Sort within tuple path mode:
 - Returns `[]any` of `float64` values from `lo` to `hi` inclusive.
 - Checks context cancellation every 10,000 iterations.
 
+### Where `..` is legal: the element rule (jsntrs-uql, jsntrs-2rp)
+
+docs.jsonata.org Numeric Operators, ".. (Range)", says: "The sequence
+generator can only be used within an array constructor `[]`." jsntrs
+implements that in the *parser*, not the evaluator: `..` has no binding
+power in the expression grammar at all, and the array-constructor prefix
+handler is the one place that consumes it — after parsing an element it
+checks for `..` and, if present, parses the right operand and builds the
+`Range` node. So `1..5` leaves `..` as an unexpected token (**S0201**),
+and every other position where a full expression is parsed and then
+closed — `(1..5)`, `$sum(1..5)`, `a[1..3]` — ends at the delimiter the
+enclosing construct expected and reports **S0202**. Pinned by
+`rust-range-array-constructor`.
+
+**jsntrs's reading, where the documentation stops short.** That sentence
+settles the bare cases. It does not settle `[(1..3)]`, which *is* within an
+array constructor but puts the range inside a block nested in one. jsntrs
+answers **S0202** there, and the rule that licenses it is:
+
+> The sequence generator must be an **element of** the array constructor —
+> one of the comma-separated expressions between `[` and `]` — not an
+> expression nested inside one. A block `( … )` is not an array
+> constructor, so a range inside a block is out of position even when the
+> block itself is an element.
+
+**This rule is implied, not stated.** The documentation says only "within an
+array constructor `[]`" and gives four examples (`[1..5]`, `[1..3, 7..9]`,
+`[1..$count(Items)].("Item " & $)`, `[1..5].($*$)`), every one of which has
+the range as a direct element; it never addresses nesting. Adopted as
+jsntrs's reading, decided 2026-08-15, on two grounds: the element reading is
+the one the examples all satisfy, and "within an array constructor" read as
+"anywhere in the subtree" would re-legalise `[$sum(1..5)]` and
+`[a[1..3]]` — positions the same sentence is plainly meant to exclude.
+jsonata 2.2.2 also answers S0202 for `[(1..3)]`, but that agreement is
+corroboration, not authority; it is not why the rule was adopted.
+
 ---
 
 ## 4.10 Regex (`eval_regex.go`)
